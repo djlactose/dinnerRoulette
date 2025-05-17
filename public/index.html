@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dinner Roulette</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="icon-192.png" />
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
+      <h1>Dinner Roulette</h1>
+      <button id="btn-logout" class="logout-btn hidden">Logout</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Authentication -->
+    <section id="auth">
+      <button class="toggle-btn" data-target="auth-content">▼ Log in or Register</button>
+      <div id="auth-content" class="collapsible-content">
+        <input id="username" placeholder="Username" />
+        <input id="password" type="password" placeholder="Password" />
+        <button id="btn-register">Register</button>
+        <button id="btn-login">Login</button>
+        <p id="auth-error" style="color: red; font-size: 0.9rem;"></p>
+      </div>
+    </section>
+
+    <!-- Place Management -->
+    <section id="place-management" class="hidden">
+      <button class="toggle-btn" data-target="place-content">▼ Your Places</button>
+      <div id="place-content" class="collapsible-content">
+        <div class="autocomplete-container">
+          <input id="place-input" placeholder="Search for a place..." autocomplete="off" />
+          <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
+        </div>
+        <div class="buttons">
+          <button id="add-like" disabled>👍 Like</button>
+          <button id="add-dislike" disabled>👎 Dislike</button>
+        </div>
+        <p id="map-link" class="hidden">
+          <a href="#" target="_blank">View on Google Maps</a>
+        </p>
+        <h3>Liked</h3>
+        <ul id="likes-list"></ul>
+        <h3>Disliked</h3>
+        <ul id="dislikes-list"></ul>
+      </div>
+    </section>
+
+    <!-- Plan Dinner -->
+    <section id="plan-dinner" class="hidden">
+      <button class="toggle-btn" data-target="plan-content">▼ Plan Dinner</button>
+      <div id="plan-content" class="collapsible-content">
+        <div>
+          <input id="friend-username" placeholder="Friend's username" />
+          <button id="invite-friend">Invite</button>
+        </div>
+        <h3>Common Places</h3>
+        <ul id="common-places"></ul>
+
+        <!-- Suggestions -->
+        <div class="suggestions-subsection">
+          <h3>Suggest & Vote</h3>
+          <ul id="suggestion-list"></ul>
+          <div class="buttons">
+            <button id="random-pick">🎲 Random Pick</button>
+            <button id="closest-pick">📍 Closest</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelectorAll(".toggle-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+          const targetId = button.getAttribute("data-target");
+          const content = document.getElementById(targetId);
+          const isVisible = !content.classList.contains("collapsed");
+          content.classList.toggle("collapsed");
+          button.textContent = (isVisible ? "▶" : "▼") + " " + button.textContent.slice(2);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

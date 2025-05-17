@@ -1,3 +1,6 @@
+.devcontainer/
+.env
+data/db.sqlite
 # Logs
 logs
 *.log

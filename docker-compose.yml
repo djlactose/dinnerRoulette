@@ -1,0 +1,12 @@
+version: '3'
+services:
+  dinner-roulette:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./public:/usr/src/app/public
+      - ./data:/usr/src/app/data
