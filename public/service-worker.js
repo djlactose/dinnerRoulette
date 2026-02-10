@@ -1,5 +1,5 @@
-const CACHE_NAME = 'dinner-v3';
-const STATIC_ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.json'];
+const CACHE_NAME = 'dinner-v6';
+const STATIC_ASSETS = ['./', './index.html', './styles.css', './app.js?v=5', './manifest.json'];
 
 self.addEventListener('install', event => {
   self.skipWaiting();

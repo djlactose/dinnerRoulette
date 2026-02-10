@@ -209,29 +209,41 @@ describe('Suggestions', () => {
 // ── Friends Tests ───────────────────────────────────────────────────────────────
 
 describe('Friends', () => {
-  let cookie1, cookie2;
+  let cookie1, cookie2, cookie3;
+  let user2Id;
 
   beforeAll(async () => {
     const r1 = await registerUser('frienduser1', 'password123');
     cookie1 = r1.cookie;
     const r2 = await registerUser('frienduser2', 'password123');
     cookie2 = r2.cookie;
+    // Get user2's id
+    const me = await request(app).get('/api/me').set('Cookie', cookie2);
+    user2Id = me.body.id;
+    const r3 = await registerUser('frienduser3', 'password123');
+    cookie3 = r3.cookie;
   });
 
-  test('POST /api/invite — invite a friend', async () => {
+  test('POST /api/invite — creates pending request (sender does NOT see friend yet)', async () => {
     const res = await request(app)
       .post('/api/invite')
       .set('Cookie', cookie1)
       .send({ friendUsername: 'frienduser2' });
     expect(res.status).toBe(200);
-  });
 
-  test('GET /api/friends — returns friends list', async () => {
-    const res = await request(app)
+    // Sender should NOT see frienduser2 in friends list (still pending)
+    const friends = await request(app)
       .get('/api/friends')
       .set('Cookie', cookie1);
+    expect(friends.body.friends.some(f => f.username === 'frienduser2')).toBe(false);
+  });
+
+  test('GET /api/friend-requests — recipient sees pending request', async () => {
+    const res = await request(app)
+      .get('/api/friend-requests')
+      .set('Cookie', cookie2);
     expect(res.status).toBe(200);
-    expect(res.body.friends.some(f => f.username === 'frienduser2')).toBe(true);
+    expect(res.body.requests.some(r => r.username === 'frienduser1')).toBe(true);
   });
 
   test('POST /api/invite — duplicate invite is ignored', async () => {
@@ -240,12 +252,6 @@ describe('Friends', () => {
       .set('Cookie', cookie1)
       .send({ friendUsername: 'frienduser2' });
     expect(res.status).toBe(200);
-
-    const friends = await request(app)
-      .get('/api/friends')
-      .set('Cookie', cookie1);
-    const count = friends.body.friends.filter(f => f.username === 'frienduser2').length;
-    expect(count).toBe(1);
   });
 
   test('POST /api/invite — cannot add self', async () => {
@@ -256,8 +262,102 @@ describe('Friends', () => {
     expect(res.status).toBe(400);
   });
 
-  test('GET /api/common-places — returns shared likes', async () => {
-    // Both users like the same place
+  test('POST /api/friend-requests/:id/accept — both users become friends', async () => {
+    // Get frienduser1's id
+    const me1 = await request(app).get('/api/me').set('Cookie', cookie1);
+    const user1Id = me1.body.id;
+
+    const res = await request(app)
+      .post(`/api/friend-requests/${user1Id}/accept`)
+      .set('Cookie', cookie2);
+    expect(res.status).toBe(200);
+
+    // Both users should see each other as friends
+    const friends1 = await request(app).get('/api/friends').set('Cookie', cookie1);
+    expect(friends1.body.friends.some(f => f.username === 'frienduser2')).toBe(true);
+
+    const friends2 = await request(app).get('/api/friends').set('Cookie', cookie2);
+    expect(friends2.body.friends.some(f => f.username === 'frienduser1')).toBe(true);
+
+    // No more pending requests for user2
+    const reqs = await request(app).get('/api/friend-requests').set('Cookie', cookie2);
+    expect(reqs.body.requests.some(r => r.username === 'frienduser1')).toBe(false);
+  });
+
+  test('POST /api/friend-requests/:id/reject — request removed, no friendship', async () => {
+    // frienduser3 sends request to frienduser2
+    await request(app)
+      .post('/api/invite')
+      .set('Cookie', cookie3)
+      .send({ friendUsername: 'frienduser2' });
+
+    const me3 = await request(app).get('/api/me').set('Cookie', cookie3);
+    const user3Id = me3.body.id;
+
+    const res = await request(app)
+      .post(`/api/friend-requests/${user3Id}/reject`)
+      .set('Cookie', cookie2);
+    expect(res.status).toBe(200);
+
+    // frienduser3 should NOT appear in frienduser2's friends
+    const friends = await request(app).get('/api/friends').set('Cookie', cookie2);
+    expect(friends.body.friends.some(f => f.username === 'frienduser3')).toBe(false);
+
+    // No pending request either
+    const reqs = await request(app).get('/api/friend-requests').set('Cookie', cookie2);
+    expect(reqs.body.requests.some(r => r.username === 'frienduser3')).toBe(false);
+  });
+
+  test('GET /api/friends/:id/likes — returns friend likes', async () => {
+    // frienduser2 likes a place
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie2)
+      .send({ type: 'likes', place: 'Friend Falafel', place_id: 'ff001', restaurant_type: 'Restaurant' });
+
+    const res = await request(app)
+      .get(`/api/friends/${user2Id}/likes`)
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.likes.some(l => l.name === 'Friend Falafel')).toBe(true);
+  });
+
+  test('GET /api/friends/:id/likes — non-friend gets 403', async () => {
+    const res = await request(app)
+      .get(`/api/friends/${user2Id}/likes`)
+      .set('Cookie', cookie3);
+    expect(res.status).toBe(403);
+  });
+
+  test('POST /api/invite — auto-accepts if reverse pending request exists', async () => {
+    // Register fresh users for this test
+    const r4 = await registerUser('autouser1', 'password123');
+    const r5 = await registerUser('autouser2', 'password123');
+
+    // autouser1 sends request to autouser2
+    await request(app)
+      .post('/api/invite')
+      .set('Cookie', r4.cookie)
+      .send({ friendUsername: 'autouser2' });
+
+    // autouser2 sends request to autouser1 — should auto-accept
+    const res = await request(app)
+      .post('/api/invite')
+      .set('Cookie', r5.cookie)
+      .send({ friendUsername: 'autouser1' });
+    expect(res.status).toBe(200);
+    expect(res.body.autoAccepted).toBe(true);
+
+    // Both should be friends
+    const friends4 = await request(app).get('/api/friends').set('Cookie', r4.cookie);
+    expect(friends4.body.friends.some(f => f.username === 'autouser2')).toBe(true);
+
+    const friends5 = await request(app).get('/api/friends').set('Cookie', r5.cookie);
+    expect(friends5.body.friends.some(f => f.username === 'autouser1')).toBe(true);
+  });
+
+  test('GET /api/common-places — works for accepted friends', async () => {
+    // Both frienduser1 and frienduser2 like the same place
     await request(app)
       .post('/api/places')
       .set('Cookie', cookie1)
@@ -273,6 +373,14 @@ describe('Friends', () => {
       .query({ friendUsername: 'frienduser2' });
     expect(res.status).toBe(200);
     expect(res.body.common).toContain('Shared Sushi');
+  });
+
+  test('GET /api/common-places — non-friend gets 403', async () => {
+    const res = await request(app)
+      .get('/api/common-places')
+      .set('Cookie', cookie3)
+      .query({ friendUsername: 'frienduser2' });
+    expect(res.status).toBe(403);
   });
 });
 

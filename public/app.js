@@ -31,6 +31,8 @@ function dinnerRoulette() {
     // Friends
     friendUsername: '',
     friends: [],
+    friendRequests: [],
+    viewingFriendLikes: null,
     commonPlaces: [],
     commonFriend: '',
 
@@ -119,6 +121,7 @@ function dinnerRoulette() {
         this.loadSuggestions(),
         this.loadPlaces(),
         this.loadFriends(),
+        this.loadFriendRequests(),
         this.loadSessions(),
       ]);
     },
@@ -280,6 +283,8 @@ function dinnerRoulette() {
       this.dislikes = [];
       this.suggestions = [];
       this.friends = [];
+      this.friendRequests = [];
+      this.viewingFriendLikes = null;
       this.sessions = [];
       this.activeSession = null;
       this.winner = null;
@@ -407,9 +412,9 @@ function dinnerRoulette() {
           this.showToast(err.error || 'Failed to invite', 'error');
           return;
         }
-        this.showToast('Friend invited!');
+        this.showToast('Friend request sent!');
         this.friendUsername = '';
-        await this.loadFriends();
+        await Promise.all([this.loadFriends(), this.loadFriendRequests()]);
       } catch (e) {
         this.showToast('Failed to invite friend', 'error');
       }
@@ -431,6 +436,71 @@ function dinnerRoulette() {
         this.commonPlaces = data.common || [];
       } catch (e) {
         this.commonPlaces = [];
+      }
+    },
+
+    async loadFriendRequests() {
+      try {
+        const resp = await this.api('/api/friend-requests');
+        const data = await resp.json();
+        this.friendRequests = data.requests || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    async acceptFriend(userId) {
+      try {
+        const resp = await this.api(`/api/friend-requests/${userId}/accept`, { method: 'POST' });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to accept', 'error');
+          return;
+        }
+        this.showToast('Friend request accepted!');
+        await Promise.all([this.loadFriends(), this.loadFriendRequests()]);
+      } catch (e) {
+        this.showToast('Failed to accept request', 'error');
+      }
+    },
+
+    async rejectFriend(userId) {
+      try {
+        await this.api(`/api/friend-requests/${userId}/reject`, { method: 'POST' });
+        this.showToast('Friend request declined.');
+        await this.loadFriendRequests();
+      } catch (e) {
+        this.showToast('Failed to decline request', 'error');
+      }
+    },
+
+    async viewFriendLikes(friendId, friendUsername) {
+      try {
+        const resp = await this.api(`/api/friends/${friendId}/likes`);
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to load likes', 'error');
+          return;
+        }
+        const data = await resp.json();
+        this.viewingFriendLikes = { username: friendUsername, likes: data.likes || [] };
+      } catch (e) {
+        this.showToast('Failed to load friend\'s likes', 'error');
+      }
+    },
+
+    async addFriendPlace(place) {
+      try {
+        const resp = await this.api('/api/places', {
+          method: 'POST',
+          body: JSON.stringify({ type: 'likes', place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null }),
+        });
+        if (!resp.ok) {
+          this.showToast('Failed to add place', 'error');
+          return;
+        }
+        this.showToast(`Added "${place.name}" to your likes!`);
+        await this.loadPlaces();
+      } catch (e) {
+        this.showToast('Failed to add place', 'error');
       }
     },
 

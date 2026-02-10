@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js"></script>
+  <script defer src="app.js?v=5"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -151,24 +151,71 @@
 
           <!-- Friends -->
           <div>
-            <label for="friend-input">Invite a friend</label>
+            <label for="friend-input">Add a friend</label>
             <div class="inline-input">
               <input id="friend-input" x-model="friendUsername" placeholder="Friend's username"
                      @keydown.enter="inviteFriend()" aria-label="Friend's username" />
-              <button @click="inviteFriend()">Invite</button>
+              <button @click="inviteFriend()">Send Request</button>
             </div>
           </div>
+
+          <!-- Pending Friend Requests -->
+          <div x-show="friendRequests.length > 0" class="friends-list">
+            <h4>Friend Requests</h4>
+            <ul>
+              <template x-for="r in friendRequests" :key="r.id">
+                <li>
+                  <span x-text="r.username"></span>
+                  <span class="place-actions">
+                    <button class="suggest-btn" @click="acceptFriend(r.id)">Accept</button>
+                    <button class="remove-btn" @click="rejectFriend(r.id)">Reject</button>
+                  </span>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <!-- Friends List -->
           <div x-show="friends.length > 0" class="friends-list">
             <h4>Friends</h4>
             <ul>
               <template x-for="f in friends" :key="f.id">
                 <li>
                   <span x-text="f.username"></span>
-                  <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
+                  <span class="place-actions">
+                    <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
+                    <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
+                  </span>
                 </li>
               </template>
             </ul>
           </div>
+
+          <!-- Friend's Likes View -->
+          <div x-show="viewingFriendLikes" class="friends-list">
+            <h4 x-text="(viewingFriendLikes?.username || '') + String.fromCharCode(39) + 's Liked Places'"></h4>
+            <ul class="place-list">
+              <template x-for="place in viewingFriendLikes?.likes || []" :key="place.name">
+                <li>
+                  <div class="place-info">
+                    <span x-text="place.name"></span>
+                    <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                  </div>
+                  <span class="place-actions">
+                    <button class="suggest-btn"
+                            @click="addFriendPlace(place)"
+                            :disabled="likes.some(l => l.name === place.name)"
+                            x-text="likes.some(l => l.name === place.name) ? 'Already liked' : '+ Add to Likes'"></button>
+                    <button class="map-btn" @click="openMap(place.name)">Map</button>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p x-show="viewingFriendLikes?.likes?.length === 0" class="empty-msg">This friend hasn't liked any places yet.</p>
+            <button class="back-btn" @click="viewingFriendLikes = null">Back</button>
+          </div>
+
+          <!-- Common Places -->
           <div x-show="commonPlaces.length > 0">
             <h4 x-text="'Common Places with ' + commonFriend"></h4>
             <ul>
@@ -342,7 +389,7 @@
   </div>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js');
+      navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
     }
   </script>
 </body>

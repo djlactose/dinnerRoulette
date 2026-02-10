@@ -52,7 +52,12 @@ app.use(compression());
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json());
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+  }
+}));
 
 // Rate limiting (disabled in test mode)
 const noopLimiter = (req, res, next) => next();
@@ -165,6 +170,7 @@ try { db.exec('ALTER TABLE dislikes ADD COLUMN restaurant_type TEXT'); } catch (
 try { db.exec('ALTER TABLE places ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE friends ADD COLUMN status TEXT DEFAULT \'accepted\''); } catch (e) { /* already exists */ }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 function generateToken(user) {
@@ -389,7 +395,48 @@ app.post('/api/invite', auth, (req, res) => {
   const friend = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(friendUsername.trim());
   if (!friend) return res.status(404).json({ error: 'User not found' });
   if (friend.id === req.user.id) return res.status(400).json({ error: 'Cannot add yourself' });
-  db.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id) VALUES (?, ?)').run(req.user.id, friend.id);
+
+  // Check if request already exists in either direction
+  const existing = db.prepare('SELECT status FROM friends WHERE user_id = ? AND friend_id = ?').get(req.user.id, friend.id);
+  if (existing) return res.json({ success: true });
+
+  // Check if the other user already sent a pending request to us — auto-accept both
+  const reverse = db.prepare('SELECT status FROM friends WHERE user_id = ? AND friend_id = ?').get(friend.id, req.user.id);
+  if (reverse && reverse.status === 'pending') {
+    db.prepare("UPDATE friends SET status = 'accepted' WHERE user_id = ? AND friend_id = ?").run(friend.id, req.user.id);
+    db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status) VALUES (?, ?, 'accepted')").run(req.user.id, friend.id);
+    return res.json({ success: true, autoAccepted: true });
+  }
+
+  db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status) VALUES (?, ?, 'pending')").run(req.user.id, friend.id);
+  res.json({ success: true });
+});
+
+app.get('/api/friend-requests', auth, (req, res) => {
+  const requests = db.prepare(`
+    SELECT u.id, u.username FROM friends f
+    JOIN users u ON u.id = f.user_id
+    WHERE f.friend_id = ? AND f.status = 'pending'
+  `).all(req.user.id);
+  res.json({ requests });
+});
+
+app.post('/api/friend-requests/:id/accept', auth, (req, res) => {
+  const requesterId = req.params.id;
+  const pending = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'pending'").get(requesterId, req.user.id);
+  if (!pending) return res.status(404).json({ error: 'No pending request from this user' });
+
+  const accept = db.transaction(() => {
+    db.prepare("UPDATE friends SET status = 'accepted' WHERE user_id = ? AND friend_id = ?").run(requesterId, req.user.id);
+    db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status) VALUES (?, ?, 'accepted')").run(req.user.id, requesterId);
+  });
+  accept();
+  res.json({ success: true });
+});
+
+app.post('/api/friend-requests/:id/reject', auth, (req, res) => {
+  const requesterId = req.params.id;
+  db.prepare("DELETE FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'pending'").run(requesterId, req.user.id);
   res.json({ success: true });
 });
 
@@ -397,9 +444,17 @@ app.get('/api/friends', auth, (req, res) => {
   const friends = db.prepare(`
     SELECT u.id, u.username FROM friends f
     JOIN users u ON u.id = f.friend_id
-    WHERE f.user_id = ?
+    WHERE f.user_id = ? AND f.status = 'accepted'
   `).all(req.user.id);
   res.json({ friends });
+});
+
+app.get('/api/friends/:id/likes', auth, (req, res) => {
+  const friendId = req.params.id;
+  const friendship = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'").get(req.user.id, friendId);
+  if (!friendship) return res.status(403).json({ error: 'Not friends with this user' });
+  const likes = db.prepare('SELECT place, place_id, restaurant_type FROM likes WHERE user_id = ?').all(friendId);
+  res.json({ likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
 });
 
 app.get('/api/common-places', auth, (req, res) => {
@@ -407,6 +462,8 @@ app.get('/api/common-places', auth, (req, res) => {
   if (!friendUsername) return res.status(400).json({ error: 'Missing friendUsername' });
   const friend = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(friendUsername.trim());
   if (!friend) return res.status(404).json({ error: 'User not found' });
+  const friendship = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'").get(req.user.id, friend.id);
+  if (!friendship) return res.status(403).json({ error: 'Not friends with this user' });
   const common = db.prepare(`
     SELECT l1.place FROM likes l1
     JOIN likes l2 ON l2.place = l1.place
