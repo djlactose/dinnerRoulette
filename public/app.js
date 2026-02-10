@@ -54,10 +54,27 @@ function dinnerRoulette() {
     // Socket.IO
     socket: null,
 
+    // ── Helpers ──
+    formatPlaceType(types) {
+      if (!types?.length) return '';
+      const ignore = new Set(['point_of_interest', 'establishment', 'geocode', 'political']);
+      const meaningful = types.filter(t => !ignore.has(t));
+      if (!meaningful.length) return '';
+      return meaningful[0].replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    },
+
+    googleReviewsUrl(name, placeId) {
+      if (placeId) {
+        return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}&query_place_id=${placeId}`;
+      }
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
+    },
+
     // ── Computed ──
     get filteredLikes() {
       const f = this.placeFilter.toLowerCase();
-      return f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : this.likes;
+      const list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : [...this.likes];
+      return list.sort((a, b) => a.name.localeCompare(b.name));
     },
     get filteredDislikes() {
       const f = this.placeFilter.toLowerCase();
@@ -149,6 +166,15 @@ function dinnerRoulette() {
         if (!this.activeSession) return;
         this.activeSession.session.status = 'closed';
         this.showToast('Session has been closed');
+      });
+
+      this.socket.on('session:deleted', (data) => {
+        this.sessions = this.sessions.filter(s => s.id !== data.sessionId);
+        if (this.activeSession && this.activeSession.session.id === data.sessionId) {
+          this.activeSession = null;
+          this.winner = null;
+          this.showToast('This session has been deleted', 'error');
+        }
       });
     },
 
@@ -285,12 +311,13 @@ function dinnerRoulette() {
     },
 
     selectPlace(pred) {
-      this.selectedPlace = { name: pred.description, place_id: pred.place_id };
+      const restaurantType = this.formatPlaceType(pred.types);
+      this.selectedPlace = { name: pred.description, place_id: pred.place_id, restaurant_type: restaurantType };
       this.placeSearch = pred.description;
       this.predictions = [];
       this.api('/api/place', {
         method: 'POST',
-        body: JSON.stringify({ place: pred.description, place_id: pred.place_id }),
+        body: JSON.stringify({ place: pred.description, place_id: pred.place_id, restaurant_type: restaurantType || null }),
       });
     },
 
@@ -298,7 +325,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id }),
+        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
       });
       this.showToast('Place liked!');
       this.selectedPlace = null;
@@ -310,7 +337,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id }),
+        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
       });
       this.showToast('Place disliked.');
       this.selectedPlace = null;
@@ -344,16 +371,16 @@ function dinnerRoulette() {
     async suggestPersonal(place) {
       await this.api('/api/suggest', {
         method: 'POST',
-        body: JSON.stringify({ place: place.name, place_id: place.place_id }),
+        body: JSON.stringify({ place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null }),
       });
       this.showToast('Suggested!');
       await this.loadSuggestions();
     },
 
-    async removeSuggestion(place) {
+    async removeSuggestion(placeName) {
       await this.api('/api/suggestions/remove', {
         method: 'POST',
-        body: JSON.stringify({ place }),
+        body: JSON.stringify({ place: placeName }),
       });
       await this.loadSuggestions();
     },
@@ -363,7 +390,7 @@ function dinnerRoulette() {
         const resp = await this.api('/api/suggestions');
         const data = await resp.json();
         this.suggestions = data.suggestions || [];
-        this.currentSuggestions = new Set(this.suggestions);
+        this.currentSuggestions = new Set(this.suggestions.map(s => s.name));
       } catch (e) { /* ignore */ }
     },
 
@@ -494,6 +521,26 @@ function dinnerRoulette() {
       await this.refreshSession();
     },
 
+    async deleteSession(sessionId) {
+      if (!confirm('Permanently delete this session? This cannot be undone.')) return;
+      try {
+        const resp = await this.api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to delete session', 'error');
+          return;
+        }
+        this.sessions = this.sessions.filter(s => s.id !== sessionId);
+        if (this.activeSession && this.activeSession.session.id === sessionId) {
+          this.activeSession = null;
+          this.winner = null;
+        }
+        this.showToast('Session deleted.');
+      } catch (e) {
+        this.showToast('Failed to delete session', 'error');
+      }
+    },
+
     copyCode() {
       const code = this.activeSession?.session?.code;
       if (code) {
@@ -515,12 +562,12 @@ function dinnerRoulette() {
       }
     },
 
-    async suggestToSession(place, placeId) {
+    async suggestToSession(place, placeId, restaurantType) {
       if (!this.activeSession) return;
       try {
         const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/suggest`, {
           method: 'POST',
-          body: JSON.stringify({ place, place_id: placeId || null }),
+          body: JSON.stringify({ place, place_id: placeId || null, restaurant_type: restaurantType || null }),
         });
         if (!resp.ok) {
           const err = await resp.json();

@@ -98,23 +98,27 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS likes (
     user_id INTEGER,
     place TEXT,
-    place_id TEXT
+    place_id TEXT,
+    restaurant_type TEXT
   );
   CREATE TABLE IF NOT EXISTS dislikes (
     user_id INTEGER,
     place TEXT,
-    place_id TEXT
+    place_id TEXT,
+    restaurant_type TEXT
   );
   CREATE TABLE IF NOT EXISTS places (
     user_id INTEGER,
     place TEXT,
     place_id TEXT,
+    restaurant_type TEXT,
     UNIQUE(user_id, place)
   );
   CREATE TABLE IF NOT EXISTS suggestions (
     user_id INTEGER,
     place TEXT,
     place_id TEXT,
+    restaurant_type TEXT,
     UNIQUE(user_id, place)
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -138,6 +142,7 @@ db.exec(`
     user_id INTEGER,
     place TEXT,
     place_id TEXT,
+    restaurant_type TEXT,
     lat REAL,
     lng REAL,
     UNIQUE(session_id, place)
@@ -150,11 +155,16 @@ db.exec(`
   );
 `);
 
-// Migrate existing tables (add place_id if missing)
+// Migrate existing tables (add columns if missing)
 try { db.exec('ALTER TABLE likes ADD COLUMN place_id TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE dislikes ADD COLUMN place_id TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE places ADD COLUMN place_id TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE suggestions ADD COLUMN place_id TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE dislikes ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE places ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE session_suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 function generateToken(user) {
@@ -332,26 +342,26 @@ app.get('/api/place-details', auth, async (req, res) => {
 });
 
 app.post('/api/place', auth, (req, res) => {
-  const { place, place_id } = req.body;
+  const { place, place_id, restaurant_type } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
-  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id) VALUES (?, ?, ?)').run(req.user.id, place, place_id || null);
+  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null);
   res.json({ success: true });
 });
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id FROM likes WHERE user_id = ?').all(uid);
-  const dislikes = db.prepare('SELECT place, place_id FROM dislikes WHERE user_id = ?').all(uid);
-  const all = db.prepare('SELECT place, place_id FROM places WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type FROM likes WHERE user_id = ?').all(uid);
+  const dislikes = db.prepare('SELECT place, place_id, restaurant_type FROM dislikes WHERE user_id = ?').all(uid);
+  const all = db.prepare('SELECT place, place_id, restaurant_type FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id })),
-    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id })),
-    all: all.map(r => ({ name: r.place, place_id: r.place_id })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
+    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
+    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
   });
 });
 
 app.post('/api/places', auth, (req, res) => {
-  const { type, place, place_id, remove } = req.body;
+  const { type, place, place_id, remove, restaurant_type } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
   const uid = req.user.id;
 
@@ -362,11 +372,11 @@ app.post('/api/places', auth, (req, res) => {
       db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
     }
   } else {
-    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id) VALUES (?, ?, ?)').run(uid, place, place_id || null);
+    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     if (type === 'likes') {
-      db.prepare('INSERT OR IGNORE INTO likes (user_id, place, place_id) VALUES (?, ?, ?)').run(uid, place, place_id || null);
+      db.prepare('INSERT OR IGNORE INTO likes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     } else {
-      db.prepare('INSERT OR IGNORE INTO dislikes (user_id, place, place_id) VALUES (?, ?, ?)').run(uid, place, place_id || null);
+      db.prepare('INSERT OR IGNORE INTO dislikes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     }
   }
   res.json({ success: true });
@@ -407,10 +417,10 @@ app.get('/api/common-places', auth, (req, res) => {
 
 // ── Suggestions Routes ──────────────────────────────────────────────────────────
 app.post('/api/suggest', auth, (req, res) => {
-  const { place, place_id } = req.body;
+  const { place, place_id, restaurant_type } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
   try {
-    db.prepare('INSERT OR IGNORE INTO suggestions (user_id, place, place_id) VALUES (?, ?, ?)').run(req.user.id, place, place_id || null);
+    db.prepare('INSERT OR IGNORE INTO suggestions (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to save suggestion' });
@@ -418,8 +428,8 @@ app.post('/api/suggest', auth, (req, res) => {
 });
 
 app.get('/api/suggestions', auth, (req, res) => {
-  const rows = db.prepare('SELECT place, place_id FROM suggestions WHERE user_id = ?').all(req.user.id);
-  res.json({ suggestions: rows.map(r => r.place) });
+  const rows = db.prepare('SELECT place, place_id, restaurant_type FROM suggestions WHERE user_id = ?').all(req.user.id);
+  res.json({ suggestions: rows.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
 });
 
 app.post('/api/suggestions/remove', auth, (req, res) => {
@@ -479,7 +489,7 @@ app.get('/api/sessions/:id', auth, (req, res) => {
   `).all(sessionId);
 
   const suggestions = db.prepare(`
-    SELECT ss.id, ss.place, ss.place_id, ss.lat, ss.lng, ss.user_id,
+    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.user_id,
            u.username AS suggested_by,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id) AS vote_count
     FROM session_suggestions ss
@@ -499,7 +509,7 @@ app.get('/api/sessions/:id', auth, (req, res) => {
 
 app.post('/api/sessions/:id/suggest', auth, async (req, res) => {
   const sessionId = req.params.id;
-  const { place, place_id } = req.body;
+  const { place, place_id, restaurant_type } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
 
   const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
@@ -527,10 +537,11 @@ app.post('/api/sessions/:id/suggest', auth, async (req, res) => {
   }
 
   try {
-    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, lat, lng) VALUES (?, ?, ?, ?, ?, ?)').run(sessionId, req.user.id, place, place_id || null, lat, lng);
+    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)').run(sessionId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng);
     if (result.changes === 0) return res.status(409).json({ error: 'Already suggested' });
     io.to(`session:${sessionId}`).emit('session:suggestion-added', {
       id: result.lastInsertRowid, place, place_id: place_id || null,
+      restaurant_type: restaurant_type || null,
       lat, lng, suggested_by: req.user.username, vote_count: 0, user_voted: false,
     });
     res.json({ success: true, id: result.lastInsertRowid });
@@ -611,6 +622,25 @@ app.post('/api/sessions/:id/close', auth, (req, res) => {
 
   db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(sessionId);
   io.to(`session:${sessionId}`).emit('session:closed', { sessionId });
+  res.json({ success: true });
+});
+
+app.delete('/api/sessions/:id', auth, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (session.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can delete this session' });
+  if (session.status !== 'closed') return res.status(400).json({ error: 'Session must be closed before deleting' });
+
+  const deleteAll = db.transaction(() => {
+    db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM session_members WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+  });
+  deleteAll();
+
+  io.to(`session:${sessionId}`).emit('session:deleted', { sessionId: Number(sessionId) });
   res.json({ success: true });
 });
 

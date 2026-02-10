@@ -186,7 +186,9 @@ describe('Suggestions', () => {
       .get('/api/suggestions')
       .set('Cookie', cookie);
     expect(res.status).toBe(200);
-    expect(res.body.suggestions).toContain('Taco Town');
+    expect(res.body.suggestions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Taco Town' })])
+    );
   });
 
   test('POST /api/suggestions/remove — removes suggestion', async () => {
@@ -198,7 +200,9 @@ describe('Suggestions', () => {
     const res = await request(app)
       .get('/api/suggestions')
       .set('Cookie', cookie);
-    expect(res.body.suggestions).not.toContain('Taco Town');
+    expect(res.body.suggestions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Taco Town' })])
+    );
   });
 });
 
@@ -441,6 +445,40 @@ describe('Sessions', () => {
       .get(`/api/sessions/${sessionId}`)
       .set('Cookie', cookie1);
     expect(detail.body.session.status).toBe('closed');
+  });
+
+  test('DELETE /api/sessions/:id — non-creator gets 403', async () => {
+    const res = await request(app)
+      .delete(`/api/sessions/${sessionId}`)
+      .set('Cookie', cookie2);
+    expect(res.status).toBe(403);
+  });
+
+  test('DELETE /api/sessions/:id — creator can delete closed session', async () => {
+    const res = await request(app)
+      .delete(`/api/sessions/${sessionId}`)
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+
+    // Session no longer appears in list
+    const list = await request(app)
+      .get('/api/sessions')
+      .set('Cookie', cookie1);
+    expect(list.body.sessions.some(s => s.id === sessionId)).toBe(false);
+  });
+
+  test('DELETE /api/sessions/:id — cannot delete open session', async () => {
+    // Create a new session (defaults to open)
+    const create = await request(app)
+      .post('/api/sessions')
+      .set('Cookie', cookie1)
+      .send({ name: 'Open Session' });
+    const openId = create.body.id;
+
+    const res = await request(app)
+      .delete(`/api/sessions/${openId}`)
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(400);
   });
 });
 
