@@ -4,9 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Dinner Roulette</title>
+  <meta name="theme-color" content="#4a90e2" />
+  <meta name="description" content="Collaboratively pick a restaurant with friends" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dinner Roulette" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
   <script defer src="app.js"></script>
@@ -42,10 +48,10 @@
         <div x-show="sections.auth" x-collapse>
           <label for="auth-username">Username</label>
           <input id="auth-username" x-model="authForm.username" placeholder="Username"
-                 @keypress.enter="$refs.authPass.focus()" aria-label="Username" />
+                 @keydown.enter="$refs.authPass.focus()" aria-label="Username" />
           <label for="auth-password">Password</label>
           <input id="auth-password" x-ref="authPass" x-model="authForm.password" type="password"
-                 placeholder="Password" @keypress.enter="login()" aria-label="Password" />
+                 placeholder="Password" @keydown.enter="login()" aria-label="Password" />
           <div class="remember-wrapper">
             <label for="remember-me">
               <input type="checkbox" id="remember-me" x-model="authForm.remember" />
@@ -74,7 +80,7 @@
             <ul class="autocomplete-list" x-show="predictions.length > 0" role="listbox">
               <template x-for="pred in predictions" :key="pred.place_id">
                 <li @click="selectPlace(pred)" x-text="pred.description" role="option" tabindex="0"
-                    @keypress.enter="selectPlace(pred)"></li>
+                    @keydown.enter="selectPlace(pred)"></li>
               </template>
             </ul>
           </div>
@@ -138,7 +144,7 @@
             <label for="friend-input">Invite a friend</label>
             <div class="inline-input">
               <input id="friend-input" x-model="friendUsername" placeholder="Friend's username"
-                     @keypress.enter="inviteFriend()" aria-label="Friend's username" />
+                     @keydown.enter="inviteFriend()" aria-label="Friend's username" />
               <button @click="inviteFriend()">Invite</button>
             </div>
           </div>
@@ -186,12 +192,12 @@
             <div x-show="!activeSession">
               <div class="inline-input">
                 <input x-model="newSessionName" placeholder="Session name (e.g., Friday Dinner)"
-                       @keypress.enter="createSession()" aria-label="Session name" />
+                       @keydown.enter="createSession()" aria-label="Session name" />
                 <button @click="createSession()">Create Session</button>
               </div>
               <div class="inline-input" style="margin-top: 0.5rem;">
                 <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
-                       style="text-transform: uppercase;" @keypress.enter="joinSession()" aria-label="Session invite code" />
+                       style="text-transform: uppercase;" @keydown.enter="joinSession()" aria-label="Session invite code" />
                 <button @click="joinSession()">Join Session</button>
               </div>
 
@@ -310,5 +316,10 @@
       </section>
     </main>
   </div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js');
+    }
+  </script>
 </body>
 </html>

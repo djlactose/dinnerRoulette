@@ -34,6 +34,7 @@ console.log(`Database: ./data/db.sqlite`);
 
 // ── Express App & Middleware ────────────────────────────────────────────────────
 const app = express();
+app.set('trust proxy', 1);
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -53,18 +54,19 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rate limiting
-const authLimiter = rateLimit({
+// Rate limiting (disabled in test mode)
+const noopLimiter = (req, res, next) => next();
+const authLimiter = NODE_ENV === 'test' ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   message: { error: 'Too many attempts, try again later' },
 });
-const apiLimiter = rateLimit({
+const apiLimiter = NODE_ENV === 'test' ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
   max: 100,
   message: { error: 'Too many requests' },
 });
-app.use('/api', apiLimiter);
+if (NODE_ENV !== 'test') app.use('/api', apiLimiter);
 
 // HTTPS redirect in production (only when behind a reverse proxy)
 if (NODE_ENV === 'production') {
@@ -219,6 +221,8 @@ app.post('/api/register', authLimiter, async (req, res) => {
 
   try {
     const hash = await bcrypt.hash(password, 10);
+    const existing = db.prepare('SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)').get(trimmedUser);
+    if (existing) return res.status(400).json({ error: 'Username taken' });
     const result = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(trimmedUser, hash);
     const token = generateToken({ id: result.lastInsertRowid, username: trimmedUser });
     res.cookie('token', token, cookieOpts(remember));
@@ -232,7 +236,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
   const { username, password, remember } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username.trim());
+  const user = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(username.trim());
   if (!user) return res.status(401).json({ error: 'User not found' });
 
   const valid = await bcrypt.compare(password, user.password);
@@ -372,7 +376,7 @@ app.post('/api/places', auth, (req, res) => {
 app.post('/api/invite', auth, (req, res) => {
   const { friendUsername } = req.body;
   if (!friendUsername) return res.status(400).json({ error: 'Missing friend username' });
-  const friend = db.prepare('SELECT id FROM users WHERE username = ?').get(friendUsername.trim());
+  const friend = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(friendUsername.trim());
   if (!friend) return res.status(404).json({ error: 'User not found' });
   if (friend.id === req.user.id) return res.status(400).json({ error: 'Cannot add yourself' });
   db.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id) VALUES (?, ?)').run(req.user.id, friend.id);
@@ -391,7 +395,7 @@ app.get('/api/friends', auth, (req, res) => {
 app.get('/api/common-places', auth, (req, res) => {
   const friendUsername = req.query.friendUsername;
   if (!friendUsername) return res.status(400).json({ error: 'Missing friendUsername' });
-  const friend = db.prepare('SELECT id FROM users WHERE username = ?').get(friendUsername.trim());
+  const friend = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(friendUsername.trim());
   if (!friend) return res.status(404).json({ error: 'User not found' });
   const common = db.prepare(`
     SELECT l1.place FROM likes l1
