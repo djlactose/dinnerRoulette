@@ -1,6 +1,8 @@
 .devcontainer/
+.claude/
 .env
-data/db.sqlite
+data/
+nul
 # Logs
 logs
 *.log

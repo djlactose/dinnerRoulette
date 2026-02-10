@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -7,88 +7,308 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="icon-192.png" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
+  <script defer src="app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
-  <header>
-    <div class="header-content">
-      <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
-      <h1>Dinner Roulette</h1>
-      <button id="btn-logout" class="logout-btn hidden">Logout</button>
-    </div>
-  </header>
+  <div x-data="dinnerRoulette()" x-init="init()">
 
-  <main>
-    <!-- Authentication -->
-    <section id="auth">
-      <button class="toggle-btn" data-target="auth-content">▼ Log in or Register</button>
-      <div id="auth-content" class="collapsible-content">
-        <input id="username" placeholder="Username" />
-        <input id="password" type="password" placeholder="Password" />
-        <button id="btn-register">Register</button>
-        <button id="btn-login">Login</button>
-        <p id="auth-error" style="color: red; font-size: 0.9rem;"></p>
+    <!-- Toast -->
+    <div class="toast" x-show="toast.visible" x-transition.opacity.duration.300ms
+         :class="toast.type" x-text="toast.message"></div>
+
+    <header>
+      <div class="header-content">
+        <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
+        <h1>Dinner Roulette</h1>
+        <div class="header-actions" x-show="loggedIn">
+          <button class="theme-toggle" @click="toggleTheme()" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
+            <span x-text="theme === 'dark' ? '☀️' : '🌙'"></span>
+          </button>
+          <span class="username-badge" x-text="username"></span>
+          <button class="logout-btn" @click="logout()">Logout</button>
+        </div>
       </div>
-    </section>
+    </header>
 
-    <!-- Place Management -->
-    <section id="place-management" class="hidden">
-      <button class="toggle-btn" data-target="place-content">▼ Your Places</button>
-      <div id="place-content" class="collapsible-content">
-        <div class="autocomplete-container">
-          <input id="place-input" placeholder="Search for a place..." autocomplete="off" />
-          <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
-        </div>
-        <div class="buttons">
-          <button id="add-like" disabled>👍 Like</button>
-          <button id="add-dislike" disabled>👎 Dislike</button>
-        </div>
-        <p id="map-link" class="hidden">
-          <a href="#" target="_blank">View on Google Maps</a>
-        </p>
-        <h3>Liked</h3>
-        <ul id="likes-list"></ul>
-        <h3>Disliked</h3>
-        <ul id="dislikes-list"></ul>
-      </div>
-    </section>
-
-    <!-- Plan Dinner -->
-    <section id="plan-dinner" class="hidden">
-      <button class="toggle-btn" data-target="plan-content">▼ Plan Dinner</button>
-      <div id="plan-content" class="collapsible-content">
-        <div>
-          <input id="friend-username" placeholder="Friend's username" />
-          <button id="invite-friend">Invite</button>
-        </div>
-        <h3>Common Places</h3>
-        <ul id="common-places"></ul>
-
-        <!-- Suggestions -->
-        <div class="suggestions-subsection">
-          <h3>Suggest & Vote</h3>
-          <ul id="suggestion-list"></ul>
-          <div class="buttons">
-            <button id="random-pick">🎲 Random Pick</button>
-            <button id="closest-pick">📍 Closest</button>
+    <main>
+      <!-- Authentication -->
+      <section x-show="!loggedIn">
+        <button class="toggle-btn" @click="sections.auth = !sections.auth">
+          <span x-text="sections.auth ? '▼' : '▶'"></span> Log in or Register
+        </button>
+        <div x-show="sections.auth" x-collapse>
+          <label for="auth-username">Username</label>
+          <input id="auth-username" x-model="authForm.username" placeholder="Username"
+                 @keypress.enter="$refs.authPass.focus()" aria-label="Username" />
+          <label for="auth-password">Password</label>
+          <input id="auth-password" x-ref="authPass" x-model="authForm.password" type="password"
+                 placeholder="Password" @keypress.enter="login()" aria-label="Password" />
+          <div class="remember-wrapper">
+            <label for="remember-me">
+              <input type="checkbox" id="remember-me" x-model="authForm.remember" />
+              Remember Me
+            </label>
           </div>
+          <div class="buttons">
+            <button @click="register()">Register</button>
+            <button @click="login()">Login</button>
+          </div>
+          <p class="auth-error" x-show="authError" x-text="authError"></p>
         </div>
-      </div>
-    </section>
-  </main>
+      </section>
 
-  <script src="app.js" defer></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      document.querySelectorAll(".toggle-btn").forEach((button) => {
-        button.addEventListener("click", () => {
-          const targetId = button.getAttribute("data-target");
-          const content = document.getElementById(targetId);
-          const isVisible = !content.classList.contains("collapsed");
-          content.classList.toggle("collapsed");
-          button.textContent = (isVisible ? "▶" : "▼") + " " + button.textContent.slice(2);
-        });
-      });
-    });
-  </script>
+      <!-- Place Management -->
+      <section x-show="loggedIn">
+        <button class="toggle-btn" @click="sections.places = !sections.places">
+          <span x-text="sections.places ? '▼' : '▶'"></span> Your Places
+        </button>
+        <div x-show="sections.places" x-collapse>
+          <div class="autocomplete-container">
+            <input id="place-search" placeholder="Search for a place..." autocomplete="off"
+                   x-model="placeSearch" @input.debounce.300ms="searchPlaces()"
+                   @keydown.escape="predictions = []" aria-label="Search for a restaurant"
+                   role="combobox" aria-expanded="false" :aria-expanded="predictions.length > 0" />
+            <ul class="autocomplete-list" x-show="predictions.length > 0" role="listbox">
+              <template x-for="pred in predictions" :key="pred.place_id">
+                <li @click="selectPlace(pred)" x-text="pred.description" role="option" tabindex="0"
+                    @keypress.enter="selectPlace(pred)"></li>
+              </template>
+            </ul>
+          </div>
+          <div class="buttons" x-show="selectedPlace">
+            <button @click="likePlace()" aria-label="Like this place">👍 Like</button>
+            <button @click="dislikePlace()" aria-label="Dislike this place">👎 Dislike</button>
+          </div>
+          <p x-show="selectedPlace">
+            <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(selectedPlace?.name || '')"
+               target="_blank" rel="noopener">View on Google Maps</a>
+          </p>
+
+          <!-- Filter -->
+          <div x-show="likes.length > 3 || dislikes.length > 3" class="filter-wrapper">
+            <input placeholder="Filter places..." x-model="placeFilter" aria-label="Filter your places" />
+          </div>
+
+          <h3>Liked</h3>
+          <ul class="place-list">
+            <template x-for="place in filteredLikes" :key="place.name">
+              <li>
+                <span x-text="place.name"></span>
+                <span class="place-actions">
+                  <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                  <button class="suggest-btn" @click="suggestPersonal(place)"
+                          :disabled="currentSuggestions.has(place.name)"
+                          :title="currentSuggestions.has(place.name) ? 'Already suggested' : 'Add to suggestions'"
+                          aria-label="Suggest this place">Suggest</button>
+                  <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">Remove</button>
+                </span>
+              </li>
+            </template>
+          </ul>
+          <p x-show="likes.length === 0" class="empty-msg">No liked places yet.</p>
+
+          <h3>Disliked</h3>
+          <ul class="place-list">
+            <template x-for="place in filteredDislikes" :key="place.name">
+              <li>
+                <span x-text="place.name"></span>
+                <span class="place-actions">
+                  <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                  <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">Remove</button>
+                </span>
+              </li>
+            </template>
+          </ul>
+          <p x-show="dislikes.length === 0" class="empty-msg">No disliked places yet.</p>
+        </div>
+      </section>
+
+      <!-- Plan Dinner -->
+      <section x-show="loggedIn">
+        <button class="toggle-btn" @click="sections.plan = !sections.plan">
+          <span x-text="sections.plan ? '▼' : '▶'"></span> Plan Dinner
+        </button>
+        <div x-show="sections.plan" x-collapse>
+
+          <!-- Friends -->
+          <div>
+            <label for="friend-input">Invite a friend</label>
+            <div class="inline-input">
+              <input id="friend-input" x-model="friendUsername" placeholder="Friend's username"
+                     @keypress.enter="inviteFriend()" aria-label="Friend's username" />
+              <button @click="inviteFriend()">Invite</button>
+            </div>
+          </div>
+          <div x-show="friends.length > 0" class="friends-list">
+            <h4>Friends</h4>
+            <ul>
+              <template x-for="f in friends" :key="f.id">
+                <li>
+                  <span x-text="f.username"></span>
+                  <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
+                </li>
+              </template>
+            </ul>
+          </div>
+          <div x-show="commonPlaces.length > 0">
+            <h4 x-text="'Common Places with ' + commonFriend"></h4>
+            <ul>
+              <template x-for="place in commonPlaces" :key="place">
+                <li>
+                  <span x-text="place"></span>
+                  <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place)"
+                     target="_blank" rel="noopener" class="map-link-small">[Map]</a>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <!-- Personal Suggestions -->
+          <div class="suggestions-subsection">
+            <h3>Your Suggestions</h3>
+            <ul>
+              <template x-for="place in suggestions" :key="place">
+                <li>
+                  <span x-text="place"></span>
+                  <button class="remove-btn" @click="removeSuggestion(place)" aria-label="Remove suggestion">Remove</button>
+                </li>
+              </template>
+            </ul>
+            <p x-show="suggestions.length === 0" class="empty-msg">No suggestions yet.</p>
+          </div>
+
+          <!-- Session Management -->
+          <div class="session-subsection">
+            <h3>Dinner Sessions</h3>
+            <div x-show="!activeSession">
+              <div class="inline-input">
+                <input x-model="newSessionName" placeholder="Session name (e.g., Friday Dinner)"
+                       @keypress.enter="createSession()" aria-label="Session name" />
+                <button @click="createSession()">Create Session</button>
+              </div>
+              <div class="inline-input" style="margin-top: 0.5rem;">
+                <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
+                       style="text-transform: uppercase;" @keypress.enter="joinSession()" aria-label="Session invite code" />
+                <button @click="joinSession()">Join Session</button>
+              </div>
+
+              <ul class="session-list">
+                <template x-for="s in sessions" :key="s.id">
+                  <li @click="openSession(s.id)">
+                    <div>
+                      <strong x-text="s.name"></strong>
+                      <span class="session-code" x-text="s.code"></span>
+                    </div>
+                    <div>
+                      <span class="session-status" :class="s.status" x-text="s.status"></span>
+                      <span x-show="s.winner_place" class="session-winner" x-text="'Winner: ' + s.winner_place"></span>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+              <p x-show="sessions.length === 0" class="empty-msg">No sessions yet. Create one or join with a code.</p>
+            </div>
+
+            <!-- Active Session View -->
+            <div x-show="activeSession">
+              <div class="session-header">
+                <h4 x-text="activeSession?.session?.name"></h4>
+                <span class="session-code clickable" @click="copyCode()" x-text="activeSession?.session?.code"
+                      title="Click to copy"></span>
+                <button class="back-btn" @click="closeActiveSession()">Back</button>
+                <button class="remove-btn" x-show="activeSession?.session?.creator_id === userId && activeSession?.session?.status === 'open'"
+                        @click="closeSession()">Close Session</button>
+              </div>
+              <p class="members-line">
+                <strong>Members:</strong> <span x-text="activeSession?.members?.map(m => m.username).join(', ')"></span>
+              </p>
+              <p x-show="activeSession?.session?.status === 'closed'" class="closed-badge">This session is closed.</p>
+
+              <!-- Suggest to Session -->
+              <div x-show="activeSession?.session?.status === 'open'">
+                <h4>Suggest a Place</h4>
+                <div class="autocomplete-container">
+                  <input placeholder="Search for a restaurant..." autocomplete="off"
+                         x-model="sessionPlaceSearch" @input.debounce.300ms="searchSessionPlaces()"
+                         @keydown.escape="sessionPredictions = []" aria-label="Search to suggest a restaurant" />
+                  <ul class="autocomplete-list" x-show="sessionPredictions.length > 0" role="listbox">
+                    <template x-for="pred in sessionPredictions" :key="pred.place_id">
+                      <li @click="suggestToSession(pred.description, pred.place_id)" x-text="pred.description"
+                          role="option" tabindex="0"></li>
+                    </template>
+                  </ul>
+                </div>
+                <div x-show="likes.length > 0" class="liked-suggest-grid">
+                  <span class="grid-label">Quick suggest from likes:</span>
+                  <template x-for="place in likes" :key="place.name">
+                    <button class="suggest-btn" @click="suggestToSession(place.name, place.place_id)"
+                            x-text="'+ ' + place.name" :aria-label="'Suggest ' + place.name"></button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Session Suggestions with Votes -->
+              <h4>Suggestions <span class="vote-hint" x-show="activeSession?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
+              <ul class="session-suggestion-list">
+                <template x-for="s in activeSession?.suggestions || []" :key="s.id">
+                  <li>
+                    <div class="suggestion-info">
+                      <span class="suggestion-name" x-text="s.place"></span>
+                      <span class="suggestion-by" x-text="'by ' + s.suggested_by"></span>
+                    </div>
+                    <div class="suggestion-actions">
+                      <span class="vote-count" x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
+                      <button class="vote-btn" :class="{ voted: s.user_voted }"
+                              @click="toggleVote(s)" x-text="s.user_voted ? 'Voted' : 'Vote'"
+                              :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
+                              x-show="activeSession?.session?.status === 'open'"></button>
+                      <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+              <p x-show="!activeSession?.suggestions?.length" class="empty-msg">No suggestions yet. Add one above.</p>
+
+              <!-- Pick Buttons -->
+              <div class="buttons pick-buttons" x-show="activeSession?.suggestions?.length > 0">
+                <button @click="randomPick()" :disabled="picking" aria-label="Random pick weighted by votes">🎲 Random Pick</button>
+                <button @click="closestPick()" :disabled="picking" aria-label="Pick the closest restaurant">📍 Closest</button>
+              </div>
+
+              <!-- Winner Display -->
+              <div class="winner-display" x-show="winner" x-transition>
+                <h3 x-text="winner?.place" id="winner-text"></h3>
+                <p x-show="winner?.distance != null" x-text="winnerDistanceText"></p>
+                <a :href="winnerMapUrl" target="_blank" rel="noopener"
+                   x-text="winner?.distance != null ? 'Get Directions' : 'View on Google Maps'"></a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Account Management -->
+          <div class="account-subsection">
+            <button class="toggle-btn" @click="sections.account = !sections.account">
+              <span x-text="sections.account ? '▼' : '▶'"></span> Account Settings
+            </button>
+            <div x-show="sections.account" x-collapse>
+              <h4>Change Password</h4>
+              <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
+              <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
+              <button @click="changePassword()">Change Password</button>
+
+              <h4 class="danger-zone">Delete Account</h4>
+              <p class="warning-text">This will permanently delete your account and all data.</p>
+              <input type="password" x-model="accountForm.deletePassword" placeholder="Enter password to confirm" aria-label="Password to confirm deletion" />
+              <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </main>
+  </div>
 </body>
 </html>

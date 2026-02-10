@@ -1,278 +1,701 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const authSection    = document.getElementById('auth');
-  const pmSection      = document.getElementById('place-management');
-  const planSection    = document.getElementById('plan-dinner');
-  const logoutBtn      = document.getElementById('btn-logout');
+function dinnerRoulette() {
+  return {
+    // Auth
+    loggedIn: false,
+    username: '',
+    userId: null,
+    authForm: { username: '', password: '', remember: false },
+    authError: '',
 
-  const btnRegister    = document.getElementById('btn-register');
-  const btnLogin       = document.getElementById('btn-login');
+    // Theme
+    theme: 'light',
 
-  const userInput      = document.getElementById('username');
-  const passInput      = document.getElementById('password');
-  const authErrorMsg   = document.getElementById('auth-error');
+    // UI sections
+    sections: { auth: true, places: true, plan: true, account: false },
 
-  const input          = document.getElementById('place-input');
-  const listEl         = document.getElementById('autocomplete-list');
-  const addLikeBtn     = document.getElementById('add-like');
-  const addDislikeBtn  = document.getElementById('add-dislike');
-  const likesList      = document.getElementById('likes-list');
-  const dislikesList   = document.getElementById('dislikes-list');
-  const mapLink        = document.getElementById('map-link');
+    // Toast
+    toast: { message: '', type: '', visible: false },
 
-  const friendInput    = document.getElementById('friend-username');
-  const inviteBtn      = document.getElementById('invite-friend');
-  const commonList     = document.getElementById('common-places');
+    // Places
+    placeSearch: '',
+    predictions: [],
+    selectedPlace: null,
+    likes: [],
+    dislikes: [],
+    placeFilter: '',
 
-  let selectedPlace    = null;
+    // Suggestions
+    suggestions: [],
+    currentSuggestions: new Set(),
 
-  function setAuthMessage(msg) {
-    authErrorMsg.textContent = msg || '';
-  }
+    // Friends
+    friendUsername: '',
+    friends: [],
+    commonPlaces: [],
+    commonFriend: '',
 
-  function authFetch(url, opts = {}) {
-    opts.headers = opts.headers || {};
-    opts.headers['Content-Type'] = 'application/json';
-    const token = localStorage.getItem('token');
-    if (!token) {
-      logoutAndReset();
-      throw new Error('No token found');
-    }
-    opts.headers['Authorization'] = 'Bearer ' + token;
-    return fetch(url, opts).then(async resp => {
+    // Sessions
+    sessions: [],
+    newSessionName: '',
+    joinCode: '',
+    activeSession: null,
+    sessionPlaceSearch: '',
+    sessionPredictions: [],
+
+    // Picking
+    picking: false,
+    winner: null,
+    userLat: null,
+    userLng: null,
+
+    // Account
+    accountForm: { currentPassword: '', newPassword: '', deletePassword: '' },
+
+    // Socket.IO
+    socket: null,
+
+    // ── Computed ──
+    get filteredLikes() {
+      const f = this.placeFilter.toLowerCase();
+      return f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : this.likes;
+    },
+    get filteredDislikes() {
+      const f = this.placeFilter.toLowerCase();
+      return f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f)) : this.dislikes;
+    },
+    get winnerDistanceText() {
+      if (!this.winner?.distance) return '';
+      const km = this.winner.distance.toFixed(1);
+      const mi = (this.winner.distance * 0.621371).toFixed(1);
+      return `${km} km (${mi} mi) away`;
+    },
+    get winnerMapUrl() {
+      if (!this.winner) return '#';
+      if (this.winner.distance != null && this.userLat != null) {
+        return `https://www.google.com/maps/dir/?api=1&origin=${this.userLat},${this.userLng}&destination=${encodeURIComponent(this.winner.place)}`;
+      }
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.winner.place)}`;
+    },
+
+    // ── Init ──
+    async init() {
+      this.theme = document.cookie.replace(/(?:(?:^|.*;\s*)theme\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'light';
+      document.documentElement.setAttribute('data-theme', this.theme);
+
+      try {
+        const resp = await fetch('/api/me', { credentials: 'same-origin' });
+        if (resp.ok) {
+          const data = await resp.json();
+          this.loggedIn = true;
+          this.username = data.username;
+          this.userId = data.id;
+          this.connectSocket();
+          await this.loadAppData();
+        }
+      } catch (e) {
+        // Not logged in
+      }
+    },
+
+    async loadAppData() {
+      await Promise.all([
+        this.loadSuggestions(),
+        this.loadPlaces(),
+        this.loadFriends(),
+        this.loadSessions(),
+      ]);
+    },
+
+    // ── Socket.IO ──
+    connectSocket() {
+      if (this.socket) return;
+      this.socket = io({ withCredentials: true });
+
+      this.socket.on('session:member-joined', (data) => {
+        if (!this.activeSession) return;
+        const already = this.activeSession.members.some(m => m.id === data.userId);
+        if (!already) {
+          this.activeSession.members.push({ id: data.userId, username: data.username });
+          this.showToast(`${data.username} joined the session`);
+        }
+      });
+
+      this.socket.on('session:suggestion-added', (data) => {
+        if (!this.activeSession) return;
+        const already = this.activeSession.suggestions.some(s => s.id === data.id);
+        if (!already) {
+          this.activeSession.suggestions.push(data);
+        }
+      });
+
+      this.socket.on('session:vote-updated', (data) => {
+        if (!this.activeSession) return;
+        const s = this.activeSession.suggestions.find(s => s.id === data.suggestion_id);
+        if (s) {
+          s.vote_count = data.vote_count;
+          // Update user_voted for the current user
+          if (data.user_id === this.userId) {
+            s.user_voted = data.action === 'vote';
+          }
+        }
+      });
+
+      this.socket.on('session:winner-picked', (data) => {
+        if (!this.activeSession) return;
+        this.winner = data.winner;
+      });
+
+      this.socket.on('session:closed', () => {
+        if (!this.activeSession) return;
+        this.activeSession.session.status = 'closed';
+        this.showToast('Session has been closed');
+      });
+    },
+
+    disconnectSocket() {
+      if (this.socket) {
+        this.socket.disconnect();
+        this.socket = null;
+      }
+    },
+
+    // ── Toast ──
+    showToast(message, type = 'success') {
+      this.toast = { message, type, visible: true };
+      setTimeout(() => { this.toast.visible = false; }, 3000);
+    },
+
+    // ── Theme ──
+    toggleTheme() {
+      this.theme = this.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', this.theme);
+      document.cookie = `theme=${this.theme};path=/;max-age=${365 * 24 * 60 * 60}`;
+    },
+
+    // ── Auth ──
+    async register() {
+      this.authError = '';
+      try {
+        const resp = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            username: this.authForm.username,
+            password: this.authForm.password,
+            remember: this.authForm.remember,
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.authError = err.error || 'Registration failed.';
+          return;
+        }
+        const data = await resp.json();
+        this.loggedIn = true;
+        this.username = data.username;
+        this.showToast('Account created!');
+        await this.fetchMe();
+        this.connectSocket();
+        await this.loadAppData();
+      } catch (e) {
+        this.authError = 'Unexpected error during registration.';
+      }
+    },
+
+    async login() {
+      this.authError = '';
+      try {
+        const resp = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            username: this.authForm.username,
+            password: this.authForm.password,
+            remember: this.authForm.remember,
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.authError = err.error || 'Login failed.';
+          return;
+        }
+        const data = await resp.json();
+        this.loggedIn = true;
+        this.username = data.username;
+        this.showToast('Welcome back!');
+        await this.fetchMe();
+        this.connectSocket();
+        await this.loadAppData();
+      } catch (e) {
+        this.authError = 'Unexpected error during login.';
+      }
+    },
+
+    async fetchMe() {
+      try {
+        const resp = await fetch('/api/me', { credentials: 'same-origin' });
+        if (resp.ok) {
+          const data = await resp.json();
+          this.userId = data.id;
+          this.username = data.username;
+        }
+      } catch (e) { /* ignore */ }
+    },
+
+    async logout() {
+      this.disconnectSocket();
+      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      this.loggedIn = false;
+      this.username = '';
+      this.userId = null;
+      this.likes = [];
+      this.dislikes = [];
+      this.suggestions = [];
+      this.friends = [];
+      this.sessions = [];
+      this.activeSession = null;
+      this.winner = null;
+    },
+
+    // ── API Helper ──
+    async api(url, opts = {}) {
+      opts.credentials = 'same-origin';
+      opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+      const resp = await fetch(url, opts);
       if (resp.status === 401) {
-        logoutAndReset();
+        this.loggedIn = false;
         throw new Error('Unauthorized');
       }
       return resp;
-    });
-  }
+    },
 
-  btnRegister.onclick = async () => {
-    setAuthMessage('');
-    try {
-      const resp = await fetch('/api/register', {
+    // ── Places ──
+    async searchPlaces() {
+      const q = this.placeSearch.trim();
+      if (!q) { this.predictions = []; return; }
+      try {
+        const resp = await this.api(`/api/autocomplete?input=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        this.predictions = data.predictions || [];
+      } catch (e) {
+        this.predictions = [];
+      }
+    },
+
+    selectPlace(pred) {
+      this.selectedPlace = { name: pred.description, place_id: pred.place_id };
+      this.placeSearch = pred.description;
+      this.predictions = [];
+      this.api('/api/place', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          username: userInput.value,
-          password: passInput.value
-        })
+        body: JSON.stringify({ place: pred.description, place_id: pred.place_id }),
+      });
+    },
+
+    async likePlace() {
+      if (!this.selectedPlace) return;
+      await this.api('/api/places', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id }),
+      });
+      this.showToast('Place liked!');
+      this.selectedPlace = null;
+      this.placeSearch = '';
+      await this.loadPlaces();
+    },
+
+    async dislikePlace() {
+      if (!this.selectedPlace) return;
+      await this.api('/api/places', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id }),
+      });
+      this.showToast('Place disliked.');
+      this.selectedPlace = null;
+      this.placeSearch = '';
+      await this.loadPlaces();
+    },
+
+    async removePlace(type, place) {
+      await this.api('/api/places', {
+        method: 'POST',
+        body: JSON.stringify({ type, place, remove: true }),
+      });
+      this.showToast('Place removed.');
+      await this.loadPlaces();
+    },
+
+    async loadPlaces() {
+      try {
+        const resp = await this.api('/api/places');
+        const data = await resp.json();
+        this.likes = data.likes || [];
+        this.dislikes = data.dislikes || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    openMap(place) {
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`, '_blank');
+    },
+
+    // ── Suggestions ──
+    async suggestPersonal(place) {
+      await this.api('/api/suggest', {
+        method: 'POST',
+        body: JSON.stringify({ place: place.name, place_id: place.place_id }),
+      });
+      this.showToast('Suggested!');
+      await this.loadSuggestions();
+    },
+
+    async removeSuggestion(place) {
+      await this.api('/api/suggestions/remove', {
+        method: 'POST',
+        body: JSON.stringify({ place }),
+      });
+      await this.loadSuggestions();
+    },
+
+    async loadSuggestions() {
+      try {
+        const resp = await this.api('/api/suggestions');
+        const data = await resp.json();
+        this.suggestions = data.suggestions || [];
+        this.currentSuggestions = new Set(this.suggestions);
+      } catch (e) { /* ignore */ }
+    },
+
+    // ── Friends ──
+    async inviteFriend() {
+      if (!this.friendUsername.trim()) return;
+      try {
+        const resp = await this.api('/api/invite', {
+          method: 'POST',
+          body: JSON.stringify({ friendUsername: this.friendUsername.trim() }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to invite', 'error');
+          return;
+        }
+        this.showToast('Friend invited!');
+        this.friendUsername = '';
+        await this.loadFriends();
+      } catch (e) {
+        this.showToast('Failed to invite friend', 'error');
+      }
+    },
+
+    async loadFriends() {
+      try {
+        const resp = await this.api('/api/friends');
+        const data = await resp.json();
+        this.friends = data.friends || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadCommonPlaces(friendUsername) {
+      this.commonFriend = friendUsername;
+      try {
+        const resp = await this.api(`/api/common-places?friendUsername=${encodeURIComponent(friendUsername)}`);
+        const data = await resp.json();
+        this.commonPlaces = data.common || [];
+      } catch (e) {
+        this.commonPlaces = [];
+      }
+    },
+
+    // ── Sessions ──
+    async loadSessions() {
+      try {
+        const resp = await this.api('/api/sessions');
+        const data = await resp.json();
+        this.sessions = data.sessions || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    async createSession() {
+      const name = this.newSessionName.trim() || 'Dinner Session';
+      try {
+        const resp = await this.api('/api/sessions', {
+          method: 'POST',
+          body: JSON.stringify({ name }),
+        });
+        const data = await resp.json();
+        this.newSessionName = '';
+        this.showToast(`Session created! Code: ${data.code}`);
+        await this.loadSessions();
+      } catch (e) {
+        this.showToast('Failed to create session', 'error');
+      }
+    },
+
+    async joinSession() {
+      const code = this.joinCode.trim().toUpperCase();
+      if (!code) return;
+      try {
+        const resp = await this.api('/api/sessions/join', {
+          method: 'POST',
+          body: JSON.stringify({ code }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to join', 'error');
+          return;
+        }
+        this.joinCode = '';
+        this.showToast('Joined session!');
+        await this.loadSessions();
+      } catch (e) {
+        this.showToast('Failed to join session', 'error');
+      }
+    },
+
+    async openSession(sessionId) {
+      try {
+        const resp = await this.api(`/api/sessions/${sessionId}`);
+        this.activeSession = await resp.json();
+        this.winner = null;
+        if (this.activeSession.session.winner_place) {
+          this.winner = { place: this.activeSession.session.winner_place };
+        }
+        if (this.socket) this.socket.emit('join-session', sessionId);
+      } catch (e) {
+        this.showToast('Failed to open session', 'error');
+      }
+    },
+
+    async refreshSession() {
+      if (!this.activeSession) return;
+      try {
+        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}`);
+        this.activeSession = await resp.json();
+      } catch (e) { /* ignore */ }
+    },
+
+    closeActiveSession() {
+      if (this.socket && this.activeSession) {
+        this.socket.emit('leave-session', this.activeSession.session.id);
+      }
+      this.activeSession = null;
+      this.winner = null;
+      this.sessionPlaceSearch = '';
+      this.sessionPredictions = [];
+      this.loadSessions();
+    },
+
+    async closeSession() {
+      if (!this.activeSession) return;
+      if (!confirm('Close this session? No more suggestions or votes will be allowed.')) return;
+      await this.api(`/api/sessions/${this.activeSession.session.id}/close`, { method: 'POST' });
+      this.showToast('Session closed.');
+      await this.refreshSession();
+    },
+
+    copyCode() {
+      const code = this.activeSession?.session?.code;
+      if (code) {
+        navigator.clipboard.writeText(code);
+        this.showToast('Code copied!');
+      }
+    },
+
+    // ── Session Suggest ──
+    async searchSessionPlaces() {
+      const q = this.sessionPlaceSearch.trim();
+      if (!q) { this.sessionPredictions = []; return; }
+      try {
+        const resp = await this.api(`/api/autocomplete?input=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        this.sessionPredictions = data.predictions || [];
+      } catch (e) {
+        this.sessionPredictions = [];
+      }
+    },
+
+    async suggestToSession(place, placeId) {
+      if (!this.activeSession) return;
+      try {
+        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/suggest`, {
+          method: 'POST',
+          body: JSON.stringify({ place, place_id: placeId || null }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to suggest', 'error');
+          return;
+        }
+        this.sessionPlaceSearch = '';
+        this.sessionPredictions = [];
+        this.showToast('Place suggested!');
+        await this.refreshSession();
+      } catch (e) {
+        this.showToast('Failed to suggest', 'error');
+      }
+    },
+
+    // ── Voting ──
+    async toggleVote(suggestion) {
+      if (!this.activeSession) return;
+      const endpoint = suggestion.user_voted ? 'unvote' : 'vote';
+      await this.api(`/api/sessions/${this.activeSession.session.id}/${endpoint}`, {
+        method: 'POST',
+        body: JSON.stringify({ suggestion_id: suggestion.id }),
+      });
+      await this.refreshSession();
+    },
+
+    // ── Random Pick ──
+    async randomPick() {
+      if (!this.activeSession || this.picking) return;
+      this.picking = true;
+      this.winner = null;
+
+      const names = (this.activeSession.suggestions || []).map(s => s.place);
+      if (names.length === 0) {
+        this.showToast('No suggestions to pick from!', 'error');
+        this.picking = false;
+        return;
+      }
+
+      // Spinning animation
+      const winnerEl = document.getElementById('winner-text');
+      let cycles = 20;
+      let delay = 50;
+      let i = 0;
+
+      await new Promise(resolve => {
+        const spin = () => {
+          this.winner = { place: names[i % names.length] };
+          if (winnerEl) {
+            winnerEl.classList.remove('spinning');
+            void winnerEl.offsetWidth;
+            winnerEl.classList.add('spinning');
+          }
+          i++;
+          cycles--;
+          if (cycles > 0) {
+            delay += 15;
+            setTimeout(spin, delay);
+          } else {
+            resolve();
+          }
+        };
+        spin();
       });
 
-      if (!resp.ok) {
-        const err = await resp.json();
-        setAuthMessage(err.error || 'Registration failed.');
+      // Fetch actual server-side weighted pick
+      try {
+        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/pick`, {
+          method: 'POST',
+          body: JSON.stringify({ mode: 'random' }),
+        });
+        const data = await resp.json();
+        this.winner = data.winner;
+        this.showToast(`Winner: ${data.winner.place}`);
+        if (winnerEl) winnerEl.classList.remove('spinning');
+      } catch (e) {
+        this.showToast('Failed to pick', 'error');
+      }
+      this.picking = false;
+    },
+
+    // ── Closest Pick ──
+    async closestPick() {
+      if (!this.activeSession || this.picking) return;
+      this.picking = true;
+      this.winner = null;
+
+      if (!navigator.geolocation) {
+        this.showToast('Geolocation not supported by your browser', 'error');
+        this.picking = false;
         return;
       }
 
-      const { token } = await resp.json();
-      onAuthSuccess(token);
-    } catch (err) {
-      console.error('Registration error:', err);
-      setAuthMessage('Unexpected error during registration.');
-    }
-  };
-
-  btnLogin.onclick = async () => {
-    setAuthMessage('');
-    try {
-      const resp = await fetch('/api/login', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          username: userInput.value,
-          password: passInput.value
-        })
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        setAuthMessage(err.error || 'Login failed.');
-        return;
-      }
-
-      const { token } = await resp.json();
-      onAuthSuccess(token);
-    } catch (err) {
-      console.error('Login error:', err);
-      setAuthMessage('Unexpected error during login.');
-    }
-  };
-
-  logoutBtn.onclick = logoutAndReset;
-
-  function logoutAndReset() {
-    localStorage.removeItem('token');
-    authSection.classList.remove('hidden');
-    pmSection.classList.add('hidden');
-    planSection.classList.add('hidden');
-    logoutBtn.classList.add('hidden');
-  }
-
-  function onAuthSuccess(token) {
-    localStorage.setItem('token', token);
-    authSection.classList.add('hidden');
-    pmSection.classList.remove('hidden');
-    planSection.classList.remove('hidden');
-    logoutBtn.classList.remove('hidden');
-    initApp();
-  }
-
-  function initApp() {
-    input.addEventListener('input', async () => {
-      const q = input.value.trim();
-      if (!q) {
-        listEl.classList.add('hidden');
-        return;
-      }
+      this.winner = { place: 'Getting your location...' };
 
       try {
-        const resp = await authFetch(`/api/autocomplete?input=${encodeURIComponent(q)}`);
-        const data = await resp.json();
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+          });
+        });
 
-        if (!data.predictions || !Array.isArray(data.predictions)) {
-          listEl.classList.add('hidden');
+        this.userLat = position.coords.latitude;
+        this.userLng = position.coords.longitude;
+        this.winner = { place: 'Finding closest restaurant...' };
+
+        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/pick`, {
+          method: 'POST',
+          body: JSON.stringify({ mode: 'closest', lat: this.userLat, lng: this.userLng }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.winner = null;
+          this.showToast(err.error || 'Failed to find closest', 'error');
+          this.picking = false;
           return;
         }
 
-        listEl.innerHTML = '';
-        data.predictions.forEach(pred => {
-          const li = document.createElement('li');
-          li.textContent = pred.description;
-          li.onclick = () => selectPlace(pred.description);
-          listEl.append(li);
-        });
-        listEl.classList.remove('hidden');
-      } catch (err) {
-        console.error('Autocomplete error:', err);
-        listEl.classList.add('hidden');
+        const data = await resp.json();
+        this.winner = data.winner;
+        this.showToast(`Closest: ${data.winner.place}`);
+      } catch (e) {
+        this.winner = null;
+        if (e.code === 1) {
+          this.showToast('Location access denied. Please enable location permissions.', 'error');
+        } else {
+          this.showToast('Failed to get location', 'error');
+        }
       }
-    });
+      this.picking = false;
+    },
 
-    inviteBtn.onclick = async () => {
+    // ── Account ──
+    async changePassword() {
       try {
-        await authFetch('/api/invite', {
+        const resp = await this.api('/api/change-password', {
           method: 'POST',
-          body: JSON.stringify({ friendUsername: friendInput.value })
+          body: JSON.stringify({
+            currentPassword: this.accountForm.currentPassword,
+            newPassword: this.accountForm.newPassword,
+          }),
         });
-        loadCommonPlaces();
-      } catch (err) {
-        console.error('Failed to invite friend:', err);
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to change password', 'error');
+          return;
+        }
+        this.accountForm.currentPassword = '';
+        this.accountForm.newPassword = '';
+        this.showToast('Password changed!');
+      } catch (e) {
+        this.showToast('Failed to change password', 'error');
       }
-    };
+    },
 
-    function selectPlace(name) {
-      input.value = name;
-      selectedPlace = name;
-      listEl.classList.add('hidden');
-      addLikeBtn.disabled = false;
-      addDislikeBtn.disabled = false;
-
-      authFetch('/api/place', {
-        method: 'POST',
-        body: JSON.stringify({ place: name })
-      });
-
-      const anchor = mapLink.querySelector('a');
-      anchor.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
-      mapLink.classList.remove('hidden');
-    }
-
-    function resetSelection() {
-      input.value = '';
-      selectedPlace = null;
-      addLikeBtn.disabled = true;
-      addDislikeBtn.disabled = true;
-      mapLink.classList.add('hidden');
-    }
-
-    function createPlaceItem(place, type, reloadCallback) {
-      const li = document.createElement('li');
-      li.textContent = place;
-
-      const mapAnchor = document.createElement('a');
-      mapAnchor.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
-      mapAnchor.target = '_blank';
-      mapAnchor.textContent = ' [View on Map]';
-      mapAnchor.style.marginLeft = '0.5rem';
-      mapAnchor.style.fontSize = '0.85rem';
-
-      const btn = document.createElement('button');
-      btn.textContent = 'Remove';
-      btn.className = 'remove-btn';
-      btn.onclick = async () => {
-        await authFetch('/api/places', {
-          method: 'POST',
-          body: JSON.stringify({ type, place, remove: true })
-        });
-        reloadCallback();
-      };
-
-      li.append(mapAnchor, btn);
-      return li;
-    }
-
-    async function loadPlaces() {
+    async deleteAccount() {
+      if (!confirm('Are you sure? This cannot be undone.')) return;
       try {
-        const resp = await authFetch('/api/places');
-        const { likes = [], dislikes = [] } = await resp.json();
-
-        likesList.innerHTML = '';
-        likes.forEach(place => likesList.append(createPlaceItem(place, 'likes', loadPlaces)));
-
-        dislikesList.innerHTML = '';
-        dislikes.forEach(place => dislikesList.append(createPlaceItem(place, 'dislikes', loadPlaces)));
-      } catch (err) {
-        console.error('Failed to load places:', err);
+        const resp = await this.api('/api/delete-account', {
+          method: 'POST',
+          body: JSON.stringify({ password: this.accountForm.deletePassword }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to delete account', 'error');
+          return;
+        }
+        this.loggedIn = false;
+        this.username = '';
+        this.showToast('Account deleted.');
+      } catch (e) {
+        this.showToast('Failed to delete account', 'error');
       }
-    }
-
-    addLikeBtn.onclick = async () => {
-      await authFetch('/api/places', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'likes', place: selectedPlace })
-      });
-      resetSelection();
-      loadPlaces();
-    };
-
-    addDislikeBtn.onclick = async () => {
-      await authFetch('/api/places', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'dislikes', place: selectedPlace })
-      });
-      resetSelection();
-      loadPlaces();
-    };
-
-    async function loadCommonPlaces() {
-      const resp = await authFetch(`/api/common-places?friendUsername=${encodeURIComponent(friendInput.value)}`);
-      const { common } = await resp.json();
-      commonList.innerHTML = '';
-      common.forEach(place => {
-        const li = document.createElement('li');
-        li.textContent = place;
-
-        const mapAnchor = document.createElement('a');
-        mapAnchor.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
-        mapAnchor.target = '_blank';
-        mapAnchor.textContent = ' [View on Map]';
-        mapAnchor.style.marginLeft = '0.5rem';
-        mapAnchor.style.fontSize = '0.85rem';
-
-        li.append(mapAnchor);
-        commonList.append(li);
-      });
-    }
-
-    loadPlaces();
-  }
-
-  // Initialize state based on token
-  const token = localStorage.getItem('token');
-  if (token) {
-    onAuthSuccess(token);
-  } else {
-    logoutAndReset();
-  }
-});
+    },
+  };
+}

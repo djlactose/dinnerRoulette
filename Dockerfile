@@ -1,5 +1,8 @@
 FROM node:18-alpine
 
+# Build deps for better-sqlite3 native compilation
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /usr/src/app
 COPY package.json package-lock.json* ./
 RUN npm install --production
@@ -11,4 +14,8 @@ COPY public ./public
 RUN mkdir -p ./data
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/health || exit 1
+
 CMD ["npm", "start"]
