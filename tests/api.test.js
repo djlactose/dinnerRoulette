@@ -905,3 +905,157 @@ describe('Push Notifications', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+// ── Recent Suggestions Tests ───────────────────────────────────────────────
+
+describe('Recent Suggestions', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('recentuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('GET /api/suggestions/recent — returns empty initially', async () => {
+    const res = await request(app).get('/api/suggestions/recent').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.recent).toEqual([]);
+  });
+
+  test('GET /api/suggestions/recent — returns suggestions after adding to session', async () => {
+    // Create session and suggest
+    const sess = await request(app).post('/api/sessions').set('Cookie', cookie)
+      .send({ name: 'Recent Test' });
+    await request(app).post(`/api/sessions/${sess.body.id}/suggest`).set('Cookie', cookie)
+      .send({ place: 'Recent Place 1', place_id: null });
+    await request(app).post(`/api/sessions/${sess.body.id}/suggest`).set('Cookie', cookie)
+      .send({ place: 'Recent Place 2', place_id: null });
+
+    const res = await request(app).get('/api/suggestions/recent').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.recent.length).toBe(2);
+    expect(res.body.recent[0].name).toBe('Recent Place 2');
+  });
+});
+
+// ── Voting Deadline Tests ──────────────────────────────────────────────────
+
+describe('Voting Deadline', () => {
+  let cookie1, cookie2, sessionId;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('deadlineuser1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('deadlineuser2', 'password123');
+    cookie2 = r2.cookie;
+    const sess = await request(app).post('/api/sessions').set('Cookie', cookie1)
+      .send({ name: 'Deadline Session' });
+    sessionId = sess.body.id;
+    await request(app).post('/api/sessions/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+  });
+
+  test('POST /api/sessions/:id/deadline — creator can set deadline', async () => {
+    const deadline = new Date(Date.now() + 3600000).toISOString();
+    const res = await request(app).post(`/api/sessions/${sessionId}/deadline`).set('Cookie', cookie1)
+      .send({ deadline });
+    expect(res.status).toBe(200);
+
+    const detail = await request(app).get(`/api/sessions/${sessionId}`).set('Cookie', cookie1);
+    expect(detail.body.session.voting_deadline).toBe(deadline);
+  });
+
+  test('POST /api/sessions/:id/deadline — non-creator gets 403', async () => {
+    const res = await request(app).post(`/api/sessions/${sessionId}/deadline`).set('Cookie', cookie2)
+      .send({ deadline: new Date().toISOString() });
+    expect(res.status).toBe(403);
+  });
+
+  test('POST /api/sessions/:id/deadline — can remove deadline', async () => {
+    const res = await request(app).post(`/api/sessions/${sessionId}/deadline`).set('Cookie', cookie1)
+      .send({ deadline: null });
+    expect(res.status).toBe(200);
+
+    const detail = await request(app).get(`/api/sessions/${sessionId}`).set('Cookie', cookie1);
+    expect(detail.body.session.voting_deadline).toBeNull();
+  });
+});
+
+// ── Session Chat Tests ─────────────────────────────────────────────────────
+
+describe('Session Chat', () => {
+  let cookie1, cookie2, sessionId;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('chatuser1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('chatuser2', 'password123');
+    cookie2 = r2.cookie;
+    const sess = await request(app).post('/api/sessions').set('Cookie', cookie1)
+      .send({ name: 'Chat Session' });
+    sessionId = sess.body.id;
+    await request(app).post('/api/sessions/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+  });
+
+  test('GET /api/sessions/:id/messages — returns empty initially', async () => {
+    const res = await request(app).get(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.messages).toEqual([]);
+  });
+
+  test('POST /api/sessions/:id/messages — sends message', async () => {
+    const res = await request(app).post(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'Hello everyone!' });
+    expect(res.status).toBe(200);
+    expect(res.body.message.message).toBe('Hello everyone!');
+    expect(res.body.message.username).toBe('chatuser1');
+  });
+
+  test('GET /api/sessions/:id/messages — returns messages', async () => {
+    const res = await request(app).get(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.messages.length).toBe(1);
+    expect(res.body.messages[0].message).toBe('Hello everyone!');
+  });
+
+  test('POST /api/sessions/:id/messages — rejects empty message', async () => {
+    const res = await request(app).post(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1)
+      .send({ message: '   ' });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/sessions/:id/messages — rejects too long message', async () => {
+    const res = await request(app).post(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'a'.repeat(501) });
+    expect(res.status).toBe(400);
+  });
+
+  test('GET /api/sessions/:id/messages — non-member gets 403', async () => {
+    const r3 = await registerUser('chatoutsider', 'password123');
+    const res = await request(app).get(`/api/sessions/${sessionId}/messages`).set('Cookie', r3.cookie);
+    expect(res.status).toBe(403);
+  });
+});
+
+// ── Maps Config Tests ──────────────────────────────────────────────────────
+
+describe('Maps Config', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('mapsuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('GET /api/config/maps-key — returns API key', async () => {
+    const res = await request(app).get('/api/config/maps-key').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.key).toBe('test-key');
+  });
+
+  test('GET /api/config/maps-key — 401 without auth', async () => {
+    const res = await request(app).get('/api/config/maps-key');
+    expect(res.status).toBe(401);
+  });
+});

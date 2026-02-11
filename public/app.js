@@ -89,6 +89,31 @@ function dinnerRoulette() {
     notificationsEnabled: false,
     notificationsSupported: false,
 
+    // Cuisine filter (sessions)
+    sessionCuisineFilter: '',
+
+    // Recent suggestions
+    recentSuggestions: [],
+
+    // Invite
+    pendingInviteCode: null,
+
+    // Deadline
+    deadlineInput: '',
+    deadlineCountdown: '',
+    deadlineTimer: null,
+
+    // Chat
+    chatMessages: [],
+    chatInput: '',
+    chatVisible: false,
+
+    // Map
+    mapView: false,
+    mapInstance: null,
+    mapMarkers: [],
+    mapsLoaded: false,
+
     // Swipe
     swipeState: { name: null, startX: 0, currentX: 0, swiping: false },
     touchEnabled: false,
@@ -97,6 +122,69 @@ function dinnerRoulette() {
     socket: null,
 
     // ── Helpers ──
+    getInitials(username) {
+      if (!username) return '?';
+      const parts = username.trim().split(/\s+/);
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return username.slice(0, 2).toUpperCase();
+    },
+
+    hashColor(username) {
+      if (!username) return 'hsl(0, 50%, 50%)';
+      let hash = 0;
+      for (let i = 0; i < username.length; i++) {
+        hash = username.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue}, 55%, 45%)`;
+    },
+
+    createConfetti() {
+      const canvas = document.createElement('canvas');
+      canvas.className = 'confetti-canvas';
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      document.body.appendChild(canvas);
+      const ctx = canvas.getContext('2d');
+      const particles = [];
+      const colors = ['#e74c3c', '#f39c12', '#27ae60', '#3498db', '#9b59b6', '#e91e63', '#ff9800'];
+      for (let i = 0; i < 150; i++) {
+        particles.push({
+          x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+          y: canvas.height / 2,
+          vx: (Math.random() - 0.5) * 16,
+          vy: Math.random() * -18 - 4,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          size: Math.random() * 6 + 3,
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 10,
+          gravity: 0.3 + Math.random() * 0.2,
+        });
+      }
+      const startTime = Date.now();
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > 3000) { canvas.remove(); return; }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const p of particles) {
+          p.x += p.vx;
+          p.vy += p.gravity;
+          p.y += p.vy;
+          p.rotation += p.rotationSpeed;
+          p.vx *= 0.99;
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate((p.rotation * Math.PI) / 180);
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = Math.max(0, 1 - elapsed / 3000);
+          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+          ctx.restore();
+        }
+        requestAnimationFrame(animate);
+      };
+      animate();
+    },
+
     formatPlaceType(types) {
       if (!types?.length) return '';
       const ignore = new Set(['point_of_interest', 'establishment', 'geocode', 'political']);
@@ -167,8 +255,19 @@ function dinnerRoulette() {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.winner.place)}`;
     },
 
+    get uniqueSessionCuisines() {
+      const types = new Set();
+      (this.activeSession?.suggestions || []).forEach(s => {
+        if (s.restaurant_type) types.add(s.restaurant_type);
+      });
+      return [...types].sort();
+    },
+
     get sortedSessionSuggestions() {
-      const suggestions = this.activeSession?.suggestions || [];
+      let suggestions = this.activeSession?.suggestions || [];
+      if (this.sessionCuisineFilter) {
+        suggestions = suggestions.filter(s => s.restaurant_type === this.sessionCuisineFilter);
+      }
       const sorted = [...suggestions];
       if (this.sessionSuggestSort === 'votes') {
         sorted.sort((a, b) => b.vote_count - a.vote_count || a.place.localeCompare(b.place));
@@ -203,6 +302,12 @@ function dinnerRoulette() {
       this.touchEnabled = 'ontouchstart' in window;
       this.notificationsSupported = 'Notification' in window && 'PushManager' in window;
 
+      // Detect invite URL (/invite/CODE)
+      const inviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9]{6})$/);
+      if (inviteMatch) {
+        this.pendingInviteCode = inviteMatch[1].toUpperCase();
+      }
+
       try {
         const resp = await fetch('/api/me', { credentials: 'same-origin' });
         if (resp.ok) {
@@ -214,6 +319,9 @@ function dinnerRoulette() {
           await this.loadAppData();
           if (this.notificationsSupported && Notification.permission === 'granted') {
             this.notificationsEnabled = true;
+          }
+          if (this.pendingInviteCode) {
+            await this.autoJoinInvite();
           }
         }
       } catch (e) {
@@ -228,6 +336,7 @@ function dinnerRoulette() {
         this.loadFriends(),
         this.loadFriendRequests(),
         this.loadSessions(),
+        this.loadRecentSuggestions(),
       ]);
     },
 
@@ -268,6 +377,22 @@ function dinnerRoulette() {
       this.socket.on('session:winner-picked', (data) => {
         if (!this.activeSession) return;
         this.winner = data.winner;
+        this.createConfetti();
+      });
+
+      this.socket.on('session:deadline-updated', (data) => {
+        if (!this.activeSession) return;
+        this.activeSession.session.voting_deadline = data.deadline;
+        this.startDeadlineCountdown();
+      });
+
+      this.socket.on('session:message', (data) => {
+        if (!this.activeSession) return;
+        this.chatMessages.push(data);
+        this.$nextTick(() => {
+          const el = document.getElementById('chat-messages');
+          if (el) el.scrollTop = el.scrollHeight;
+        });
       });
 
       this.socket.on('session:closed', () => {
@@ -346,6 +471,7 @@ function dinnerRoulette() {
         await this.fetchMe();
         this.connectSocket();
         await this.loadAppData();
+        if (this.pendingInviteCode) await this.autoJoinInvite();
       } catch (e) {
         this.authError = 'Unexpected error during registration.';
       }
@@ -376,6 +502,7 @@ function dinnerRoulette() {
         await this.fetchMe();
         this.connectSocket();
         await this.loadAppData();
+        if (this.pendingInviteCode) await this.autoJoinInvite();
       } catch (e) {
         this.authError = 'Unexpected error during login.';
       }
@@ -843,6 +970,8 @@ function dinnerRoulette() {
         const resp = await this.api(`/api/sessions/${sessionId}`);
         this.activeSession = await resp.json();
         this.winner = null;
+        this.sessionCuisineFilter = '';
+        this.mapView = false;
         if (this.activeSession.session.winner_place) {
           this.winner = { place: this.activeSession.session.winner_place };
         }
@@ -852,6 +981,8 @@ function dinnerRoulette() {
           const dData = await dResp.json();
           this.sessionDislikes = dData.dislikes || [];
         } catch (e) { this.sessionDislikes = []; }
+        await this.loadChatMessages();
+        this.startDeadlineCountdown();
       } catch (e) {
         this.showToast('Failed to open session', 'error');
       }
@@ -874,6 +1005,15 @@ function dinnerRoulette() {
       this.closingSession = false;
       this.sessionPlaceSearch = '';
       this.sessionPredictions = [];
+      this.chatMessages = [];
+      this.chatInput = '';
+      this.chatVisible = false;
+      this.sessionCuisineFilter = '';
+      this.mapView = false;
+      if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
+      this.deadlineCountdown = '';
+      this.deadlineInput = '';
+      if (this.mapInstance) { this.mapInstance = null; this.mapMarkers = []; }
       this.loadSessions();
     },
 
@@ -1031,24 +1171,24 @@ function dinnerRoulette() {
         return;
       }
 
-      // Spinning animation
+      // Enhanced spinning animation
       const winnerEl = document.getElementById('winner-text');
-      let cycles = 20;
-      let delay = 50;
+      let cycles = 25;
+      let delay = 40;
       let i = 0;
 
       await new Promise(resolve => {
         const spin = () => {
           this.winner = { place: names[i % names.length] };
           if (winnerEl) {
-            winnerEl.classList.remove('spinning');
+            winnerEl.classList.remove('spin-enhanced');
             void winnerEl.offsetWidth;
-            winnerEl.classList.add('spinning');
+            winnerEl.classList.add('spin-enhanced');
           }
           i++;
           cycles--;
           if (cycles > 0) {
-            delay += 15;
+            delay = Math.floor(delay * 1.12);
             setTimeout(spin, delay);
           } else {
             resolve();
@@ -1065,8 +1205,12 @@ function dinnerRoulette() {
         });
         const data = await resp.json();
         this.winner = data.winner;
+        if (winnerEl) {
+          winnerEl.classList.remove('spin-enhanced');
+          winnerEl.classList.add('winner-bounce');
+        }
         this.showToast(`Winner: ${data.winner.place}`);
-        if (winnerEl) winnerEl.classList.remove('spinning');
+        this.createConfetti();
       } catch (e) {
         this.showToast('Failed to pick', 'error');
       }
@@ -1115,6 +1259,7 @@ function dinnerRoulette() {
         const data = await resp.json();
         this.winner = data.winner;
         this.showToast(`Closest: ${data.winner.place}`);
+        this.createConfetti();
       } catch (e) {
         this.winner = null;
         if (e.code === 1) {
@@ -1172,6 +1317,216 @@ function dinnerRoulette() {
         await navigator.clipboard.writeText(text);
         this.showToast('Result copied to clipboard!');
       }
+    },
+
+    // ── Recent Suggestions ──
+    async loadRecentSuggestions() {
+      try {
+        const resp = await this.api('/api/suggestions/recent');
+        const data = await resp.json();
+        this.recentSuggestions = data.recent || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    // ── Invite Non-App Users ──
+    async autoJoinInvite() {
+      if (!this.pendingInviteCode) return;
+      const code = this.pendingInviteCode;
+      this.pendingInviteCode = null;
+      window.history.replaceState(null, '', '/');
+      try {
+        const resp = await this.api('/api/sessions/join', {
+          method: 'POST',
+          body: JSON.stringify({ code }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          this.showToast('Joined session!');
+          await this.loadSessions();
+          await this.openSession(data.id);
+        } else {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to join session', 'error');
+        }
+      } catch (e) {
+        this.showToast('Failed to join session', 'error');
+      }
+    },
+
+    async shareSessionInvite() {
+      if (!this.activeSession) return;
+      const code = this.activeSession.session.code;
+      const url = `${window.location.origin}/invite/${code}`;
+      const text = `Join my Dinner Roulette session! Use code ${code} or click: ${url}`;
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Dinner Roulette Invite', text, url }); } catch (e) { /* cancelled */ }
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        this.showToast('Invite link copied!');
+      }
+    },
+
+    // ── Deadline ──
+    async setDeadline() {
+      if (!this.deadlineInput || !this.activeSession) return;
+      try {
+        await this.api(`/api/sessions/${this.activeSession.session.id}/deadline`, {
+          method: 'POST',
+          body: JSON.stringify({ deadline: this.deadlineInput }),
+        });
+        this.activeSession.session.voting_deadline = this.deadlineInput;
+        this.startDeadlineCountdown();
+        this.showToast('Deadline set!');
+      } catch (e) {
+        this.showToast('Failed to set deadline', 'error');
+      }
+    },
+
+    async removeDeadline() {
+      if (!this.activeSession) return;
+      try {
+        await this.api(`/api/sessions/${this.activeSession.session.id}/deadline`, {
+          method: 'POST',
+          body: JSON.stringify({ deadline: null }),
+        });
+        this.activeSession.session.voting_deadline = null;
+        if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
+        this.deadlineCountdown = '';
+        this.deadlineInput = '';
+        this.showToast('Deadline removed');
+      } catch (e) {
+        this.showToast('Failed to remove deadline', 'error');
+      }
+    },
+
+    startDeadlineCountdown() {
+      if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
+      this.deadlineCountdown = '';
+      const deadline = this.activeSession?.session?.voting_deadline;
+      if (!deadline) return;
+
+      const update = () => {
+        const now = new Date();
+        const end = new Date(deadline);
+        const diff = end - now;
+        if (diff <= 0) {
+          this.deadlineCountdown = 'Deadline passed!';
+          clearInterval(this.deadlineTimer);
+          this.deadlineTimer = null;
+          return;
+        }
+        const hours = Math.floor(diff / 3600000);
+        const mins = Math.floor((diff % 3600000) / 60000);
+        const secs = Math.floor((diff % 60000) / 1000);
+        if (hours > 0) {
+          this.deadlineCountdown = `${hours}h ${mins}m ${secs}s remaining`;
+        } else if (mins > 0) {
+          this.deadlineCountdown = `${mins}m ${secs}s remaining`;
+        } else {
+          this.deadlineCountdown = `${secs}s remaining`;
+        }
+      };
+      update();
+      this.deadlineTimer = setInterval(update, 1000);
+    },
+
+    // ── Chat ──
+    async loadChatMessages() {
+      if (!this.activeSession) return;
+      try {
+        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/messages`);
+        const data = await resp.json();
+        this.chatMessages = data.messages || [];
+      } catch (e) { this.chatMessages = []; }
+    },
+
+    async sendChatMessage() {
+      if (!this.chatInput.trim() || !this.activeSession) return;
+      try {
+        await this.api(`/api/sessions/${this.activeSession.session.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ message: this.chatInput.trim() }),
+        });
+        this.chatInput = '';
+      } catch (e) {
+        this.showToast('Failed to send message', 'error');
+      }
+    },
+
+    formatChatTime(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z'));
+      return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    },
+
+    // ── Map View ──
+    async loadMapsApi() {
+      if (this.mapsLoaded || window.google?.maps) { this.mapsLoaded = true; return; }
+      try {
+        const resp = await this.api('/api/config/maps-key');
+        const data = await resp.json();
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${data.key}`;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+        this.mapsLoaded = true;
+      } catch (e) {
+        this.showToast('Failed to load maps', 'error');
+      }
+    },
+
+    async toggleMapView() {
+      this.mapView = !this.mapView;
+      if (this.mapView) {
+        await this.loadMapsApi();
+        this.$nextTick(() => this.initMap());
+      }
+    },
+
+    initMap() {
+      if (!window.google?.maps) return;
+      const container = document.getElementById('session-map');
+      if (!container) return;
+      const suggestions = this.activeSession?.suggestions || [];
+      const withCoords = suggestions.filter(s => s.lat != null && s.lng != null);
+      const center = withCoords.length > 0
+        ? { lat: withCoords[0].lat, lng: withCoords[0].lng }
+        : { lat: 40.7128, lng: -74.006 };
+      this.mapInstance = new google.maps.Map(container, {
+        center,
+        zoom: 13,
+        mapTypeControl: false,
+        streetViewControl: false,
+      });
+      this.updateMapMarkers();
+    },
+
+    updateMapMarkers() {
+      if (!this.mapInstance) return;
+      this.mapMarkers.forEach(m => m.setMap(null));
+      this.mapMarkers = [];
+      const suggestions = this.activeSession?.suggestions || [];
+      const withCoords = suggestions.filter(s => s.lat != null && s.lng != null);
+      const bounds = new google.maps.LatLngBounds();
+      withCoords.forEach((s, idx) => {
+        const marker = new google.maps.Marker({
+          position: { lat: s.lat, lng: s.lng },
+          map: this.mapInstance,
+          title: s.place,
+          label: { text: String(idx + 1), color: 'white', fontWeight: 'bold' },
+        });
+        const infoWindow = new google.maps.InfoWindow({
+          content: `<strong>${s.place}</strong>${s.restaurant_type ? `<br><small>${s.restaurant_type}</small>` : ''}<br><small>${s.vote_count} vote${s.vote_count !== 1 ? 's' : ''}</small>`,
+        });
+        marker.addListener('click', () => infoWindow.open(this.mapInstance, marker));
+        this.mapMarkers.push(marker);
+        bounds.extend(marker.getPosition());
+      });
+      if (withCoords.length > 1) this.mapInstance.fitBounds(bounds);
+      else if (withCoords.length === 1) this.mapInstance.setCenter(withCoords[0]);
     },
 
     // ── Notifications ──

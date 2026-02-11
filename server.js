@@ -57,10 +57,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'", "ws:", "wss:"],
+      scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io", "https://maps.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
       upgradeInsecureRequests: null,
     }
   }
@@ -184,6 +185,15 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS session_messages (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -200,6 +210,7 @@ try { db.exec('ALTER TABLE friends ADD COLUMN status TEXT DEFAULT \'accepted\'')
 try { db.exec('ALTER TABLE likes ADD COLUMN visited_at TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE likes ADD COLUMN notes TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN price_level INTEGER'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN voting_deadline TEXT'); } catch (e) { /* already exists */ }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 function generateToken(user) {
@@ -363,6 +374,7 @@ app.post('/api/delete-account', auth, async (req, res) => {
     db.prepare('DELETE FROM places WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM suggestions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM session_messages WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM users WHERE id = ?').run(uid);
   });
@@ -621,6 +633,17 @@ app.post('/api/suggestions/remove', auth, (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/suggestions/recent', auth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT DISTINCT ss.place, ss.place_id, ss.restaurant_type
+    FROM session_suggestions ss
+    WHERE ss.user_id = ?
+    ORDER BY ss.id DESC
+    LIMIT 5
+  `).all(req.user.id);
+  res.json({ recent: rows.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
+});
+
 // ── Session Routes ──────────────────────────────────────────────────────────────
 app.post('/api/sessions', auth, (req, res) => {
   const { name } = req.body;
@@ -678,7 +701,7 @@ app.get('/api/sessions/:id/dislikes', auth, (req, res) => {
 
 app.get('/api/sessions', auth, (req, res) => {
   const sessions = db.prepare(`
-    SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id,
+    SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id, s.voting_deadline,
            u.username AS creator_username,
            (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) AS member_count,
            (SELECT COUNT(*) FROM session_suggestions WHERE session_id = s.id) AS suggestion_count
@@ -863,6 +886,7 @@ app.delete('/api/sessions/:id', auth, (req, res) => {
   if (session.status !== 'closed') return res.status(400).json({ error: 'Session must be closed before deleting' });
 
   const deleteAll = db.transaction(() => {
+    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(sessionId);
     db.prepare('DELETE FROM session_members WHERE session_id = ?').run(sessionId);
@@ -872,6 +896,58 @@ app.delete('/api/sessions/:id', auth, (req, res) => {
 
   io.to(`session:${sessionId}`).emit('session:deleted', { sessionId: Number(sessionId) });
   res.json({ success: true });
+});
+
+// ── Voting Deadline ──────────────────────────────────────────────────────────────
+app.post('/api/sessions/:id/deadline', auth, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (session.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can set a deadline' });
+
+  const { deadline } = req.body;
+  db.prepare('UPDATE sessions SET voting_deadline = ? WHERE id = ?').run(deadline || null, sessionId);
+  io.to(`session:${sessionId}`).emit('session:deadline-updated', { sessionId: Number(sessionId), deadline: deadline || null });
+  res.json({ success: true });
+});
+
+// ── Session Chat ─────────────────────────────────────────────────────────────────
+app.get('/api/sessions/:id/messages', auth, (req, res) => {
+  const sessionId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+
+  const messages = db.prepare(`
+    SELECT sm.id, sm.message, sm.created_at, sm.user_id, u.username
+    FROM session_messages sm
+    JOIN users u ON u.id = sm.user_id
+    WHERE sm.session_id = ?
+    ORDER BY sm.created_at ASC
+    LIMIT 100
+  `).all(sessionId);
+  res.json({ messages });
+});
+
+app.post('/api/sessions/:id/messages', auth, (req, res) => {
+  const sessionId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+
+  const { message } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+  if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
+
+  const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message) VALUES (?, ?, ?)').run(sessionId, req.user.id, message.trim());
+  const username = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id).username;
+
+  const msg = { id: result.lastInsertRowid, message: message.trim(), user_id: req.user.id, username, created_at: new Date().toISOString() };
+  io.to(`session:${sessionId}`).emit('session:message', msg);
+  res.json({ message: msg });
+});
+
+// ── Config Routes ────────────────────────────────────────────────────────────────
+app.get('/api/config/maps-key', auth, (req, res) => {
+  res.json({ key: API_KEY });
 });
 
 // ── SPA Fallback ────────────────────────────────────────────────────────────────

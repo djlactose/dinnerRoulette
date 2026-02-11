@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=10"></script>
+  <script defer src="app.js?v=11"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -54,6 +54,7 @@
           <button class="theme-toggle" @click="toggleTheme()" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
             <span x-text="theme === 'dark' ? '☀️' : '🌙'"></span>
           </button>
+          <span class="avatar avatar-sm" :style="{ background: hashColor(username) }" x-text="getInitials(username)"></span>
           <span class="username-badge" x-text="username"></span>
           <button class="logout-btn" @click="logout()">Logout</button>
         </div>
@@ -61,6 +62,13 @@
     </header>
 
     <main>
+      <!-- Invite Banner (for logged-out users with pending invite) -->
+      <div class="invite-banner" x-show="!loggedIn && pendingInviteCode">
+        <p>You've been invited to a Dinner Roulette session!</p>
+        <p class="invite-code-display" x-text="pendingInviteCode"></p>
+        <p class="invite-hint">Log in or register below to join the session.</p>
+      </div>
+
       <!-- Authentication -->
       <section x-show="!loggedIn">
         <button class="toggle-btn" @click="sections.auth = !sections.auth">
@@ -196,7 +204,7 @@
           <div x-show="likes.length === 0" class="empty-state">
             <span class="empty-state-icon">&#x1F37D;</span>
             <p>No liked places yet.</p>
-            <p class="empty-state-hint">Search for a restaurant above to get started.</p>
+            <p class="empty-state-hint">Search above and tap Like to start building your list.</p>
           </div>
 
           <h3>Disliked</h3>
@@ -251,6 +259,7 @@
             <ul>
               <template x-for="r in friendRequests" :key="r.id">
                 <li>
+                  <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(r.username) }" x-text="getInitials(r.username)"></span>
                   <span x-text="r.username"></span>
                   <span class="place-actions">
                     <button class="suggest-btn" @click="acceptFriend(r.id)">Accept</button>
@@ -262,22 +271,30 @@
           </div>
 
           <!-- Friends List -->
-          <div x-show="friends.length > 0" class="friends-list">
+          <div class="friends-list">
             <h4>Friends</h4>
-            <ul>
-              <template x-for="f in friends" :key="f.id">
-                <li>
-                  <span x-text="f.username"></span>
-                  <span class="place-actions">
-                    <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
-                    <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
-                    <button class="suggest-btn" x-show="activeSession && activeSession.session.status === 'open'"
-                            @click="quickInviteFriend(f.username)" aria-label="Invite to session">Invite</button>
-                    <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
-                  </span>
-                </li>
-              </template>
-            </ul>
+            <template x-if="friends.length > 0">
+              <ul>
+                <template x-for="f in friends" :key="f.id">
+                  <li>
+                    <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
+                    <span x-text="f.username"></span>
+                    <span class="place-actions">
+                      <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
+                      <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
+                      <button class="suggest-btn" x-show="activeSession && activeSession.session.status === 'open'"
+                              @click="quickInviteFriend(f.username)" aria-label="Invite to session">Invite</button>
+                      <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
+                    </span>
+                  </li>
+                </template>
+              </ul>
+            </template>
+            <div x-show="friends.length === 0" class="empty-state">
+              <span class="empty-state-icon">&#x1F465;</span>
+              <p>No friends yet.</p>
+              <p class="empty-state-hint">Enter a username above and send a friend request.</p>
+            </div>
           </div>
 
           <!-- Friend's Likes View -->
@@ -309,17 +326,24 @@
           </div>
 
           <!-- Common Places -->
-          <div x-show="commonPlaces.length > 0">
+          <div x-show="commonFriend">
             <h4 x-text="'Common Places with ' + commonFriend"></h4>
-            <ul>
-              <template x-for="place in commonPlaces" :key="place">
-                <li>
-                  <span x-text="place"></span>
-                  <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place)"
-                     target="_blank" rel="noopener" class="map-link-small">[Map]</a>
-                </li>
-              </template>
-            </ul>
+            <template x-if="commonPlaces.length > 0">
+              <ul>
+                <template x-for="place in commonPlaces" :key="place">
+                  <li>
+                    <span x-text="place"></span>
+                    <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place)"
+                       target="_blank" rel="noopener" class="map-link-small">[Map]</a>
+                  </li>
+                </template>
+              </ul>
+            </template>
+            <div x-show="commonPlaces.length === 0" class="empty-state">
+              <span class="empty-state-icon">&#x1F91D;</span>
+              <p>No common places yet.</p>
+              <p class="empty-state-hint">Like some of the same restaurants to find common ground.</p>
+            </div>
           </div>
 
           <!-- Personal Suggestions -->
@@ -370,7 +394,10 @@
                     <div>
                       <strong x-text="s.name"></strong>
                       <span class="session-code" x-text="s.code"></span>
-                      <span class="session-creator" x-text="'by ' + s.creator_username"></span>
+                      <span class="session-creator">
+                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
+                        <span x-text="s.creator_username"></span>
+                      </span>
                     </div>
                     <div>
                       <span class="member-count" x-text="s.member_count + ' members'"></span>
@@ -387,7 +414,10 @@
                   <li @click="openSession(s.id)">
                     <div>
                       <strong x-text="s.name"></strong>
-                      <span class="session-creator" x-text="'by ' + s.creator_username"></span>
+                      <span class="session-creator">
+                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
+                        <span x-text="s.creator_username"></span>
+                      </span>
                       <span class="session-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
                     </div>
                     <div>
@@ -412,6 +442,8 @@
                 <h4 x-text="activeSession?.session?.name"></h4>
                 <span class="session-code clickable" @click="copyCode()" x-text="activeSession?.session?.code"
                       title="Click to copy"></span>
+                <button class="share-invite-btn" @click="shareSessionInvite()"
+                        x-show="activeSession?.session?.status === 'open'">Share Invite</button>
                 <button class="back-btn" @click="closeActiveSession()">Back</button>
                 <button class="remove-btn" x-show="activeSession?.session?.creator_id === userId && activeSession?.session?.status === 'open' && !closingSession"
                         @click="closeSession()">Close Session</button>
@@ -419,15 +451,43 @@
                 <button class="remove-btn" x-show="activeSession?.session?.creator_id === userId && activeSession?.session?.status === 'closed'"
                         @click="deleteSession(activeSession.session.id)">Delete Session</button>
               </div>
-              <p class="members-line">
-                <strong>Members:</strong> <span x-text="activeSession?.members?.map(m => m.username).join(', ')"></span>
-              </p>
+
+              <!-- Members with Avatars -->
+              <div class="members-line">
+                <strong>Members:</strong>
+                <div class="member-chips">
+                  <template x-for="m in activeSession?.members || []" :key="m.id">
+                    <span class="member-chip">
+                      <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
+                      <span x-text="m.username"></span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+
               <div class="inline-input session-invite-input" x-show="activeSession?.session?.status === 'open'">
                 <input x-model="sessionInviteUsername" placeholder="Invite by username..."
                        @keydown.enter="inviteToSession()" aria-label="Invite user to session" />
                 <button @click="inviteToSession()">Invite</button>
               </div>
               <p x-show="activeSession?.session?.status === 'closed'" class="closed-badge">This session is closed.</p>
+
+              <!-- Voting Deadline -->
+              <div class="deadline-section" x-show="activeSession?.session?.status === 'open'">
+                <template x-if="activeSession?.session?.voting_deadline">
+                  <div class="deadline-display">
+                    <span class="deadline-icon">&#x23F0;</span>
+                    <span class="deadline-text" :class="{ urgent: deadlineCountdown.includes('s remaining') && !deadlineCountdown.includes('m') }"
+                          x-text="deadlineCountdown || 'Deadline set'"></span>
+                    <button class="back-btn btn-sm" x-show="activeSession?.session?.creator_id === userId"
+                            @click="removeDeadline()">Remove</button>
+                  </div>
+                </template>
+                <div class="deadline-controls" x-show="!activeSession?.session?.voting_deadline && activeSession?.session?.creator_id === userId">
+                  <input type="datetime-local" x-model="deadlineInput" aria-label="Set voting deadline" />
+                  <button class="suggest-btn btn-sm" @click="setDeadline()" :disabled="!deadlineInput">Set Deadline</button>
+                </div>
+              </div>
 
               <!-- Winner Selection on Close -->
               <div x-show="closingSession" class="close-winner-panel">
@@ -474,6 +534,18 @@
                     No results found. Try a different search term.
                   </p>
                 </div>
+
+                <!-- Recently Suggested Quick-Add -->
+                <div x-show="recentSuggestions.length > 0" class="recent-suggest-section">
+                  <span class="grid-label">Recently suggested:</span>
+                  <div class="recent-suggest-grid">
+                    <template x-for="rs in recentSuggestions" :key="rs.name">
+                      <button class="recent-suggest-btn" @click="suggestToSession(rs.name, rs.place_id, rs.restaurant_type)"
+                              :aria-label="'Suggest ' + rs.name" x-text="'+ ' + rs.name"></button>
+                    </template>
+                  </div>
+                </div>
+
                 <div x-show="likes.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">Quick suggest from likes:</span>
                   <template x-for="place in likes" :key="place.name">
@@ -488,19 +560,54 @@
 
               <!-- Session Suggestions with Votes -->
               <h4>Suggestions <span class="vote-hint" x-show="activeSession?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
+
+              <!-- Cuisine Filter Chips -->
+              <div class="cuisine-filter-chips" x-show="uniqueSessionCuisines.length > 1">
+                <button class="filter-chip" :class="{ active: sessionCuisineFilter === '' }"
+                        @click="sessionCuisineFilter = ''">All</button>
+                <template x-for="cuisine in uniqueSessionCuisines" :key="cuisine">
+                  <button class="filter-chip" :class="{ active: sessionCuisineFilter === cuisine }"
+                          @click="sessionCuisineFilter = cuisine" x-text="cuisine"></button>
+                </template>
+              </div>
+
               <div class="sort-controls" x-show="activeSession?.suggestions?.length > 1">
                 <button class="sort-btn" :class="{ active: sessionSuggestSort === 'votes' }" @click="sessionSuggestSort = 'votes'">By Votes</button>
                 <button class="sort-btn" :class="{ active: sessionSuggestSort === 'name' }" @click="sessionSuggestSort = 'name'">By Name</button>
                 <button class="sort-btn" :class="{ active: sessionSuggestSort === 'suggester' }" @click="sessionSuggestSort = 'suggester'">By Suggester</button>
               </div>
-              <ul class="session-suggestion-list">
+
+              <!-- List/Map View Toggle -->
+              <div class="view-toggle" x-show="activeSession?.suggestions?.some(s => s.lat != null)">
+                <button :class="{ active: !mapView }" @click="mapView = false">List</button>
+                <button :class="{ active: mapView }" @click="toggleMapView()">Map</button>
+              </div>
+
+              <!-- Map View -->
+              <div x-show="mapView">
+                <div id="session-map" class="session-map"></div>
+                <div class="map-legend">
+                  <template x-for="(s, idx) in (activeSession?.suggestions || []).filter(s => s.lat != null)" :key="s.id">
+                    <span class="map-legend-item">
+                      <span class="legend-number" x-text="idx + 1"></span>
+                      <span x-text="s.place"></span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- List View -->
+              <ul class="session-suggestion-list" x-show="!mapView">
                 <template x-for="s in sortedSessionSuggestions" :key="s.id">
                   <li>
                     <div class="suggestion-info">
                       <span class="suggestion-name" x-text="s.place"></span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
                       <span class="price-badge" x-show="s.price_level" x-text="priceDisplay(s.price_level)"></span>
-                      <span class="suggestion-by" x-text="'by ' + s.suggested_by"></span>
+                      <span class="suggestion-by">
+                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.suggested_by) }" x-text="getInitials(s.suggested_by)"></span>
+                        <span x-text="s.suggested_by"></span>
+                      </span>
                     </div>
                     <div class="suggestion-actions">
                       <span class="vote-count"
@@ -524,7 +631,7 @@
               </div>
 
               <!-- Pick Buttons -->
-              <div class="buttons pick-buttons" x-show="activeSession?.suggestions?.length > 0">
+              <div class="buttons pick-buttons" x-show="activeSession?.suggestions?.length > 0 && activeSession?.session?.status === 'open'">
                 <button @click="randomPick()" :disabled="picking" aria-label="Random pick weighted by votes">🎲 Random Pick</button>
                 <button @click="closestPick()" :disabled="picking" aria-label="Pick the closest restaurant">📍 Closest</button>
               </div>
@@ -555,6 +662,36 @@
                     <template x-for="tp in sessionRecap?.topPlaces || []" :key="tp.place">
                       <span class="recap-place" x-text="tp.place + ' (' + tp.vote_count + 'v)'"></span>
                     </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Session Chat -->
+              <div class="chat-section">
+                <button class="chat-toggle" @click="chatVisible = !chatVisible">
+                  <span x-text="chatVisible ? '▼ Chat' : '▶ Chat'"></span>
+                  <span class="chat-badge" x-show="chatMessages.length > 0" x-text="chatMessages.length"></span>
+                </button>
+                <div x-show="chatVisible" x-collapse>
+                  <div id="chat-messages" class="chat-messages">
+                    <div x-show="chatMessages.length === 0" class="chat-empty">
+                      No messages yet. Start the conversation!
+                    </div>
+                    <template x-for="msg in chatMessages" :key="msg.id">
+                      <div class="chat-message" :class="{ own: msg.user_id === userId }">
+                        <span class="chat-avatar avatar avatar-xs" :style="{ background: hashColor(msg.username) }" x-text="getInitials(msg.username)"></span>
+                        <div class="chat-bubble">
+                          <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.username"></div>
+                          <div x-text="msg.message"></div>
+                          <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="chat-input-wrapper">
+                    <input x-model="chatInput" placeholder="Type a message..." maxlength="500"
+                           @keydown.enter="sendChatMessage()" aria-label="Chat message" />
+                    <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()">Send</button>
                   </div>
                 </div>
               </div>
