@@ -225,6 +225,8 @@ try { db.exec('ALTER TABLE users ADD COLUMN email TEXT'); } catch (e) { /* alrea
 try { db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN created_at TEXT'); } catch (e) { /* already exists */ }
 try { db.exec("UPDATE users SET created_at = datetime('now') WHERE created_at IS NULL"); } catch (e) { /* ignore */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN starred INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE want_to_try ADD COLUMN starred INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -394,8 +396,8 @@ async function sendPushToUser(userId, payload) {
   }
 }
 
-async function sendPushToSessionMembers(sessionId, payload, excludeUserId = null) {
-  const members = db.prepare('SELECT user_id FROM session_members WHERE session_id = ?').all(sessionId);
+async function sendPushToPlanMembers(planId, payload, excludeUserId = null) {
+  const members = db.prepare('SELECT user_id FROM session_members WHERE session_id = ?').all(planId);
   for (const m of members) {
     if (m.user_id !== excludeUserId) {
       sendPushToUser(m.user_id, payload);
@@ -403,7 +405,7 @@ async function sendPushToSessionMembers(sessionId, payload, excludeUserId = null
   }
 }
 
-function generateSessionCode() {
+function generatePlanCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
@@ -598,12 +600,12 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
 // ── Admin Routes ─────────────────────────────────────────────────────────────────
 app.get('/api/admin/stats', adminAuth, (req, res) => {
   const users = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
-  const sessions = db.prepare('SELECT COUNT(*) as c FROM sessions').get().c;
-  const active_sessions = db.prepare("SELECT COUNT(*) as c FROM sessions WHERE status = 'open'").get().c;
+  const plans = db.prepare('SELECT COUNT(*) as c FROM sessions').get().c;
+  const active_plans = db.prepare("SELECT COUNT(*) as c FROM sessions WHERE status = 'open'").get().c;
   const places = db.prepare('SELECT COUNT(*) as c FROM likes').get().c;
   const smtp_configured = !!(getSetting('smtp_host') && getSetting('smtp_port'));
   const vapid_source = VAPID_SOURCE || 'none';
-  res.json({ users, sessions, active_sessions, places, smtp_configured, vapid_source });
+  res.json({ users, plans, active_plans, places, smtp_configured, vapid_source });
 });
 
 app.get('/api/admin/users', adminAuth, (req, res) => {
@@ -761,6 +763,46 @@ app.post('/api/admin/settings', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Admin Plan Management ────────────────────────────────────────────────────────
+app.get('/api/admin/plans', adminAuth, (req, res) => {
+  const plans = db.prepare(`
+    SELECT s.id, s.name, s.code, s.status, s.created_at, s.winner_place, s.picked_at,
+           u.username as creator_name,
+           (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) as member_count,
+           (SELECT COUNT(*) FROM session_suggestions WHERE session_id = s.id) as suggestion_count
+    FROM sessions s
+    LEFT JOIN users u ON s.creator_id = u.id
+    ORDER BY s.created_at DESC
+  `).all();
+  res.json({ plans });
+});
+
+app.post('/api/admin/plans/:id/close', adminAuth, (req, res) => {
+  const planId = req.params.id;
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  if (plan.status === 'closed') return res.status(400).json({ error: 'Plan is already closed' });
+  db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(planId);
+  io.to(`plan:${planId}`).emit('plan:closed', { planId });
+  res.json({ success: true });
+});
+
+app.delete('/api/admin/plans/:id', adminAuth, (req, res) => {
+  const planId = req.params.id;
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  const deleteAll = db.transaction(() => {
+    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_members WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(planId);
+  });
+  deleteAll();
+  io.to(`plan:${planId}`).emit('plan:deleted', { planId: Number(planId) });
+  res.json({ success: true });
+});
+
 // ── Places Routes ───────────────────────────────────────────────────────────────
 app.get('/api/autocomplete', auth, async (req, res) => {
   try {
@@ -801,16 +843,28 @@ app.post('/api/place', auth, (req, res) => {
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at, notes FROM likes WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at, notes, starred FROM likes WHERE user_id = ?').all(uid);
   const dislikes = db.prepare('SELECT place, place_id, restaurant_type FROM dislikes WHERE user_id = ?').all(uid);
-  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type FROM want_to_try WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, starred FROM want_to_try WHERE user_id = ?').all(uid);
   const all = db.prepare('SELECT place, place_id, restaurant_type FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null, notes: r.notes || null })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred })),
     dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
-    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
+    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, starred: !!r.starred })),
     all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
   });
+});
+
+app.post('/api/places/:type/star', auth, (req, res) => {
+  const { place } = req.body;
+  const type = req.params.type;
+  if (!place) return res.status(400).json({ error: 'Missing place' });
+  if (type !== 'likes' && type !== 'want_to_try') return res.status(400).json({ error: 'Invalid type' });
+  const row = db.prepare(`SELECT starred FROM ${type} WHERE user_id = ? AND place = ?`).get(req.user.id, place);
+  if (!row) return res.status(404).json({ error: 'Place not found in your list' });
+  const newVal = row.starred ? 0 : 1;
+  db.prepare(`UPDATE ${type} SET starred = ? WHERE user_id = ? AND place = ?`).run(newVal, req.user.id, place);
+  res.json({ success: true, starred: !!newVal });
 });
 
 app.post('/api/places/notes', auth, (req, res) => {
@@ -979,29 +1033,6 @@ app.delete('/api/push/subscribe', auth, (req, res) => {
 });
 
 // ── Suggestions Routes ──────────────────────────────────────────────────────────
-app.post('/api/suggest', auth, (req, res) => {
-  const { place, place_id, restaurant_type } = req.body;
-  if (!place) return res.status(400).json({ error: 'Missing place' });
-  try {
-    db.prepare('INSERT OR IGNORE INTO suggestions (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to save suggestion' });
-  }
-});
-
-app.get('/api/suggestions', auth, (req, res) => {
-  const rows = db.prepare('SELECT place, place_id, restaurant_type FROM suggestions WHERE user_id = ?').all(req.user.id);
-  res.json({ suggestions: rows.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
-});
-
-app.post('/api/suggestions/remove', auth, (req, res) => {
-  const { place } = req.body;
-  if (!place) return res.status(400).json({ error: 'Missing place' });
-  db.prepare('DELETE FROM suggestions WHERE user_id = ? AND place = ?').run(req.user.id, place);
-  res.json({ success: true });
-});
-
 app.get('/api/suggestions/recent', auth, (req, res) => {
   const rows = db.prepare(`
     SELECT DISTINCT ss.place, ss.place_id, ss.restaurant_type
@@ -1013,63 +1044,63 @@ app.get('/api/suggestions/recent', auth, (req, res) => {
   res.json({ recent: rows.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
 });
 
-// ── Session Routes ──────────────────────────────────────────────────────────────
-app.post('/api/sessions', auth, (req, res) => {
+// ── Plan Routes ──────────────────────────────────────────────────────────────
+app.post('/api/plans', auth, (req, res) => {
   const { name } = req.body;
-  const code = generateSessionCode();
+  const code = generatePlanCode();
   try {
-    const result = db.prepare('INSERT INTO sessions (code, creator_id, name) VALUES (?, ?, ?)').run(code, req.user.id, name || 'Dinner Session');
-    const sessionId = result.lastInsertRowid;
-    db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(sessionId, req.user.id);
-    res.json({ id: sessionId, code, name: name || 'Dinner Session' });
+    const result = db.prepare('INSERT INTO sessions (code, creator_id, name) VALUES (?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan');
+    const planId = result.lastInsertRowid;
+    db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, req.user.id);
+    res.json({ id: planId, code, name: name || 'Dinner Plan' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to create session' });
+    res.status(500).json({ error: 'Failed to create plan' });
   }
 });
 
-app.post('/api/sessions/join', auth, (req, res) => {
+app.post('/api/plans/join', auth, (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Missing code' });
-  const session = db.prepare("SELECT * FROM sessions WHERE code = ? AND status = 'open'").get(code.toUpperCase());
-  if (!session) return res.status(404).json({ error: 'Session not found or closed' });
-  db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(session.id, req.user.id);
-  io.to(`session:${session.id}`).emit('session:member-joined', { username: req.user.username, userId: req.user.id });
-  sendPushToSessionMembers(session.id, { title: 'Member Joined', body: `${req.user.username} joined ${session.name}`, tag: `session-${session.id}` }, req.user.id);
-  res.json({ id: session.id, code: session.code, name: session.name });
+  const plan = db.prepare("SELECT * FROM sessions WHERE code = ? AND status = 'open'").get(code.toUpperCase());
+  if (!plan) return res.status(404).json({ error: 'Plan not found or closed' });
+  db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(plan.id, req.user.id);
+  io.to(`plan:${plan.id}`).emit('plan:member-joined', { username: req.user.username, userId: req.user.id });
+  sendPushToPlanMembers(plan.id, { title: 'Member Joined', body: `${req.user.username} joined ${plan.name}`, tag: `plan-${plan.id}` }, req.user.id);
+  res.json({ id: plan.id, code: plan.code, name: plan.name });
 });
 
-app.post('/api/sessions/:id/invite', auth, (req, res) => {
-  const sessionId = req.params.id;
+app.post('/api/plans/:id/invite', auth, (req, res) => {
+  const planId = req.params.id;
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Missing username' });
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'open'").get(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found or closed' });
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+  const plan = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'open'").get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found or closed' });
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
   const target = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username.trim());
   if (!target) return res.status(404).json({ error: 'User not found' });
-  const alreadyMember = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, target.id);
+  const alreadyMember = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, target.id);
   if (alreadyMember) return res.json({ success: true, alreadyMember: true });
-  db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(sessionId, target.id);
-  io.to(`session:${sessionId}`).emit('session:member-joined', { username: target.username, userId: target.id });
-  sendPushToUser(target.id, { title: 'Session Invite', body: `You've been invited to ${session.name}`, tag: `session-invite-${sessionId}` });
+  db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, target.id);
+  io.to(`plan:${planId}`).emit('plan:member-joined', { username: target.username, userId: target.id });
+  sendPushToUser(target.id, { title: 'Plan Invite', body: `You've been invited to ${plan.name}`, tag: `plan-invite-${planId}` });
   res.json({ success: true });
 });
 
-app.get('/api/sessions/:id/dislikes', auth, (req, res) => {
-  const sessionId = req.params.id;
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+app.get('/api/plans/:id/dislikes', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
   const dislikes = db.prepare(`
     SELECT DISTINCT d.place FROM dislikes d
     JOIN session_members sm ON sm.user_id = d.user_id
     WHERE sm.session_id = ?
-  `).all(sessionId);
+  `).all(planId);
   res.json({ dislikes: dislikes.map(r => r.place) });
 });
 
-app.get('/api/sessions', auth, (req, res) => {
-  const sessions = db.prepare(`
+app.get('/api/plans', auth, (req, res) => {
+  const plans = db.prepare(`
     SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id, s.voting_deadline,
            u.username AS creator_username,
            (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) AS member_count,
@@ -1080,22 +1111,22 @@ app.get('/api/sessions', auth, (req, res) => {
     WHERE sm.user_id = ?
     ORDER BY s.created_at DESC
   `).all(req.user.id);
-  res.json({ sessions });
+  res.json({ plans });
 });
 
-app.get('/api/sessions/:id', auth, (req, res) => {
-  const sessionId = req.params.id;
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+app.get('/api/plans/:id', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
   const members = db.prepare(`
     SELECT u.id, u.username FROM session_members sm
     JOIN users u ON u.id = sm.user_id
     WHERE sm.session_id = ?
-  `).all(sessionId);
+  `).all(planId);
 
   const suggestions = db.prepare(`
     SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.user_id,
@@ -1104,9 +1135,9 @@ app.get('/api/sessions/:id', auth, (req, res) => {
     FROM session_suggestions ss
     JOIN users u ON u.id = ss.user_id
     WHERE ss.session_id = ?
-  `).all(sessionId);
+  `).all(planId);
 
-  const userVotes = db.prepare('SELECT suggestion_id FROM session_votes WHERE session_id = ? AND user_id = ?').all(sessionId, req.user.id);
+  const userVotes = db.prepare('SELECT suggestion_id FROM session_votes WHERE session_id = ? AND user_id = ?').all(planId, req.user.id);
   const votedIds = new Set(userVotes.map(v => v.suggestion_id));
 
   // Find which session suggestions are on members' want-to-try lists
@@ -1120,7 +1151,7 @@ app.get('/api/sessions/:id', auth, (req, res) => {
       JOIN users u ON u.id = wt.user_id
       WHERE wt.user_id IN (${placeholders})
         AND wt.place IN (SELECT place FROM session_suggestions WHERE session_id = ?)
-    `).all(...memberIds, sessionId);
+    `).all(...memberIds, planId);
     wantToTryRows.forEach(row => {
       if (!wantToTryMap[row.place]) wantToTryMap[row.place] = [];
       wantToTryMap[row.place].push({ user_id: row.user_id, username: row.username });
@@ -1128,23 +1159,23 @@ app.get('/api/sessions/:id', auth, (req, res) => {
   }
 
   res.json({
-    session,
+    plan,
     members,
     suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id) })),
     want_to_try: wantToTryMap,
   });
 });
 
-app.post('/api/sessions/:id/suggest', auth, async (req, res) => {
-  const sessionId = req.params.id;
+app.post('/api/plans/:id/suggest', auth, async (req, res) => {
+  const planId = req.params.id;
   const { place, place_id, restaurant_type } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
 
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member' });
 
-  const session = db.prepare("SELECT status, name FROM sessions WHERE id = ?").get(sessionId);
-  if (!session || session.status !== 'open') return res.status(400).json({ error: 'Session is closed' });
+  const plan = db.prepare("SELECT status, name FROM sessions WHERE id = ?").get(planId);
+  if (!plan || plan.status !== 'open') return res.status(400).json({ error: 'Plan is closed' });
 
   let lat = null, lng = null, priceLevel = null;
   if (place_id) {
@@ -1168,50 +1199,50 @@ app.post('/api/sessions/:id/suggest', auth, async (req, res) => {
   }
 
   try {
-    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel);
+    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(planId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel);
     if (result.changes === 0) return res.status(409).json({ error: 'Already suggested' });
-    io.to(`session:${sessionId}`).emit('session:suggestion-added', {
+    io.to(`plan:${planId}`).emit('plan:suggestion-added', {
       id: result.lastInsertRowid, place, place_id: place_id || null,
       restaurant_type: restaurant_type || null,
       lat, lng, price_level: priceLevel, suggested_by: req.user.username, vote_count: 0, user_voted: false,
     });
-    sendPushToSessionMembers(sessionId, { title: 'New Suggestion', body: `${req.user.username} suggested ${place}`, tag: `session-${sessionId}` }, req.user.id);
+    sendPushToPlanMembers(planId, { title: 'New Suggestion', body: `${req.user.username} suggested ${place}`, tag: `plan-${planId}` }, req.user.id);
     res.json({ success: true, id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: 'Failed to suggest' });
   }
 });
 
-app.post('/api/sessions/:id/vote', auth, (req, res) => {
-  const sessionId = req.params.id;
+app.post('/api/plans/:id/vote', auth, (req, res) => {
+  const planId = req.params.id;
   const { suggestion_id } = req.body;
   if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
 
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member' });
 
-  db.prepare('INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id) VALUES (?, ?, ?)').run(sessionId, req.user.id, suggestion_id);
+  db.prepare('INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id) VALUES (?, ?, ?)').run(planId, req.user.id, suggestion_id);
   const count = db.prepare('SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ?').get(suggestion_id);
-  io.to(`session:${sessionId}`).emit('session:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, action: 'vote' });
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, action: 'vote' });
   res.json({ success: true });
 });
 
-app.post('/api/sessions/:id/unvote', auth, (req, res) => {
-  const sessionId = req.params.id;
+app.post('/api/plans/:id/unvote', auth, (req, res) => {
+  const planId = req.params.id;
   const { suggestion_id } = req.body;
   if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
 
-  db.prepare('DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ?').run(sessionId, req.user.id, suggestion_id);
+  db.prepare('DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ?').run(planId, req.user.id, suggestion_id);
   const count = db.prepare('SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ?').get(suggestion_id);
-  io.to(`session:${sessionId}`).emit('session:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, action: 'unvote' });
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, action: 'unvote' });
   res.json({ success: true });
 });
 
-app.post('/api/sessions/:id/pick', auth, (req, res) => {
-  const sessionId = req.params.id;
+app.post('/api/plans/:id/pick', auth, (req, res) => {
+  const planId = req.params.id;
   const { mode, lat, lng } = req.body;
 
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member' });
 
   const suggestions = db.prepare(`
@@ -1219,7 +1250,7 @@ app.post('/api/sessions/:id/pick', auth, (req, res) => {
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id) AS vote_count
     FROM session_suggestions ss
     WHERE ss.session_id = ?
-  `).all(sessionId);
+  `).all(planId);
 
   if (suggestions.length === 0) return res.status(400).json({ error: 'No suggestions yet' });
 
@@ -1241,7 +1272,7 @@ app.post('/api/sessions/:id/pick', auth, (req, res) => {
       JOIN session_members sm ON sm.user_id = wt.user_id AND sm.session_id = ?
       WHERE ss.session_id = ?
       GROUP BY ss.place
-    `).all(sessionId, sessionId, sessionId);
+    `).all(planId, planId, planId);
     wttRows.forEach(r => { wantToTryCounts[r.place] = r.cnt; });
 
     const weighted = [];
@@ -1252,69 +1283,69 @@ app.post('/api/sessions/:id/pick', auth, (req, res) => {
     winner = weighted[Math.floor(Math.random() * weighted.length)];
   }
 
-  db.prepare('UPDATE sessions SET winner_place = ?, picked_at = datetime(?) WHERE id = ?').run(winner.place, 'now', sessionId);
-  io.to(`session:${sessionId}`).emit('session:winner-picked', { winner });
-  sendPushToSessionMembers(sessionId, { title: 'Winner!', body: `${winner.place} was picked!`, tag: `session-${sessionId}-winner` }, req.user.id);
+  db.prepare('UPDATE sessions SET winner_place = ?, picked_at = datetime(?) WHERE id = ?').run(winner.place, 'now', planId);
+  io.to(`plan:${planId}`).emit('plan:winner-picked', { winner });
+  sendPushToPlanMembers(planId, { title: 'Winner!', body: `${winner.place} was picked!`, tag: `plan-${planId}-winner` }, req.user.id);
   res.json({ winner });
 });
 
-app.post('/api/sessions/:id/close', auth, (req, res) => {
-  const sessionId = req.params.id;
+app.post('/api/plans/:id/close', auth, (req, res) => {
+  const planId = req.params.id;
   const { winner_place } = req.body || {};
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-  if (session.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can close this session' });
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  if (plan.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can close this plan' });
 
   if (winner_place) {
-    db.prepare("UPDATE sessions SET status = 'closed', winner_place = ?, picked_at = datetime('now') WHERE id = ?").run(winner_place, sessionId);
-    io.to(`session:${sessionId}`).emit('session:winner-picked', { winner: { place: winner_place } });
-    sendPushToSessionMembers(sessionId, { title: 'Winner!', body: `${winner_place} was picked in ${session.name}!`, tag: `session-${sessionId}-winner` }, req.user.id);
+    db.prepare("UPDATE sessions SET status = 'closed', winner_place = ?, picked_at = datetime('now') WHERE id = ?").run(winner_place, planId);
+    io.to(`plan:${planId}`).emit('plan:winner-picked', { winner: { place: winner_place } });
+    sendPushToPlanMembers(planId, { title: 'Winner!', body: `${winner_place} was picked in ${plan.name}!`, tag: `plan-${planId}-winner` }, req.user.id);
   } else {
-    db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(sessionId);
+    db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(planId);
   }
-  io.to(`session:${sessionId}`).emit('session:closed', { sessionId });
-  sendPushToSessionMembers(sessionId, { title: 'Session Closed', body: `${session.name} has been closed`, tag: `session-${sessionId}` }, req.user.id);
+  io.to(`plan:${planId}`).emit('plan:closed', { planId });
+  sendPushToPlanMembers(planId, { title: 'Plan Closed', body: `${plan.name} has been closed`, tag: `plan-${planId}` }, req.user.id);
   res.json({ success: true });
 });
 
-app.delete('/api/sessions/:id', auth, (req, res) => {
-  const sessionId = req.params.id;
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-  if (session.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can delete this session' });
-  if (session.status !== 'closed') return res.status(400).json({ error: 'Session must be closed before deleting' });
+app.delete('/api/plans/:id', auth, (req, res) => {
+  const planId = req.params.id;
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  if (plan.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can delete this plan' });
+  if (plan.status !== 'closed') return res.status(400).json({ error: 'Plan must be closed before deleting' });
 
   const deleteAll = db.transaction(() => {
-    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM session_members WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_members WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(planId);
   });
   deleteAll();
 
-  io.to(`session:${sessionId}`).emit('session:deleted', { sessionId: Number(sessionId) });
+  io.to(`plan:${planId}`).emit('plan:deleted', { planId: Number(planId) });
   res.json({ success: true });
 });
 
 // ── Voting Deadline ──────────────────────────────────────────────────────────────
-app.post('/api/sessions/:id/deadline', auth, (req, res) => {
-  const sessionId = req.params.id;
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-  if (session.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can set a deadline' });
+app.post('/api/plans/:id/deadline', auth, (req, res) => {
+  const planId = req.params.id;
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  if (plan.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can set a deadline' });
 
   const { deadline } = req.body;
-  db.prepare('UPDATE sessions SET voting_deadline = ? WHERE id = ?').run(deadline || null, sessionId);
-  io.to(`session:${sessionId}`).emit('session:deadline-updated', { sessionId: Number(sessionId), deadline: deadline || null });
+  db.prepare('UPDATE sessions SET voting_deadline = ? WHERE id = ?').run(deadline || null, planId);
+  io.to(`plan:${planId}`).emit('plan:deadline-updated', { planId: Number(planId), deadline: deadline || null });
   res.json({ success: true });
 });
 
-// ── Session Chat ─────────────────────────────────────────────────────────────────
-app.get('/api/sessions/:id/messages', auth, (req, res) => {
-  const sessionId = req.params.id;
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+// ── Plan Chat ─────────────────────────────────────────────────────────────────
+app.get('/api/plans/:id/messages', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
   const messages = db.prepare(`
     SELECT sm.id, sm.message, sm.created_at, sm.user_id, u.username
@@ -1323,24 +1354,24 @@ app.get('/api/sessions/:id/messages', auth, (req, res) => {
     WHERE sm.session_id = ?
     ORDER BY sm.created_at ASC
     LIMIT 100
-  `).all(sessionId);
+  `).all(planId);
   res.json({ messages });
 });
 
-app.post('/api/sessions/:id/messages', auth, (req, res) => {
-  const sessionId = req.params.id;
-  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+app.post('/api/plans/:id/messages', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
   const { message } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
   if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
 
-  const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message) VALUES (?, ?, ?)').run(sessionId, req.user.id, message.trim());
+  const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message) VALUES (?, ?, ?)').run(planId, req.user.id, message.trim());
   const username = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id).username;
 
   const msg = { id: result.lastInsertRowid, message: message.trim(), user_id: req.user.id, username, created_at: new Date().toISOString() };
-  io.to(`session:${sessionId}`).emit('session:message', msg);
+  io.to(`plan:${planId}`).emit('plan:message', msg);
   res.json({ message: msg });
 });
 
@@ -1377,15 +1408,15 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  socket.on('join-session', (sessionId) => {
-    const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, socket.user.id);
+  socket.on('join-plan', (planId) => {
+    const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, socket.user.id);
     if (membership) {
-      socket.join(`session:${sessionId}`);
+      socket.join(`plan:${planId}`);
     }
   });
 
-  socket.on('leave-session', (sessionId) => {
-    socket.leave(`session:${sessionId}`);
+  socket.on('leave-plan', (planId) => {
+    socket.leave(`plan:${planId}`);
   });
 });
 
@@ -1411,4 +1442,4 @@ function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-module.exports = { app, server, io, db, haversine, generateSessionCode, getSetting, setSetting, encryptSetting, decryptSetting };
+module.exports = { app, server, io, db, haversine, generatePlanCode, getSetting, setSetting, encryptSetting, decryptSetting };

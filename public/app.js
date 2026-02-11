@@ -38,6 +38,10 @@ function dinnerRoulette() {
     // Confirm modal
     confirmModal: { visible: false, message: '', onConfirm: null, onCancel: null },
 
+    // Post-login prompts
+    promptModal: { visible: false, type: null },
+    promptEmailValue: '',
+
     // Places
     placeSearch: '',
     predictions: [],
@@ -53,14 +57,12 @@ function dinnerRoulette() {
     placeSortBy: 'name',
     editingNote: null,
     noteText: '',
+    placeSections: { favorites: true, likes: true, dislikes: false, wantToTry: false },
+    cardMenuOpen: null,
 
     // Quick Pick
     quickPickResult: null,
     quickPicking: false,
-
-    // Suggestions
-    suggestions: [],
-    currentSuggestions: new Set(),
 
     // Friends
     friendUsername: '',
@@ -70,24 +72,24 @@ function dinnerRoulette() {
     commonPlaces: [],
     commonFriend: '',
 
-    // Sessions
-    sessions: [],
-    newSessionName: '',
+    // Plans
+    plans: [],
+    newPlanName: '',
     joinCode: '',
-    activeSession: null,
-    sessionPlaceSearch: '',
-    sessionPredictions: [],
-    sessionSearching: false,
-    sessionSearchedOnce: false,
-    sessionHighlightedIndex: -1,
-    sessionInviteUsername: '',
-    sessionDislikes: [],
-    sessionWantToTry: {},
-    sessionSuggestSort: 'votes',
+    activePlan: null,
+    planPlaceSearch: '',
+    planPredictions: [],
+    planSearching: false,
+    planSearchedOnce: false,
+    planHighlightedIndex: -1,
+    planInviteUsername: '',
+    planDislikes: [],
+    planWantToTry: {},
+    planSuggestSort: 'votes',
 
     // Picking
     picking: false,
-    closingSession: false,
+    closingPlan: false,
     winner: null,
     userLat: null,
     userLng: null,
@@ -98,7 +100,7 @@ function dinnerRoulette() {
     accountForm: { currentPassword: '', newPassword: '', confirmNewPassword: '', newEmail: '', deletePassword: '' },
 
     // Loading states
-    loading: { places: false, friends: false, sessions: false },
+    loading: { places: false, friends: false, plans: false },
 
     // Network
     online: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -107,8 +109,8 @@ function dinnerRoulette() {
     notificationsEnabled: false,
     notificationsSupported: false,
 
-    // Cuisine filter (sessions)
-    sessionCuisineFilter: '',
+    // Cuisine filter (plans)
+    planCuisineFilter: '',
 
     // Recent suggestions
     recentSuggestions: [],
@@ -144,9 +146,12 @@ function dinnerRoulette() {
     onboardingSteps: [
       { text: 'Search for restaurants you love and add them to your list.', tab: 'places', highlight: 'placeSearch' },
       { text: 'Add friends to plan dinner together.', tab: 'friends', highlight: 'friendInput' },
-      { text: 'Start a session to vote and pick a dinner spot!', tab: 'sessions', highlight: null },
+      { text: 'Start a plan to vote and pick a dinner spot!', tab: 'plans', highlight: null },
       { text: "You're all set! Enjoy Dinner Roulette!", tab: null, highlight: null },
     ],
+
+    // Account
+    accountTab: 'profile',
 
     // Admin
     adminTab: 'dashboard',
@@ -161,6 +166,7 @@ function dinnerRoulette() {
     adminEditUser: null,
     adminEditForm: { username: '', email: '' },
     adminTestEmail: '',
+    adminPlans: [],
 
     // ── Helpers ──
     getInitials(username) {
@@ -281,11 +287,11 @@ function dinnerRoulette() {
       if (!this.quickPickResult) return '#';
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.quickPickResult.name)}`;
     },
-    get activeSessions() {
-      return this.sessions.filter(s => s.status === 'open');
+    get activePlans() {
+      return this.plans.filter(s => s.status === 'open');
     },
-    get historySessions() {
-      return this.sessions.filter(s => s.status === 'closed');
+    get historyPlans() {
+      return this.plans.filter(s => s.status === 'closed');
     },
     get winnerDistanceText() {
       if (!this.winner?.distance) return '';
@@ -301,33 +307,33 @@ function dinnerRoulette() {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.winner.place)}`;
     },
 
-    get uniqueSessionCuisines() {
+    get uniquePlanCuisines() {
       const types = new Set();
-      (this.activeSession?.suggestions || []).forEach(s => {
+      (this.activePlan?.suggestions || []).forEach(s => {
         if (s.restaurant_type) types.add(s.restaurant_type);
       });
       return [...types].sort();
     },
 
-    get sortedSessionSuggestions() {
-      let suggestions = this.activeSession?.suggestions || [];
-      if (this.sessionCuisineFilter) {
-        suggestions = suggestions.filter(s => s.restaurant_type === this.sessionCuisineFilter);
+    get sortedPlanSuggestions() {
+      let suggestions = this.activePlan?.suggestions || [];
+      if (this.planCuisineFilter) {
+        suggestions = suggestions.filter(s => s.restaurant_type === this.planCuisineFilter);
       }
       const sorted = [...suggestions];
-      if (this.sessionSuggestSort === 'votes') {
+      if (this.planSuggestSort === 'votes') {
         sorted.sort((a, b) => b.vote_count - a.vote_count || a.place.localeCompare(b.place));
-      } else if (this.sessionSuggestSort === 'name') {
+      } else if (this.planSuggestSort === 'name') {
         sorted.sort((a, b) => a.place.localeCompare(b.place));
-      } else if (this.sessionSuggestSort === 'suggester') {
+      } else if (this.planSuggestSort === 'suggester') {
         sorted.sort((a, b) => (a.suggested_by || '').localeCompare(b.suggested_by || '') || b.vote_count - a.vote_count);
       }
       return sorted;
     },
 
-    get sessionRecap() {
-      if (!this.activeSession || !this.winner) return null;
-      const suggestions = this.activeSession.suggestions || [];
+    get planRecap() {
+      if (!this.activePlan || !this.winner) return null;
+      const suggestions = this.activePlan.suggestions || [];
       const totalVotes = suggestions.reduce((sum, s) => sum + (s.vote_count || 0), 0);
       const winnerSugg = suggestions.find(s => s.place === this.winner.place);
       const topPlaces = [...suggestions].sort((a, b) => b.vote_count - a.vote_count).slice(0, 3);
@@ -363,11 +369,13 @@ function dinnerRoulette() {
       }
 
       // Tab deep linking
-      const validTabs = ['places', 'friends', 'sessions', 'account', 'admin'];
-      const hash = window.location.hash.replace('#', '');
+      const validTabs = ['places', 'friends', 'plans', 'account', 'admin'];
+      let hash = window.location.hash.replace('#', '');
+      if (hash === 'sessions') hash = 'plans';
       if (validTabs.includes(hash)) this.activeTab = hash;
       window.addEventListener('hashchange', () => {
-        const h = window.location.hash.replace('#', '');
+        let h = window.location.hash.replace('#', '');
+        if (h === 'sessions') h = 'plans';
         if (validTabs.includes(h)) this.activeTab = h;
       });
 
@@ -388,6 +396,7 @@ function dinnerRoulette() {
           if (this.pendingInviteCode) {
             await this.autoJoinInvite();
           }
+          this.$nextTick(() => this.runPostLoginPrompts());
         }
       } catch (e) {
         // Not logged in
@@ -396,11 +405,10 @@ function dinnerRoulette() {
 
     async loadAppData() {
       await Promise.all([
-        this.loadSuggestions(),
         this.loadPlaces(),
         this.loadFriends(),
         this.loadFriendRequests(),
-        this.loadSessions(),
+        this.loadPlans(),
         this.loadRecentSuggestions(),
       ]);
     },
@@ -410,26 +418,26 @@ function dinnerRoulette() {
       if (this.socket) return;
       this.socket = io({ withCredentials: true });
 
-      this.socket.on('session:member-joined', (data) => {
-        if (!this.activeSession) return;
-        const already = this.activeSession.members.some(m => m.id === data.userId);
+      this.socket.on('plan:member-joined', (data) => {
+        if (!this.activePlan) return;
+        const already = this.activePlan.members.some(m => m.id === data.userId);
         if (!already) {
-          this.activeSession.members.push({ id: data.userId, username: data.username });
-          this.showToast(`${data.username} joined the session`);
+          this.activePlan.members.push({ id: data.userId, username: data.username });
+          this.showToast(`${data.username} joined the plan`);
         }
       });
 
-      this.socket.on('session:suggestion-added', (data) => {
-        if (!this.activeSession) return;
-        const already = this.activeSession.suggestions.some(s => s.id === data.id);
+      this.socket.on('plan:suggestion-added', (data) => {
+        if (!this.activePlan) return;
+        const already = this.activePlan.suggestions.some(s => s.id === data.id);
         if (!already) {
-          this.activeSession.suggestions.push(data);
+          this.activePlan.suggestions.push(data);
         }
       });
 
-      this.socket.on('session:vote-updated', (data) => {
-        if (!this.activeSession) return;
-        const s = this.activeSession.suggestions.find(s => s.id === data.suggestion_id);
+      this.socket.on('plan:vote-updated', (data) => {
+        if (!this.activePlan) return;
+        const s = this.activePlan.suggestions.find(s => s.id === data.suggestion_id);
         if (s) {
           s.vote_count = data.vote_count;
           // Update user_voted for the current user
@@ -439,20 +447,20 @@ function dinnerRoulette() {
         }
       });
 
-      this.socket.on('session:winner-picked', (data) => {
-        if (!this.activeSession) return;
+      this.socket.on('plan:winner-picked', (data) => {
+        if (!this.activePlan) return;
         this.winner = data.winner;
         this.createConfetti();
       });
 
-      this.socket.on('session:deadline-updated', (data) => {
-        if (!this.activeSession) return;
-        this.activeSession.session.voting_deadline = data.deadline;
+      this.socket.on('plan:deadline-updated', (data) => {
+        if (!this.activePlan) return;
+        this.activePlan.plan.voting_deadline = data.deadline;
         this.startDeadlineCountdown();
       });
 
-      this.socket.on('session:message', (data) => {
-        if (!this.activeSession) return;
+      this.socket.on('plan:message', (data) => {
+        if (!this.activePlan) return;
         this.chatMessages.push(data);
         this.$nextTick(() => {
           const el = document.getElementById('chat-messages');
@@ -460,18 +468,18 @@ function dinnerRoulette() {
         });
       });
 
-      this.socket.on('session:closed', () => {
-        if (!this.activeSession) return;
-        this.activeSession.session.status = 'closed';
-        this.showToast('Session has been closed');
+      this.socket.on('plan:closed', () => {
+        if (!this.activePlan) return;
+        this.activePlan.plan.status = 'closed';
+        this.showToast('Plan has been closed');
       });
 
-      this.socket.on('session:deleted', (data) => {
-        this.sessions = this.sessions.filter(s => s.id !== data.sessionId);
-        if (this.activeSession && this.activeSession.session.id === data.sessionId) {
-          this.activeSession = null;
+      this.socket.on('plan:deleted', (data) => {
+        this.plans = this.plans.filter(s => s.id !== data.planId);
+        if (this.activePlan && this.activePlan.plan.id === data.planId) {
+          this.activePlan = null;
           this.winner = null;
-          this.showToast('This session has been deleted', 'error');
+          this.showToast('This plan has been deleted', 'error');
         }
       });
     },
@@ -553,9 +561,9 @@ function dinnerRoulette() {
         await this.loadPlaces();
       } else if (this.activeTab === 'friends') {
         await Promise.all([this.loadFriends(), this.loadFriendRequests()]);
-      } else if (this.activeTab === 'sessions') {
-        await this.loadSessions();
-        if (this.activeSession) await this.refreshSession();
+      } else if (this.activeTab === 'plans') {
+        await this.loadPlans();
+        if (this.activePlan) await this.refreshPlan();
       }
       this.refreshing = false;
       this.showToast('Refreshed!');
@@ -565,7 +573,7 @@ function dinnerRoulette() {
       const dx = e.changedTouches[0].clientX - this.tabSwipeStartX;
       const dy = e.changedTouches[0].clientY - this.tabSwipeStartY;
       if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
-      const tabs = ['places', 'friends', 'sessions', 'account'];
+      const tabs = ['places', 'friends', 'plans', 'account'];
       if (this.isAdmin) tabs.push('admin');
       const idx = tabs.indexOf(this.activeTab);
       if (idx === -1) return;
@@ -580,9 +588,9 @@ function dinnerRoulette() {
       } else if (this.activeTab === 'friends') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
         this.$nextTick(() => this.$refs.friendInput?.focus());
-      } else if (this.activeTab === 'sessions') {
-        if (!this.activeSession) {
-          this.createSession();
+      } else if (this.activeTab === 'plans') {
+        if (!this.activePlan) {
+          this.createPlan();
         } else {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -634,6 +642,7 @@ function dinnerRoulette() {
         await this.loadAppData();
         if (this.pendingInviteCode) await this.autoJoinInvite();
         this.$nextTick(() => this.startOnboarding());
+        this.$nextTick(() => this.runPostLoginPrompts());
       } catch (e) {
         this.authError = 'Unexpected error during registration.';
       }
@@ -665,6 +674,7 @@ function dinnerRoulette() {
         this.connectSocket();
         await this.loadAppData();
         if (this.pendingInviteCode) await this.autoJoinInvite();
+        this.$nextTick(() => this.runPostLoginPrompts());
       } catch (e) {
         this.authError = 'Unexpected error during login.';
       }
@@ -769,12 +779,11 @@ function dinnerRoulette() {
       this.isAdmin = false;
       this.likes = [];
       this.dislikes = [];
-      this.suggestions = [];
       this.friends = [];
       this.friendRequests = [];
       this.viewingFriendLikes = null;
-      this.sessions = [];
-      this.activeSession = null;
+      this.plans = [];
+      this.activePlan = null;
       this.winner = null;
     },
 
@@ -831,15 +840,15 @@ function dinnerRoulette() {
       }
     },
 
-    handleSessionKeydown(event) {
-      if (this.sessionPredictions.length === 0) return;
+    handlePlanKeydown(event) {
+      if (this.planPredictions.length === 0) return;
       if (event.key === 'ArrowDown') {
-        this.sessionHighlightedIndex = (this.sessionHighlightedIndex + 1) % this.sessionPredictions.length;
+        this.planHighlightedIndex = (this.planHighlightedIndex + 1) % this.planPredictions.length;
       } else if (event.key === 'ArrowUp') {
-        this.sessionHighlightedIndex = this.sessionHighlightedIndex <= 0 ? this.sessionPredictions.length - 1 : this.sessionHighlightedIndex - 1;
-      } else if (event.key === 'Enter' && this.sessionHighlightedIndex >= 0) {
-        const pred = this.sessionPredictions[this.sessionHighlightedIndex];
-        this.suggestToSession(pred.description, pred.place_id, this.formatPlaceType(pred.types));
+        this.planHighlightedIndex = this.planHighlightedIndex <= 0 ? this.planPredictions.length - 1 : this.planHighlightedIndex - 1;
+      } else if (event.key === 'Enter' && this.planHighlightedIndex >= 0) {
+        const pred = this.planPredictions[this.planHighlightedIndex];
+        this.suggestToPlan(pred.description, pred.place_id, this.formatPlaceType(pred.types));
       }
     },
 
@@ -883,13 +892,24 @@ function dinnerRoulette() {
     },
 
     isWantToTry(placeName) {
-      return (this.sessionWantToTry[placeName] || []).length > 0;
+      return (this.planWantToTry[placeName] || []).length > 0;
     },
     getWantToTryUsers(placeName) {
-      return this.sessionWantToTry[placeName] || [];
+      return this.planWantToTry[placeName] || [];
+    },
+
+    togglePlaceSection(section) {
+      this.placeSections[section] = !this.placeSections[section];
+    },
+    toggleCardMenu(placeName) {
+      this.cardMenuOpen = this.cardMenuOpen === placeName ? null : placeName;
+    },
+    closeCardMenu() {
+      this.cardMenuOpen = null;
     },
 
     async removePlace(type, placeName) {
+      this.closeCardMenu();
       const list = type === 'likes' ? 'likes' : type === 'want_to_try' ? 'wantToTry' : 'dislikes';
       const removedItem = this[list].find(p => p.name === placeName);
       if (!removedItem) return;
@@ -985,47 +1005,36 @@ function dinnerRoulette() {
       this.noteText = '';
     },
 
-    // ── Suggestions ──
-    async suggestPersonal(place) {
-      await this.api('/api/suggest', {
-        method: 'POST',
-        body: JSON.stringify({ place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null }),
-      });
-      this.showToast('Suggested!');
-      await this.loadSuggestions();
-    },
-
-    async removeSuggestion(placeName) {
-      const removedItem = this.suggestions.find(s => s.name === placeName);
-      if (!removedItem) return;
-      this.suggestions = this.suggestions.filter(s => s.name !== placeName);
-      this.currentSuggestions = new Set(this.suggestions.map(s => s.name));
-
-      let undone = false;
-      const timer = setTimeout(async () => {
-        if (undone) return;
-        await this.api('/api/suggestions/remove', {
+    // ── Star/Favorites ──
+    async toggleStar(type, placeName) {
+      try {
+        const resp = await this.api(`/api/places/${type}/star`, {
           method: 'POST',
           body: JSON.stringify({ place: placeName }),
         });
-      }, 5000);
-
-      this.showToast(`Removed "${placeName}"`, 'success', 'Undo', () => {
-        undone = true;
-        clearTimeout(timer);
-        this.suggestions.push(removedItem);
-        this.currentSuggestions = new Set(this.suggestions.map(s => s.name));
-        this.toast.visible = false;
-      });
+        if (!resp.ok) {
+          this.showToast('Failed to update star', 'error');
+          return;
+        }
+        const data = await resp.json();
+        const list = type === 'likes' ? this.likes : this.wantToTry;
+        const item = list.find(p => p.name === placeName);
+        if (item) item.starred = data.starred;
+        this.showToast(data.starred ? 'Starred!' : 'Unstarred');
+      } catch (e) {
+        this.showToast('Failed to update star', 'error');
+      }
     },
 
-    async loadSuggestions() {
-      try {
-        const resp = await this.api('/api/suggestions');
-        const data = await resp.json();
-        this.suggestions = data.suggestions || [];
-        this.currentSuggestions = new Set(this.suggestions.map(s => s.name));
-      } catch (e) { /* ignore */ }
+    isAlreadySuggestedToPlan(placeName) {
+      return this.activePlan?.suggestions?.some(s => s.place === placeName) || false;
+    },
+
+    get starredPlaces() {
+      return [
+        ...this.likes.filter(p => p.starred).map(p => ({ ...p, _type: 'likes' })),
+        ...this.wantToTry.filter(p => p.starred).map(p => ({ ...p, _type: 'want_to_try' })),
+      ];
     },
 
     // ── Friends ──
@@ -1159,38 +1168,38 @@ function dinnerRoulette() {
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     },
 
-    // ── Sessions ──
-    async loadSessions() {
-      this.loading.sessions = true;
+    // ── Plans ──
+    async loadPlans() {
+      this.loading.plans = true;
       try {
-        const resp = await this.api('/api/sessions');
+        const resp = await this.api('/api/plans');
         const data = await resp.json();
-        this.sessions = data.sessions || [];
+        this.plans = data.plans || [];
       } catch (e) { /* ignore */ }
-      this.loading.sessions = false;
+      this.loading.plans = false;
     },
 
-    async createSession() {
-      const name = this.newSessionName.trim() || 'Dinner Session';
+    async createPlan() {
+      const name = this.newPlanName.trim() || 'Dinner Plan';
       try {
-        const resp = await this.api('/api/sessions', {
+        const resp = await this.api('/api/plans', {
           method: 'POST',
           body: JSON.stringify({ name }),
         });
         const data = await resp.json();
-        this.newSessionName = '';
-        this.showToast(`Session created! Code: ${data.code}`);
-        await this.loadSessions();
+        this.newPlanName = '';
+        this.showToast(`Plan created! Code: ${data.code}`);
+        await this.loadPlans();
       } catch (e) {
-        this.showToast('Failed to create session', 'error');
+        this.showToast('Failed to create plan', 'error');
       }
     },
 
-    async joinSession() {
+    async joinPlan() {
       const code = this.joinCode.trim().toUpperCase();
       if (!code) return;
       try {
-        const resp = await this.api('/api/sessions/join', {
+        const resp = await this.api('/api/plans/join', {
           method: 'POST',
           body: JSON.stringify({ code }),
         });
@@ -1200,128 +1209,128 @@ function dinnerRoulette() {
           return;
         }
         this.joinCode = '';
-        this.showToast('Joined session!');
-        await this.loadSessions();
+        this.showToast('Joined plan!');
+        await this.loadPlans();
       } catch (e) {
-        this.showToast('Failed to join session', 'error');
+        this.showToast('Failed to join plan', 'error');
       }
     },
 
-    async openSession(sessionId) {
+    async openPlan(planId) {
       try {
-        const resp = await this.api(`/api/sessions/${sessionId}`);
+        const resp = await this.api(`/api/plans/${planId}`);
         const data = await resp.json();
-        this.sessionWantToTry = data.want_to_try || {};
-        this.activeSession = data;
+        this.planWantToTry = data.want_to_try || {};
+        this.activePlan = data;
         this.winner = null;
-        this.sessionCuisineFilter = '';
+        this.planCuisineFilter = '';
         this.mapView = false;
-        if (this.activeSession.session.winner_place) {
-          this.winner = { place: this.activeSession.session.winner_place };
+        if (this.activePlan.plan.winner_place) {
+          this.winner = { place: this.activePlan.plan.winner_place };
         }
-        if (this.socket) this.socket.emit('join-session', sessionId);
+        if (this.socket) this.socket.emit('join-plan', planId);
         try {
-          const dResp = await this.api(`/api/sessions/${sessionId}/dislikes`);
+          const dResp = await this.api(`/api/plans/${planId}/dislikes`);
           const dData = await dResp.json();
-          this.sessionDislikes = dData.dislikes || [];
-        } catch (e) { this.sessionDislikes = []; }
+          this.planDislikes = dData.dislikes || [];
+        } catch (e) { this.planDislikes = []; }
         await this.loadChatMessages();
         this.startDeadlineCountdown();
       } catch (e) {
-        this.showToast('Failed to open session', 'error');
+        this.showToast('Failed to open plan', 'error');
       }
     },
 
-    async refreshSession() {
-      if (!this.activeSession) return;
+    async refreshPlan() {
+      if (!this.activePlan) return;
       try {
-        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}`);
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}`);
         const data = await resp.json();
-        this.sessionWantToTry = data.want_to_try || {};
-        this.activeSession = data;
+        this.planWantToTry = data.want_to_try || {};
+        this.activePlan = data;
       } catch (e) { /* ignore */ }
     },
 
-    closeActiveSession() {
-      if (this.socket && this.activeSession) {
-        this.socket.emit('leave-session', this.activeSession.session.id);
+    closeActivePlan() {
+      if (this.socket && this.activePlan) {
+        this.socket.emit('leave-plan', this.activePlan.plan.id);
       }
-      this.activeSession = null;
+      this.activePlan = null;
       this.winner = null;
-      this.closingSession = false;
-      this.sessionPlaceSearch = '';
-      this.sessionPredictions = [];
+      this.closingPlan = false;
+      this.planPlaceSearch = '';
+      this.planPredictions = [];
       this.chatMessages = [];
       this.chatInput = '';
       this.chatVisible = false;
-      this.sessionCuisineFilter = '';
+      this.planCuisineFilter = '';
       this.mapView = false;
       if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
       this.deadlineCountdown = '';
       this.deadlineInput = '';
       if (this.mapInstance) { this.mapInstance = null; this.mapMarkers = []; }
-      this.loadSessions();
+      this.loadPlans();
     },
 
-    closeSession() {
-      if (!this.activeSession) return;
-      this.closingSession = true;
+    closePlan() {
+      if (!this.activePlan) return;
+      this.closingPlan = true;
     },
 
     cancelClose() {
-      this.closingSession = false;
+      this.closingPlan = false;
     },
 
     async closeWithWinner(place) {
-      if (!this.activeSession) return;
-      await this.api(`/api/sessions/${this.activeSession.session.id}/close`, {
+      if (!this.activePlan) return;
+      await this.api(`/api/plans/${this.activePlan.plan.id}/close`, {
         method: 'POST',
         body: JSON.stringify({ winner_place: place }),
       });
-      this.closingSession = false;
+      this.closingPlan = false;
       this.winner = { place };
-      this.showToast(`Session closed! Winner: ${place}`);
-      await this.refreshSession();
+      this.showToast(`Plan closed! Winner: ${place}`);
+      await this.refreshPlan();
     },
 
     async closeWithoutWinner() {
-      if (!this.activeSession) return;
+      if (!this.activePlan) return;
       if (!await this.showConfirm('Close without selecting a winner?')) return;
-      await this.api(`/api/sessions/${this.activeSession.session.id}/close`, {
+      await this.api(`/api/plans/${this.activePlan.plan.id}/close`, {
         method: 'POST',
         body: JSON.stringify({}),
       });
-      this.closingSession = false;
-      this.showToast('Session closed.');
-      await this.refreshSession();
+      this.closingPlan = false;
+      this.showToast('Plan closed.');
+      await this.refreshPlan();
     },
 
-    async deleteSession(sessionId) {
-      if (!await this.showConfirm('Permanently delete this session? This cannot be undone.')) return;
+    async deletePlan(planId) {
+      if (!await this.showConfirm('Permanently delete this plan? This cannot be undone.')) return;
       try {
-        const resp = await this.api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        const resp = await this.api(`/api/plans/${planId}`, { method: 'DELETE' });
         if (!resp.ok) {
           const err = await resp.json();
-          this.showToast(err.error || 'Failed to delete session', 'error');
+          this.showToast(err.error || 'Failed to delete plan', 'error');
           return;
         }
-        this.sessions = this.sessions.filter(s => s.id !== sessionId);
-        if (this.activeSession && this.activeSession.session.id === sessionId) {
-          this.activeSession = null;
+        this.plans = this.plans.filter(s => s.id !== planId);
+        if (this.activePlan && this.activePlan.plan.id === planId) {
+          this.activePlan = null;
           this.winner = null;
         }
-        this.showToast('Session deleted.');
+        this.showToast('Plan deleted.');
       } catch (e) {
-        this.showToast('Failed to delete session', 'error');
+        this.showToast('Failed to delete plan', 'error');
       }
     },
 
-    async inviteToSession() {
-      if (!this.sessionInviteUsername.trim() || !this.activeSession) return;
+    async inviteToPlan() {
+      if (!this.planInviteUsername.trim() || !this.activePlan) return;
       try {
-        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/invite`, {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/invite`, {
           method: 'POST',
-          body: JSON.stringify({ username: this.sessionInviteUsername.trim() }),
+          body: JSON.stringify({ username: this.planInviteUsername.trim() }),
         });
         if (!resp.ok) {
           const err = await resp.json();
@@ -1329,53 +1338,53 @@ function dinnerRoulette() {
           return;
         }
         const data = await resp.json();
-        this.showToast(data.alreadyMember ? 'User is already a member' : `Invited ${this.sessionInviteUsername.trim()}!`);
-        this.sessionInviteUsername = '';
-        await this.refreshSession();
+        this.showToast(data.alreadyMember ? 'User is already a member' : `Invited ${this.planInviteUsername.trim()}!`);
+        this.planInviteUsername = '';
+        await this.refreshPlan();
       } catch (e) {
         this.showToast('Failed to invite user', 'error');
       }
     },
 
     quickInviteFriend(friendUsername) {
-      this.sessionInviteUsername = friendUsername;
-      this.inviteToSession();
+      this.planInviteUsername = friendUsername;
+      this.inviteToPlan();
     },
 
-    isSessionDisliked(placeName) {
-      return this.sessionDislikes.includes(placeName);
+    isPlanDisliked(placeName) {
+      return this.planDislikes.includes(placeName);
     },
 
     copyCode() {
-      const code = this.activeSession?.session?.code;
+      const code = this.activePlan?.plan?.code;
       if (code) {
         navigator.clipboard.writeText(code);
         this.showToast('Code copied!');
       }
     },
 
-    // ── Session Suggest ──
-    async searchSessionPlaces() {
-      this.sessionHighlightedIndex = -1;
-      const q = this.sessionPlaceSearch.trim();
-      if (!q) { this.sessionPredictions = []; this.sessionSearchedOnce = false; return; }
-      this.sessionSearching = true;
+    // ── Plan Suggest ──
+    async searchPlanPlaces() {
+      this.planHighlightedIndex = -1;
+      const q = this.planPlaceSearch.trim();
+      if (!q) { this.planPredictions = []; this.planSearchedOnce = false; return; }
+      this.planSearching = true;
       try {
         const resp = await this.api(`/api/autocomplete?input=${encodeURIComponent(q)}`);
         const data = await resp.json();
-        this.sessionPredictions = data.predictions || [];
-        this.sessionSearchedOnce = true;
+        this.planPredictions = data.predictions || [];
+        this.planSearchedOnce = true;
       } catch (e) {
-        this.sessionPredictions = [];
+        this.planPredictions = [];
       } finally {
-        this.sessionSearching = false;
+        this.planSearching = false;
       }
     },
 
-    async suggestToSession(place, placeId, restaurantType) {
-      if (!this.activeSession) return;
+    async suggestToPlan(place, placeId, restaurantType) {
+      if (!this.activePlan) return;
       try {
-        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/suggest`, {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/suggest`, {
           method: 'POST',
           body: JSON.stringify({ place, place_id: placeId || null, restaurant_type: restaurantType || null }),
         });
@@ -1384,10 +1393,10 @@ function dinnerRoulette() {
           this.showToast(err.error || 'Failed to suggest', 'error');
           return;
         }
-        this.sessionPlaceSearch = '';
-        this.sessionPredictions = [];
+        this.planPlaceSearch = '';
+        this.planPredictions = [];
         this.showToast('Place suggested!');
-        await this.refreshSession();
+        await this.refreshPlan();
       } catch (e) {
         this.showToast('Failed to suggest', 'error');
       }
@@ -1395,22 +1404,22 @@ function dinnerRoulette() {
 
     // ── Voting ──
     async toggleVote(suggestion) {
-      if (!this.activeSession) return;
+      if (!this.activePlan) return;
       const endpoint = suggestion.user_voted ? 'unvote' : 'vote';
-      await this.api(`/api/sessions/${this.activeSession.session.id}/${endpoint}`, {
+      await this.api(`/api/plans/${this.activePlan.plan.id}/${endpoint}`, {
         method: 'POST',
         body: JSON.stringify({ suggestion_id: suggestion.id }),
       });
-      await this.refreshSession();
+      await this.refreshPlan();
     },
 
     // ── Random Pick ──
     async randomPick() {
-      if (!this.activeSession || this.picking) return;
+      if (!this.activePlan || this.picking) return;
       this.picking = true;
       this.winner = null;
 
-      const suggestions = this.activeSession.suggestions || [];
+      const suggestions = this.activePlan.suggestions || [];
       if (suggestions.length === 0) {
         this.showToast('No suggestions to pick from!', 'error');
         this.picking = false;
@@ -1420,7 +1429,7 @@ function dinnerRoulette() {
       // Fetch actual server-side weighted pick first
       let serverWinner;
       try {
-        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/pick`, {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/pick`, {
           method: 'POST',
           body: JSON.stringify({ mode: 'random' }),
         });
@@ -1535,7 +1544,7 @@ function dinnerRoulette() {
 
     // ── Closest Pick ──
     async closestPick() {
-      if (!this.activeSession || this.picking) return;
+      if (!this.activePlan || this.picking) return;
       this.picking = true;
       this.winner = null;
 
@@ -1559,7 +1568,7 @@ function dinnerRoulette() {
         this.userLng = position.coords.longitude;
         this.winner = { place: 'Finding closest restaurant...' };
 
-        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/pick`, {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/pick`, {
           method: 'POST',
           body: JSON.stringify({ mode: 'closest', lat: this.userLat, lng: this.userLng }),
         });
@@ -1603,7 +1612,9 @@ function dinnerRoulette() {
       const offset = this.swipeState.currentX;
       this.swipeState = { name: null, startX: 0, currentX: 0, swiping: false };
       if (offset > 80) {
-        this.suggestPersonal(place);
+        if (this.activePlan && this.activePlan.plan.status === 'open') {
+          this.suggestToPlan(place.name, place.place_id, place.restaurant_type);
+        }
       } else if (offset < -80) {
         this.removePlace(type, place.name);
       }
@@ -1651,30 +1662,30 @@ function dinnerRoulette() {
       this.pendingInviteCode = null;
       window.history.replaceState(null, '', '/');
       try {
-        const resp = await this.api('/api/sessions/join', {
+        const resp = await this.api('/api/plans/join', {
           method: 'POST',
           body: JSON.stringify({ code }),
         });
         if (resp.ok) {
           const data = await resp.json();
-          this.showToast('Joined session!');
-          this.activeTab = 'sessions';
-          await this.loadSessions();
-          await this.openSession(data.id);
+          this.showToast('Joined plan!');
+          this.activeTab = 'plans';
+          await this.loadPlans();
+          await this.openPlan(data.id);
         } else {
           const err = await resp.json();
-          this.showToast(err.error || 'Failed to join session', 'error');
+          this.showToast(err.error || 'Failed to join plan', 'error');
         }
       } catch (e) {
-        this.showToast('Failed to join session', 'error');
+        this.showToast('Failed to join plan', 'error');
       }
     },
 
-    async shareSessionInvite() {
-      if (!this.activeSession) return;
-      const code = this.activeSession.session.code;
+    async sharePlanInvite() {
+      if (!this.activePlan) return;
+      const code = this.activePlan.plan.code;
       const url = `${window.location.origin}/invite/${code}`;
-      const text = `Join my Dinner Roulette session! Use code ${code} or click: ${url}`;
+      const text = `Join my Dinner Roulette plan! Use code ${code} or click: ${url}`;
       if (navigator.share) {
         try { await navigator.share({ title: 'Dinner Roulette Invite', text, url }); } catch (e) { /* cancelled */ }
       } else if (navigator.clipboard) {
@@ -1685,13 +1696,13 @@ function dinnerRoulette() {
 
     // ── Deadline ──
     async setDeadline() {
-      if (!this.deadlineInput || !this.activeSession) return;
+      if (!this.deadlineInput || !this.activePlan) return;
       try {
-        await this.api(`/api/sessions/${this.activeSession.session.id}/deadline`, {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/deadline`, {
           method: 'POST',
           body: JSON.stringify({ deadline: this.deadlineInput }),
         });
-        this.activeSession.session.voting_deadline = this.deadlineInput;
+        this.activePlan.plan.voting_deadline = this.deadlineInput;
         this.startDeadlineCountdown();
         this.showToast('Deadline set!');
       } catch (e) {
@@ -1700,13 +1711,13 @@ function dinnerRoulette() {
     },
 
     async removeDeadline() {
-      if (!this.activeSession) return;
+      if (!this.activePlan) return;
       try {
-        await this.api(`/api/sessions/${this.activeSession.session.id}/deadline`, {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/deadline`, {
           method: 'POST',
           body: JSON.stringify({ deadline: null }),
         });
-        this.activeSession.session.voting_deadline = null;
+        this.activePlan.plan.voting_deadline = null;
         if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
         this.deadlineCountdown = '';
         this.deadlineInput = '';
@@ -1719,7 +1730,7 @@ function dinnerRoulette() {
     startDeadlineCountdown() {
       if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
       this.deadlineCountdown = '';
-      const deadline = this.activeSession?.session?.voting_deadline;
+      const deadline = this.activePlan?.plan?.voting_deadline;
       if (!deadline) return;
 
       const update = () => {
@@ -1749,18 +1760,18 @@ function dinnerRoulette() {
 
     // ── Chat ──
     async loadChatMessages() {
-      if (!this.activeSession) return;
+      if (!this.activePlan) return;
       try {
-        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/messages`);
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/messages`);
         const data = await resp.json();
         this.chatMessages = data.messages || [];
       } catch (e) { this.chatMessages = []; }
     },
 
     async sendChatMessage() {
-      if (!this.chatInput.trim() || !this.activeSession) return;
+      if (!this.chatInput.trim() || !this.activePlan) return;
       try {
-        await this.api(`/api/sessions/${this.activeSession.session.id}/messages`, {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/messages`, {
           method: 'POST',
           body: JSON.stringify({ message: this.chatInput.trim() }),
         });
@@ -1805,9 +1816,9 @@ function dinnerRoulette() {
 
     initMap() {
       if (!window.google?.maps) return;
-      const container = document.getElementById('session-map');
+      const container = document.getElementById('plan-map');
       if (!container) return;
-      const suggestions = this.activeSession?.suggestions || [];
+      const suggestions = this.activePlan?.suggestions || [];
       const withCoords = suggestions.filter(s => s.lat != null && s.lng != null);
       const center = withCoords.length > 0
         ? { lat: withCoords[0].lat, lng: withCoords[0].lng }
@@ -1825,7 +1836,7 @@ function dinnerRoulette() {
       if (!this.mapInstance) return;
       this.mapMarkers.forEach(m => m.setMap(null));
       this.mapMarkers = [];
-      const suggestions = this.activeSession?.suggestions || [];
+      const suggestions = this.activePlan?.suggestions || [];
       const withCoords = suggestions.filter(s => s.lat != null && s.lng != null);
       const bounds = new google.maps.LatLngBounds();
       withCoords.forEach((s, idx) => {
@@ -1991,6 +2002,94 @@ function dinnerRoulette() {
       localStorage.setItem('onboarding-done', 'true');
     },
 
+    // ── Post-Login Prompts ────────────────────────────────────────────────
+    async runPostLoginPrompts() {
+      await this.waitForOnboarding();
+      if (!this.email) {
+        await this.showEmailPrompt();
+      }
+      if (
+        this.notificationsSupported &&
+        !this.notificationsEnabled &&
+        Notification.permission !== 'denied' &&
+        localStorage.getItem('notifications-prompt-dismissed') !== 'true'
+      ) {
+        await this.showNotificationPrompt();
+      }
+    },
+
+    waitForOnboarding() {
+      return new Promise((resolve) => {
+        if (!this.onboarding.active) return resolve();
+        const check = setInterval(() => {
+          if (!this.onboarding.active) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 200);
+      });
+    },
+
+    showEmailPrompt() {
+      return new Promise((resolve) => {
+        this.promptEmailValue = '';
+        this.promptModal = {
+          visible: true,
+          type: 'email',
+          onSubmit: async () => {
+            const val = this.promptEmailValue.trim();
+            if (!val) return;
+            try {
+              const resp = await this.api('/api/update-email', {
+                method: 'POST',
+                body: JSON.stringify({ email: val }),
+              });
+              if (resp.ok) {
+                this.email = val;
+                this.showToast('Email saved!');
+              } else {
+                const err = await resp.json();
+                this.showToast(err.error || 'Invalid email', 'error');
+                return;
+              }
+            } catch (e) {
+              this.showToast('Failed to save email', 'error');
+              return;
+            }
+            this.promptModal.visible = false;
+            resolve();
+          },
+          onSkip: () => {
+            this.promptModal.visible = false;
+            resolve();
+          },
+        };
+      });
+    },
+
+    showNotificationPrompt() {
+      return new Promise((resolve) => {
+        this.promptModal = {
+          visible: true,
+          type: 'notifications',
+          onEnable: async () => {
+            this.promptModal.visible = false;
+            await this.enableNotifications();
+            resolve();
+          },
+          onNotNow: () => {
+            this.promptModal.visible = false;
+            resolve();
+          },
+          onDontAskAgain: () => {
+            localStorage.setItem('notifications-prompt-dismissed', 'true');
+            this.promptModal.visible = false;
+            resolve();
+          },
+        };
+      });
+    },
+
     // ── Admin ──
     async switchAdminTab(tab) {
       this.adminTab = tab;
@@ -2004,6 +2103,8 @@ function dinnerRoulette() {
         await this.loadAdminVapid();
       } else if (tab === 'settings') {
         await Promise.all([this.loadAdminSettings(), this.loadAdminGoogleKey()]);
+      } else if (tab === 'plans') {
+        await this.loadAdminPlans();
       }
     },
 
@@ -2280,6 +2381,50 @@ function dinnerRoulette() {
         await this.loadAdminGoogleKey();
       } catch (e) {
         this.showToast('Failed to save Google API key', 'error');
+      }
+    },
+
+    async loadAdminPlans() {
+      try {
+        const resp = await this.api('/api/admin/plans');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminPlans = data.plans;
+        }
+      } catch (e) {
+        this.showToast('Failed to load plans', 'error');
+      }
+    },
+
+    async adminClosePlan(planId) {
+      if (!confirm('Close this plan?')) return;
+      try {
+        const resp = await this.api(`/api/admin/plans/${planId}/close`, { method: 'POST' });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to close plan', 'error');
+          return;
+        }
+        this.showToast('Plan closed');
+        await this.loadAdminPlans();
+      } catch (e) {
+        this.showToast('Failed to close plan', 'error');
+      }
+    },
+
+    async adminDeletePlan(planId) {
+      if (!confirm('Permanently delete this plan and all its data?')) return;
+      try {
+        const resp = await this.api(`/api/admin/plans/${planId}`, { method: 'DELETE' });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to delete plan', 'error');
+          return;
+        }
+        this.showToast('Plan deleted');
+        await this.loadAdminPlans();
+      } catch (e) {
+        this.showToast('Failed to delete plan', 'error');
       }
     },
   };

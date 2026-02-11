@@ -5,7 +5,7 @@ process.env.GOOGLE_API_KEY = 'test-key';
 process.env.JWT_SECRET = 'test-secret';
 process.env.DB_PATH = ':memory:';
 
-const { haversine, generateSessionCode, db } = require('../server');
+const { haversine, generatePlanCode, db } = require('../server');
 
 afterAll(() => {
   db.close();
@@ -36,16 +36,16 @@ describe('haversine', () => {
   });
 });
 
-describe('generateSessionCode', () => {
+describe('generatePlanCode', () => {
   test('returns a 6-character string', () => {
-    const code = generateSessionCode();
+    const code = generatePlanCode();
     expect(code).toHaveLength(6);
   });
 
   test('contains only valid characters (no ambiguous 0/O/1/I/L)', () => {
     const validChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     for (let i = 0; i < 100; i++) {
-      const code = generateSessionCode();
+      const code = generatePlanCode();
       for (const c of code) {
         expect(validChars).toContain(c);
       }
@@ -55,7 +55,7 @@ describe('generateSessionCode', () => {
   test('generates unique codes across multiple calls', () => {
     const codes = new Set();
     for (let i = 0; i < 50; i++) {
-      codes.add(generateSessionCode());
+      codes.add(generatePlanCode());
     }
     // With 30^6 possible codes, 50 codes should all be unique
     expect(codes.size).toBe(50);

@@ -62,6 +62,31 @@
       </div>
     </div>
 
+    <!-- Post-Login Prompt Modal -->
+    <div class="confirm-overlay" x-show="promptModal.visible" x-transition.opacity.duration.200ms>
+      <!-- Email Prompt -->
+      <div class="confirm-modal prompt-modal" x-show="promptModal.type === 'email'" x-transition.scale.origin.center>
+        <h3 class="prompt-title">Add Your Email</h3>
+        <p class="prompt-text">Add an email address so you can reset your password if you forget it.</p>
+        <input type="email" class="prompt-input" x-model="promptEmailValue" placeholder="you@example.com"
+               @keydown.enter="promptModal.onSubmit?.()" aria-label="Email address" />
+        <div class="confirm-modal-actions">
+          <button class="back-btn" @click="promptModal.onSkip?.()">Skip</button>
+          <button class="suggest-btn" @click="promptModal.onSubmit?.()" :disabled="!promptEmailValue.trim()">Save Email</button>
+        </div>
+      </div>
+      <!-- Notification Prompt -->
+      <div class="confirm-modal prompt-modal" x-show="promptModal.type === 'notifications'" x-transition.scale.origin.center>
+        <h3 class="prompt-title">Enable Notifications</h3>
+        <p class="prompt-text">Get notified when friends join your plans, votes come in, and dinner is decided!</p>
+        <div class="confirm-modal-actions prompt-actions-stacked">
+          <button class="suggest-btn" @click="promptModal.onEnable?.()">Enable Notifications</button>
+          <button class="back-btn" @click="promptModal.onNotNow?.()">Not Now</button>
+          <button class="prompt-dismiss-link" @click="promptModal.onDontAskAgain?.()">Don't Ask Again</button>
+        </div>
+      </div>
+    </div>
+
     <header>
       <div class="header-content">
         <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
@@ -80,9 +105,9 @@
     <main>
       <!-- Invite Banner (for logged-out users with pending invite) -->
       <div class="invite-banner" x-show="!loggedIn && pendingInviteCode">
-        <p>You've been invited to a Dinner Roulette session!</p>
+        <p>You've been invited to a Dinner Roulette plan!</p>
         <p class="invite-code-display" x-text="pendingInviteCode"></p>
-        <p class="invite-hint">Log in or register below to join the session.</p>
+        <p class="invite-hint">Log in or register below to join the plan.</p>
       </div>
 
       <!-- Authentication -->
@@ -197,10 +222,10 @@
           <span class="tab-btn-label">Friends</span>
           <span class="tab-badge" x-show="friendRequests.length > 0" x-text="friendRequests.length"></span>
         </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'sessions' }" @click="switchTab('sessions')" role="tab" aria-label="Sessions">
+        <button class="tab-btn" :class="{ active: activeTab === 'plans' }" @click="switchTab('plans')" role="tab" aria-label="Plans">
           <span class="tab-btn-icon">&#x1F3B2;</span>
-          <span class="tab-btn-label">Sessions</span>
-          <span class="tab-badge" x-show="activeSessions.length > 0" x-text="activeSessions.length"></span>
+          <span class="tab-btn-label">Plans</span>
+          <span class="tab-badge" x-show="activePlans.length > 0" x-text="activePlans.length"></span>
         </button>
         <button class="tab-btn" :class="{ active: activeTab === 'account' }" @click="switchTab('account')" role="tab" aria-label="Account">
           <span class="tab-btn-icon">&#x2699;</span>
@@ -216,7 +241,7 @@
       <!-- Floating Action Button -->
       <button class="fab" x-show="loggedIn && activeTab !== 'account' && activeTab !== 'admin'"
               @click="fabAction()" x-transition.scale.origin.bottom-right>
-        <span x-text="activeTab === 'sessions' ? '🎲' : '+'"></span>
+        <span x-text="activeTab === 'plans' ? '🎲' : '+'"></span>
       </button>
 
       <!-- Tab Content -->
@@ -231,38 +256,40 @@
 
         <!-- ═══ PLACES TAB ═══ -->
         <section x-show="activeTab === 'places'" x-transition:enter.opacity.duration.200ms>
-          <div class="autocomplete-container">
-            <input id="place-search" x-ref="placeSearch" placeholder="Search for a place..." autocomplete="off"
-                   x-model="placeSearch" @input.debounce.300ms="searchPlaces()"
-                   @keydown.escape="predictions = []; highlightedIndex = -1"
-                   @keydown.arrow-down.prevent="handlePlaceKeydown($event)"
-                   @keydown.arrow-up.prevent="handlePlaceKeydown($event)"
-                   @keydown.enter.prevent="handlePlaceKeydown($event)"
-                   aria-label="Search for a restaurant"
-                   role="combobox" aria-expanded="false" :aria-expanded="predictions.length > 0"
-                   :aria-activedescendant="highlightedIndex >= 0 ? 'place-opt-' + highlightedIndex : null" />
-            <span class="spinner" x-show="searching"></span>
-            <ul class="autocomplete-list" x-show="predictions.length > 0" role="listbox">
-              <template x-for="(pred, index) in predictions" :key="pred.place_id">
-                <li @click="selectPlace(pred)" x-text="pred.description" role="option" tabindex="0"
-                    @keydown.enter="selectPlace(pred)"
-                    :id="'place-opt-' + index"
-                    :class="{ 'highlighted': index === highlightedIndex }"></li>
-              </template>
-            </ul>
-            <p class="no-results" x-show="predictions.length === 0 && placeSearch.length > 2 && searchedOnce">
-              No results found. Try a different search term.
-            </p>
+          <!-- Search Area -->
+          <div class="search-area">
+            <div class="autocomplete-container">
+              <input id="place-search" x-ref="placeSearch" placeholder="Search for a place..." autocomplete="off"
+                     x-model="placeSearch" @input.debounce.300ms="searchPlaces()"
+                     @keydown.escape="predictions = []; highlightedIndex = -1"
+                     @keydown.arrow-down.prevent="handlePlaceKeydown($event)"
+                     @keydown.arrow-up.prevent="handlePlaceKeydown($event)"
+                     @keydown.enter.prevent="handlePlaceKeydown($event)"
+                     aria-label="Search for a restaurant"
+                     role="combobox" aria-expanded="false" :aria-expanded="predictions.length > 0"
+                     :aria-activedescendant="highlightedIndex >= 0 ? 'place-opt-' + highlightedIndex : null" />
+              <span class="spinner" x-show="searching"></span>
+              <ul class="autocomplete-list" x-show="predictions.length > 0" role="listbox">
+                <template x-for="(pred, index) in predictions" :key="pred.place_id">
+                  <li @click="selectPlace(pred)" x-text="pred.description" role="option" tabindex="0"
+                      @keydown.enter="selectPlace(pred)"
+                      :id="'place-opt-' + index"
+                      :class="{ 'highlighted': index === highlightedIndex }"></li>
+                </template>
+              </ul>
+              <p class="no-results" x-show="predictions.length === 0 && placeSearch.length > 2 && searchedOnce">
+                No results found. Try a different search term.
+              </p>
+            </div>
+            <div x-show="selectedPlace" x-transition class="search-actions">
+              <span class="selected-place-name" x-text="selectedPlace?.name"></span>
+              <div class="search-action-btns">
+                <button class="action-like" @click="likePlace()" aria-label="Like this place">👍</button>
+                <button class="action-dislike" @click="dislikePlace()" aria-label="Dislike this place">👎</button>
+                <button class="action-wtt" @click="wantToTryPlace()" aria-label="Add to want to try list">⭐</button>
+              </div>
+            </div>
           </div>
-          <div class="buttons" x-show="selectedPlace">
-            <button @click="likePlace()" aria-label="Like this place">👍 Like</button>
-            <button @click="dislikePlace()" aria-label="Dislike this place">👎 Dislike</button>
-            <button class="want-to-try-btn" @click="wantToTryPlace()" aria-label="Add to want to try list">⭐ Want to Try</button>
-          </div>
-          <p x-show="selectedPlace">
-            <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(selectedPlace?.name || '')"
-               target="_blank" rel="noopener">View on Google Maps</a>
-          </p>
 
           <!-- Filter & Sort -->
           <div x-show="likes.length > 3 || dislikes.length > 3 || wantToTry.length > 3" class="filter-controls">
@@ -291,119 +318,193 @@
             </div>
           </div>
 
-          <h3>Liked</h3>
-          <!-- Skeleton Loading -->
-          <div x-show="loading.places" class="skeleton-list">
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
-          </div>
-          <div class="place-card-grid" x-show="!loading.places">
-            <template x-for="place in filteredLikes" :key="place.name">
-              <div class="place-card"
-                   @touchstart="onTouchStart($event, place.name)"
-                   @touchmove="onTouchMove($event, place.name)"
-                   @touchend="onTouchEnd('likes', place)"
-                   :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
-                <div class="place-card-header">
-                  <strong x-text="place.name"></strong>
-                  <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
-                </div>
-                <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
-                  <span class="note-text" @click="startEditNote(place)" x-text="place.notes"></span>
-                </div>
-                <div class="place-note-edit" x-show="editingNote === place.name">
-                  <input type="text" x-model="noteText" placeholder="Add a note..."
-                         @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
-                  <button class="suggest-btn" @click="saveNote(place)">Save</button>
-                  <button class="back-btn" @click="cancelEditNote()">Cancel</button>
-                </div>
-                <div class="place-card-actions">
-                  <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                     target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                  <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
-                  <button class="suggest-btn" @click="suggestPersonal(place)"
-                          :disabled="currentSuggestions.has(place.name)"
-                          :title="currentSuggestions.has(place.name) ? 'Already suggested' : 'Add to suggestions'"
-                          aria-label="Suggest this place">Suggest</button>
-                  <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
-                          @click="startEditNote(place)">+ Note</button>
-                  <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">Remove</button>
-                </div>
+          <!-- ── Favorites Section ── -->
+          <div x-show="starredPlaces.length > 0">
+            <div class="section-header" @click="togglePlaceSection('favorites')">
+              <h3>
+                <span class="section-collapse-icon" :class="{ open: placeSections.favorites }">&#x25B6;</span>
+                &#x2605; Favorites
+                <span class="section-count" x-text="starredPlaces.length"></span>
+              </h3>
+            </div>
+            <div x-show="placeSections.favorites" x-collapse>
+              <div class="place-card-list">
+                <template x-for="place in starredPlaces" :key="'fav-' + place.name">
+                  <div class="place-card">
+                    <div class="place-card-header">
+                      <strong x-text="place.name"></strong>
+                      <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                    </div>
+                    <div class="place-card-actions">
+                      <button class="star-btn" @click="toggleStar(place._type, place.name)"
+                              aria-label="Unstar">&#x2605;</button>
+                      <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
+                              @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
+                              :disabled="isAlreadySuggestedToPlan(place.name)"
+                              aria-label="Suggest this place to plan">Suggest</button>
+                    </div>
+                  </div>
+                </template>
               </div>
-            </template>
-          </div>
-          <div x-show="likes.length === 0 && !loading.places" class="empty-state">
-            <span class="empty-state-icon">&#x1F37D;</span>
-            <p>No liked places yet.</p>
-            <p class="empty-state-hint">Search above and tap Like to start building your list.</p>
+            </div>
           </div>
 
-          <h3>Disliked</h3>
-          <div x-show="loading.places" class="skeleton-list">
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+          <!-- ── Liked Section ── -->
+          <div class="section-header" @click="togglePlaceSection('likes')">
+            <h3>
+              <span class="section-collapse-icon" :class="{ open: placeSections.likes }">&#x25B6;</span>
+              Liked
+              <span class="section-count" x-text="likes.length"></span>
+            </h3>
           </div>
-          <div class="place-card-grid" x-show="!loading.places">
-            <template x-for="place in filteredDislikes" :key="place.name">
-              <div class="place-card"
-                   @touchstart="onTouchStart($event, place.name)"
-                   @touchmove="onTouchMove($event, place.name)"
-                   @touchend="onTouchEnd('dislikes', place)"
-                   :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
-                <div class="place-card-header">
-                  <strong x-text="place.name"></strong>
-                  <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+          <div x-show="placeSections.likes" x-collapse>
+            <!-- Skeleton Loading -->
+            <div x-show="loading.places" class="skeleton-list">
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            </div>
+            <div class="place-card-grid" x-show="!loading.places">
+              <template x-for="place in filteredLikes" :key="place.name">
+                <div class="place-card"
+                     @touchstart="onTouchStart($event, place.name)"
+                     @touchmove="onTouchMove($event, place.name)"
+                     @touchend="onTouchEnd('likes', place)"
+                     :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                  <div class="place-card-header">
+                    <strong x-text="place.name"></strong>
+                    <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                  </div>
+                  <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
+                    <span class="note-text" @click="startEditNote(place)" x-text="place.notes"></span>
+                  </div>
+                  <div class="place-note-edit" x-show="editingNote === place.name">
+                    <input type="text" x-model="noteText" placeholder="Add a note..."
+                           @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
+                    <button class="suggest-btn" @click="saveNote(place)">Save</button>
+                    <button class="back-btn" @click="cancelEditNote()">Cancel</button>
+                  </div>
+                  <div class="place-card-actions">
+                    <button class="star-btn" @click="toggleStar('likes', place.name)"
+                            :aria-label="place.starred ? 'Unstar ' + place.name : 'Star ' + place.name"
+                            x-text="place.starred ? '\u2605' : '\u2606'"></button>
+                    <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
+                            @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
+                            :disabled="isAlreadySuggestedToPlan(place.name)"
+                            :title="isAlreadySuggestedToPlan(place.name) ? 'Already suggested to plan' : 'Suggest to active plan'"
+                            aria-label="Suggest this place to plan">Suggest</button>
+                    <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">Remove</button>
+                    <button class="overflow-toggle" @click.stop="toggleCardMenu(place.name)" aria-label="More actions">&#x22EF;</button>
+                  </div>
+                  <div class="overflow-menu" x-show="cardMenuOpen === place.name" x-transition.opacity @click.outside="closeCardMenu()">
+                    <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
+                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
+                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                    <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
+                            @click="startEditNote(place)">+ Note</button>
+                  </div>
                 </div>
-                <div class="place-card-actions">
-                  <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                     target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                  <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
-                  <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">Remove</button>
-                </div>
-              </div>
-            </template>
-          </div>
-          <div x-show="dislikes.length === 0 && !loading.places" class="empty-state">
-            <span class="empty-state-icon">&#x1F44E;</span>
-            <p>No disliked places yet.</p>
-            <p class="empty-state-hint">Places you dislike will appear here.</p>
+              </template>
+            </div>
+            <div x-show="likes.length === 0 && !loading.places" class="empty-state">
+              <span class="empty-state-icon">&#x1F37D;</span>
+              <p>No liked places yet.</p>
+              <p class="empty-state-hint">Search above and tap Like to start building your list.</p>
+            </div>
           </div>
 
-          <h3>⭐ Want to Try</h3>
-          <div x-show="loading.places" class="skeleton-list">
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
-            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+          <!-- ── Disliked Section ── -->
+          <div class="section-header" @click="togglePlaceSection('dislikes')">
+            <h3>
+              <span class="section-collapse-icon" :class="{ open: placeSections.dislikes }">&#x25B6;</span>
+              Disliked
+              <span class="section-count" x-text="dislikes.length"></span>
+            </h3>
           </div>
-          <div class="place-card-grid" x-show="!loading.places">
-            <template x-for="place in filteredWantToTry" :key="place.name">
-              <div class="place-card"
-                   @touchstart="onTouchStart($event, place.name)"
-                   @touchmove="onTouchMove($event, place.name)"
-                   @touchend="onTouchEnd('want_to_try', place)"
-                   :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
-                <div class="place-card-header">
-                  <strong x-text="place.name"></strong>
-                  <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+          <div x-show="placeSections.dislikes" x-collapse>
+            <div x-show="loading.places" class="skeleton-list">
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            </div>
+            <div class="place-card-grid" x-show="!loading.places">
+              <template x-for="place in filteredDislikes" :key="place.name">
+                <div class="place-card"
+                     @touchstart="onTouchStart($event, place.name)"
+                     @touchmove="onTouchMove($event, place.name)"
+                     @touchend="onTouchEnd('dislikes', place)"
+                     :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                  <div class="place-card-header">
+                    <strong x-text="place.name"></strong>
+                    <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                  </div>
+                  <div class="place-card-actions">
+                    <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">Remove</button>
+                    <button class="overflow-toggle" @click.stop="toggleCardMenu(place.name)" aria-label="More actions">&#x22EF;</button>
+                  </div>
+                  <div class="overflow-menu" x-show="cardMenuOpen === place.name" x-transition.opacity @click.outside="closeCardMenu()">
+                    <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
+                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
+                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                  </div>
                 </div>
-                <div class="place-card-actions">
-                  <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                     target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                  <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
-                  <button class="suggest-btn" x-show="activeSession && activeSession.session.status === 'open'"
-                          @click="suggestToSession(place.name, place.place_id, place.restaurant_type)"
-                          :disabled="currentSuggestions.has(place.name)"
-                          :title="currentSuggestions.has(place.name) ? 'Already suggested' : 'Suggest to session'"
-                          aria-label="Suggest this place">Suggest</button>
-                  <button class="remove-btn" @click="removePlace('want_to_try', place.name)" aria-label="Remove from want to try">Remove</button>
-                </div>
-              </div>
-            </template>
+              </template>
+            </div>
+            <div x-show="dislikes.length === 0 && !loading.places" class="empty-state">
+              <span class="empty-state-icon">&#x1F44E;</span>
+              <p>No disliked places yet.</p>
+              <p class="empty-state-hint">Places you dislike will appear here.</p>
+            </div>
           </div>
-          <div x-show="wantToTry.length === 0 && !loading.places" class="empty-state">
-            <span class="empty-state-icon">⭐</span>
-            <p>No places on your bucket list yet.</p>
-            <p class="empty-state-hint">Mark places you want to try!</p>
+
+          <!-- ── Want to Try Section ── -->
+          <div class="section-header" @click="togglePlaceSection('wantToTry')">
+            <h3>
+              <span class="section-collapse-icon" :class="{ open: placeSections.wantToTry }">&#x25B6;</span>
+              Want to Try
+              <span class="section-count" x-text="wantToTry.length"></span>
+            </h3>
+          </div>
+          <div x-show="placeSections.wantToTry" x-collapse>
+            <div x-show="loading.places" class="skeleton-list">
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+              <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            </div>
+            <div class="place-card-grid" x-show="!loading.places">
+              <template x-for="place in filteredWantToTry" :key="place.name">
+                <div class="place-card"
+                     @touchstart="onTouchStart($event, place.name)"
+                     @touchmove="onTouchMove($event, place.name)"
+                     @touchend="onTouchEnd('want_to_try', place)"
+                     :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                  <div class="place-card-header">
+                    <strong x-text="place.name"></strong>
+                    <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                  </div>
+                  <div class="place-card-actions">
+                    <button class="star-btn" @click="toggleStar('want_to_try', place.name)"
+                            :aria-label="place.starred ? 'Unstar ' + place.name : 'Star ' + place.name"
+                            x-text="place.starred ? '\u2605' : '\u2606'"></button>
+                    <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
+                            @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
+                            :disabled="isAlreadySuggestedToPlan(place.name)"
+                            :title="isAlreadySuggestedToPlan(place.name) ? 'Already suggested to plan' : 'Suggest to active plan'"
+                            aria-label="Suggest this place to plan">Suggest</button>
+                    <button class="remove-btn" @click="removePlace('want_to_try', place.name)" aria-label="Remove from want to try">Remove</button>
+                    <button class="overflow-toggle" @click.stop="toggleCardMenu(place.name)" aria-label="More actions">&#x22EF;</button>
+                  </div>
+                  <div class="overflow-menu" x-show="cardMenuOpen === place.name" x-transition.opacity @click.outside="closeCardMenu()">
+                    <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
+                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
+                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div x-show="wantToTry.length === 0 && !loading.places" class="empty-state">
+              <span class="empty-state-icon">⭐</span>
+              <p>No places on your bucket list yet.</p>
+              <p class="empty-state-hint">Mark places you want to try!</p>
+            </div>
           </div>
         </section>
 
@@ -451,8 +552,8 @@
                     <span class="place-actions">
                       <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
                       <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
-                      <button class="suggest-btn" x-show="activeSession && activeSession.session.status === 'open'"
-                              @click="quickInviteFriend(f.username)" aria-label="Invite to session">Invite</button>
+                      <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
+                              @click="quickInviteFriend(f.username)" aria-label="Invite to plan">Invite</button>
                       <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
                     </span>
                   </li>
@@ -516,124 +617,99 @@
           </div>
         </section>
 
-        <!-- ═══ SESSIONS TAB ═══ -->
-        <section x-show="activeTab === 'sessions'" x-transition:enter.opacity.duration.200ms>
-          <!-- Personal Suggestions -->
-          <div class="suggestions-subsection" style="margin-top: 0; border-top: none; padding-top: 0;">
-            <h3>Your Suggestions</h3>
-            <ul>
-              <template x-for="s in suggestions" :key="s.name">
-                <li>
-                  <div class="place-info">
-                    <span x-text="s.name"></span>
-                    <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
-                  </div>
-                  <span class="place-actions">
-                    <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.name, s.place_id)"
-                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                    <button class="remove-btn" @click="removeSuggestion(s.name)" aria-label="Remove suggestion">Remove</button>
-                  </span>
-                </li>
-              </template>
-            </ul>
-            <div x-show="suggestions.length === 0" class="empty-state">
-              <span class="empty-state-icon">&#x1F4A1;</span>
-              <p>No suggestions yet.</p>
-              <p class="empty-state-hint">Suggest a liked place to start planning.</p>
-            </div>
-          </div>
-
-          <!-- Session Management -->
-          <div class="session-subsection">
-            <h3>Dinner Sessions</h3>
-            <div x-show="!activeSession">
+        <!-- ═══ PLANS TAB ═══ -->
+        <section x-show="activeTab === 'plans'" x-transition:enter.opacity.duration.200ms>
+          <!-- Plan Management -->
+          <div class="plan-subsection">
+            <h3>Dinner Plans</h3>
+            <div x-show="!activePlan">
               <div class="inline-input">
-                <input x-model="newSessionName" placeholder="Session name (e.g., Friday Dinner)"
-                       @keydown.enter="createSession()" aria-label="Session name" />
-                <button @click="createSession()">Create Session</button>
+                <input x-model="newPlanName" placeholder="Plan name (e.g., Friday Dinner)"
+                       @keydown.enter="createPlan()" aria-label="Plan name" />
+                <button @click="createPlan()">Create Plan</button>
               </div>
               <div class="inline-input" style="margin-top: 0.5rem;">
                 <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
-                       style="text-transform: uppercase;" @keydown.enter="joinSession()" aria-label="Session invite code" />
-                <button @click="joinSession()">Join Session</button>
+                       style="text-transform: uppercase;" @keydown.enter="joinPlan()" aria-label="Plan invite code" />
+                <button @click="joinPlan()">Join Plan</button>
               </div>
 
-              <!-- Active Sessions -->
-              <h4 x-show="activeSessions.length > 0">Active Sessions</h4>
-              <ul class="session-list">
-                <template x-for="s in activeSessions" :key="s.id">
-                  <li @click="openSession(s.id)">
+              <!-- Active Plans -->
+              <h4 x-show="activePlans.length > 0">Active Plans</h4>
+              <ul class="plan-list">
+                <template x-for="s in activePlans" :key="s.id">
+                  <li @click="openPlan(s.id)">
                     <div>
                       <strong x-text="s.name"></strong>
-                      <span class="session-code" x-text="s.code"></span>
-                      <span class="session-creator">
+                      <span class="plan-code" x-text="s.code"></span>
+                      <span class="plan-creator">
                         <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
                         <span x-text="s.creator_username"></span>
                       </span>
                     </div>
                     <div>
                       <span class="member-count" x-text="s.member_count + ' members'"></span>
-                      <span class="session-status open">open</span>
+                      <span class="plan-status open">open</span>
                     </div>
                   </li>
                 </template>
               </ul>
 
-              <!-- Session History -->
-              <h4 x-show="historySessions.length > 0">Session History</h4>
-              <ul class="session-list">
-                <template x-for="s in historySessions" :key="s.id">
-                  <li @click="openSession(s.id)">
+              <!-- Plan History -->
+              <h4 x-show="historyPlans.length > 0">Plan History</h4>
+              <ul class="plan-list">
+                <template x-for="s in historyPlans" :key="s.id">
+                  <li @click="openPlan(s.id)">
                     <div>
                       <strong x-text="s.name"></strong>
-                      <span class="session-creator">
+                      <span class="plan-creator">
                         <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
                         <span x-text="s.creator_username"></span>
                       </span>
-                      <span class="session-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
+                      <span class="plan-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
                     </div>
                     <div>
                       <span class="member-count" x-text="s.member_count + ' members'"></span>
-                      <span x-show="s.winner_place" class="session-winner" x-text="'Winner: ' + s.winner_place"></span>
+                      <span x-show="s.winner_place" class="plan-winner" x-text="'Winner: ' + s.winner_place"></span>
                       <button class="remove-btn" x-show="s.creator_id === userId"
-                              @click.stop="deleteSession(s.id)" aria-label="Delete session">Delete</button>
+                              @click.stop="deletePlan(s.id)" aria-label="Delete plan">Delete</button>
                     </div>
                   </li>
                 </template>
               </ul>
               <!-- Skeleton Loading -->
-              <div x-show="loading.sessions" class="skeleton-list">
+              <div x-show="loading.plans" class="skeleton-list">
                 <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
                 <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
               </div>
-              <div x-show="sessions.length === 0 && !loading.sessions" class="empty-state">
+              <div x-show="plans.length === 0 && !loading.plans" class="empty-state">
                 <span class="empty-state-icon">&#x1F46B;</span>
-                <p>No sessions yet.</p>
-                <p class="empty-state-hint">Create a session or join one with an invite code.</p>
+                <p>No plans yet.</p>
+                <p class="empty-state-hint">Create a plan or join one with an invite code.</p>
               </div>
             </div>
 
-            <!-- Active Session View -->
-            <div x-show="activeSession">
-              <div class="session-header">
-                <h4 x-text="activeSession?.session?.name"></h4>
-                <span class="session-code clickable" @click="copyCode()" x-text="activeSession?.session?.code"
+            <!-- Active Plan View -->
+            <div x-show="activePlan">
+              <div class="plan-header">
+                <h4 x-text="activePlan?.plan?.name"></h4>
+                <span class="plan-code clickable" @click="copyCode()" x-text="activePlan?.plan?.code"
                       title="Click to copy"></span>
-                <button class="share-invite-btn" @click="shareSessionInvite()"
-                        x-show="activeSession?.session?.status === 'open'">Share Invite</button>
-                <button class="back-btn" @click="closeActiveSession()">Back</button>
-                <button class="remove-btn" x-show="activeSession?.session?.creator_id === userId && activeSession?.session?.status === 'open' && !closingSession"
-                        @click="closeSession()">Close Session</button>
-                <button class="back-btn" x-show="closingSession" @click="cancelClose()">Cancel</button>
-                <button class="remove-btn" x-show="activeSession?.session?.creator_id === userId && activeSession?.session?.status === 'closed'"
-                        @click="deleteSession(activeSession.session.id)">Delete Session</button>
+                <button class="share-invite-btn" @click="sharePlanInvite()"
+                        x-show="activePlan?.plan?.status === 'open'">Share Invite</button>
+                <button class="back-btn" @click="closeActivePlan()">Back</button>
+                <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'open' && !closingPlan"
+                        @click="closePlan()">Close Plan</button>
+                <button class="back-btn" x-show="closingPlan" @click="cancelClose()">Cancel</button>
+                <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'closed'"
+                        @click="deletePlan(activePlan.plan.id)">Delete Plan</button>
               </div>
 
               <!-- Members with Avatars -->
               <div class="members-line">
                 <strong>Members:</strong>
                 <div class="member-chips">
-                  <template x-for="m in activeSession?.members || []" :key="m.id">
+                  <template x-for="m in activePlan?.members || []" :key="m.id">
                     <span class="member-chip">
                       <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
                       <span x-text="m.username"></span>
@@ -642,35 +718,35 @@
                 </div>
               </div>
 
-              <div class="inline-input session-invite-input" x-show="activeSession?.session?.status === 'open'">
-                <input x-model="sessionInviteUsername" placeholder="Invite by username..."
-                       @keydown.enter="inviteToSession()" aria-label="Invite user to session" />
-                <button @click="inviteToSession()">Invite</button>
+              <div class="inline-input plan-invite-input" x-show="activePlan?.plan?.status === 'open'">
+                <input x-model="planInviteUsername" placeholder="Invite by username..."
+                       @keydown.enter="inviteToPlan()" aria-label="Invite user to plan" />
+                <button @click="inviteToPlan()">Invite</button>
               </div>
-              <p x-show="activeSession?.session?.status === 'closed'" class="closed-badge">This session is closed.</p>
+              <p x-show="activePlan?.plan?.status === 'closed'" class="closed-badge">This plan is closed.</p>
 
               <!-- Voting Deadline -->
-              <div class="deadline-section" x-show="activeSession?.session?.status === 'open'">
-                <template x-if="activeSession?.session?.voting_deadline">
+              <div class="deadline-section" x-show="activePlan?.plan?.status === 'open'">
+                <template x-if="activePlan?.plan?.voting_deadline">
                   <div class="deadline-display">
                     <span class="deadline-icon">&#x23F0;</span>
                     <span class="deadline-text" :class="{ urgent: deadlineCountdown.includes('s remaining') && !deadlineCountdown.includes('m') }"
                           x-text="deadlineCountdown || 'Deadline set'"></span>
-                    <button class="back-btn btn-sm" x-show="activeSession?.session?.creator_id === userId"
+                    <button class="back-btn btn-sm" x-show="activePlan?.plan?.creator_id === userId"
                             @click="removeDeadline()">Remove</button>
                   </div>
                 </template>
-                <div class="deadline-controls" x-show="!activeSession?.session?.voting_deadline && activeSession?.session?.creator_id === userId">
+                <div class="deadline-controls" x-show="!activePlan?.plan?.voting_deadline && activePlan?.plan?.creator_id === userId">
                   <input type="datetime-local" x-model="deadlineInput" aria-label="Set voting deadline" />
                   <button class="suggest-btn btn-sm" @click="setDeadline()" :disabled="!deadlineInput">Set Deadline</button>
                 </div>
               </div>
 
               <!-- Winner Selection on Close -->
-              <div x-show="closingSession" class="close-winner-panel">
+              <div x-show="closingPlan" class="close-winner-panel">
                 <h4>Select the winning restaurant:</h4>
                 <ul class="close-winner-list">
-                  <template x-for="s in activeSession?.suggestions || []" :key="s.id">
+                  <template x-for="s in activePlan?.suggestions || []" :key="s.id">
                     <li @click="closeWithWinner(s.place)">
                       <span class="suggestion-name" x-text="s.place"></span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
@@ -683,33 +759,49 @@
                 <button class="back-btn" @click="closeWithoutWinner()" style="margin-top: 0.5rem;">Close without winner</button>
               </div>
 
-              <!-- Suggest to Session -->
-              <div x-show="activeSession?.session?.status === 'open'">
+              <!-- Suggest to Plan -->
+              <div x-show="activePlan?.plan?.status === 'open'">
                 <h4>Suggest a Place</h4>
                 <div class="autocomplete-container">
                   <input placeholder="Search for a restaurant..." autocomplete="off"
-                         x-model="sessionPlaceSearch" @input.debounce.300ms="searchSessionPlaces()"
-                         @keydown.escape="sessionPredictions = []; sessionHighlightedIndex = -1"
-                         @keydown.arrow-down.prevent="handleSessionKeydown($event)"
-                         @keydown.arrow-up.prevent="handleSessionKeydown($event)"
-                         @keydown.enter.prevent="handleSessionKeydown($event)"
+                         x-model="planPlaceSearch" @input.debounce.300ms="searchPlanPlaces()"
+                         @keydown.escape="planPredictions = []; planHighlightedIndex = -1"
+                         @keydown.arrow-down.prevent="handlePlanKeydown($event)"
+                         @keydown.arrow-up.prevent="handlePlanKeydown($event)"
+                         @keydown.enter.prevent="handlePlanKeydown($event)"
                          aria-label="Search to suggest a restaurant"
-                         role="combobox" aria-expanded="false" :aria-expanded="sessionPredictions.length > 0"
-                         :aria-activedescendant="sessionHighlightedIndex >= 0 ? 'session-opt-' + sessionHighlightedIndex : null" />
-                  <span class="spinner" x-show="sessionSearching"></span>
-                  <ul class="autocomplete-list" x-show="sessionPredictions.length > 0" role="listbox">
-                    <template x-for="(pred, index) in sessionPredictions" :key="pred.place_id">
-                      <li @click="suggestToSession(pred.description, pred.place_id, formatPlaceType(pred.types))"
-                          role="option" tabindex="0" :id="'session-opt-' + index"
-                          :class="{ 'highlighted': index === sessionHighlightedIndex }">
+                         role="combobox" aria-expanded="false" :aria-expanded="planPredictions.length > 0"
+                         :aria-activedescendant="planHighlightedIndex >= 0 ? 'plan-opt-' + planHighlightedIndex : null" />
+                  <span class="spinner" x-show="planSearching"></span>
+                  <ul class="autocomplete-list" x-show="planPredictions.length > 0" role="listbox">
+                    <template x-for="(pred, index) in planPredictions" :key="pred.place_id">
+                      <li @click="suggestToPlan(pred.description, pred.place_id, formatPlaceType(pred.types))"
+                          role="option" tabindex="0" :id="'plan-opt-' + index"
+                          :class="{ 'highlighted': index === planHighlightedIndex }">
                         <span x-text="pred.description"></span>
-                        <span class="dislike-warn-badge" x-show="isSessionDisliked(pred.description)">Disliked by member</span>
+                        <span class="dislike-warn-badge" x-show="isPlanDisliked(pred.description)">Disliked by member</span>
                       </li>
                     </template>
                   </ul>
-                  <p class="no-results" x-show="sessionPredictions.length === 0 && sessionPlaceSearch.length > 2 && sessionSearchedOnce">
+                  <p class="no-results" x-show="planPredictions.length === 0 && planPlaceSearch.length > 2 && planSearchedOnce">
                     No results found. Try a different search term.
                   </p>
+                </div>
+
+                <!-- Starred Favorites Quick-Suggest -->
+                <div x-show="starredPlaces.length > 0" class="starred-suggest-section">
+                  <span class="grid-label">Your Favorites:</span>
+                  <div class="starred-suggest-grid">
+                    <template x-for="place in starredPlaces" :key="place.name">
+                      <button class="starred-suggest-btn"
+                              @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
+                              :disabled="isAlreadySuggestedToPlan(place.name)"
+                              :aria-label="'Suggest ' + place.name">
+                        <span class="starred-icon">&#x2605;</span>
+                        <span x-text="place.name"></span>
+                      </button>
+                    </template>
+                  </div>
                 </div>
 
                 <!-- Recently Suggested Quick-Add -->
@@ -717,7 +809,7 @@
                   <span class="grid-label">Recently suggested:</span>
                   <div class="recent-suggest-grid">
                     <template x-for="rs in recentSuggestions" :key="rs.name">
-                      <button class="recent-suggest-btn" @click="suggestToSession(rs.name, rs.place_id, rs.restaurant_type)"
+                      <button class="recent-suggest-btn" @click="suggestToPlan(rs.name, rs.place_id, rs.restaurant_type)"
                               :aria-label="'Suggest ' + rs.name" x-text="'+ ' + rs.name"></button>
                     </template>
                   </div>
@@ -726,10 +818,10 @@
                 <div x-show="likes.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">Quick suggest from likes:</span>
                   <template x-for="place in likes" :key="place.name">
-                    <button class="suggest-btn" @click="suggestToSession(place.name, place.place_id, place.restaurant_type)"
+                    <button class="suggest-btn" @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
                       <span x-text="'+ ' + place.name"></span>
-                      <span class="dislike-warn-badge" x-show="isSessionDisliked(place.name)">!</span>
+                      <span class="dislike-warn-badge" x-show="isPlanDisliked(place.name)">!</span>
                     </button>
                   </template>
                 </div>
@@ -737,7 +829,7 @@
                 <div x-show="wantToTry.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">From your bucket list:</span>
                   <template x-for="place in wantToTry" :key="place.name">
-                    <button class="want-to-try-quick-btn" @click="suggestToSession(place.name, place.place_id, place.restaurant_type)"
+                    <button class="want-to-try-quick-btn" @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
                       <span x-text="'⭐ ' + place.name"></span>
                     </button>
@@ -745,36 +837,36 @@
                 </div>
               </div>
 
-              <!-- Session Suggestions with Votes -->
-              <h4>Suggestions <span class="vote-hint" x-show="activeSession?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
+              <!-- Plan Suggestions with Votes -->
+              <h4>Suggestions <span class="vote-hint" x-show="activePlan?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
 
               <!-- Cuisine Filter Chips -->
-              <div class="cuisine-filter-chips" x-show="uniqueSessionCuisines.length > 1">
-                <button class="filter-chip" :class="{ active: sessionCuisineFilter === '' }"
-                        @click="sessionCuisineFilter = ''">All</button>
-                <template x-for="cuisine in uniqueSessionCuisines" :key="cuisine">
-                  <button class="filter-chip" :class="{ active: sessionCuisineFilter === cuisine }"
-                          @click="sessionCuisineFilter = cuisine" x-text="cuisine"></button>
+              <div class="cuisine-filter-chips" x-show="uniquePlanCuisines.length > 1">
+                <button class="filter-chip" :class="{ active: planCuisineFilter === '' }"
+                        @click="planCuisineFilter = ''">All</button>
+                <template x-for="cuisine in uniquePlanCuisines" :key="cuisine">
+                  <button class="filter-chip" :class="{ active: planCuisineFilter === cuisine }"
+                          @click="planCuisineFilter = cuisine" x-text="cuisine"></button>
                 </template>
               </div>
 
-              <div class="sort-controls" x-show="activeSession?.suggestions?.length > 1">
-                <button class="sort-btn" :class="{ active: sessionSuggestSort === 'votes' }" @click="sessionSuggestSort = 'votes'">By Votes</button>
-                <button class="sort-btn" :class="{ active: sessionSuggestSort === 'name' }" @click="sessionSuggestSort = 'name'">By Name</button>
-                <button class="sort-btn" :class="{ active: sessionSuggestSort === 'suggester' }" @click="sessionSuggestSort = 'suggester'">By Suggester</button>
+              <div class="sort-controls" x-show="activePlan?.suggestions?.length > 1">
+                <button class="sort-btn" :class="{ active: planSuggestSort === 'votes' }" @click="planSuggestSort = 'votes'">By Votes</button>
+                <button class="sort-btn" :class="{ active: planSuggestSort === 'name' }" @click="planSuggestSort = 'name'">By Name</button>
+                <button class="sort-btn" :class="{ active: planSuggestSort === 'suggester' }" @click="planSuggestSort = 'suggester'">By Suggester</button>
               </div>
 
               <!-- List/Map View Toggle -->
-              <div class="view-toggle" x-show="activeSession?.suggestions?.some(s => s.lat != null)">
+              <div class="view-toggle" x-show="activePlan?.suggestions?.some(s => s.lat != null)">
                 <button :class="{ active: !mapView }" @click="mapView = false">List</button>
                 <button :class="{ active: mapView }" @click="toggleMapView()">Map</button>
               </div>
 
               <!-- Map View -->
               <div x-show="mapView">
-                <div id="session-map" class="session-map"></div>
+                <div id="plan-map" class="plan-map"></div>
                 <div class="map-legend">
-                  <template x-for="(s, idx) in (activeSession?.suggestions || []).filter(s => s.lat != null)" :key="s.id">
+                  <template x-for="(s, idx) in (activePlan?.suggestions || []).filter(s => s.lat != null)" :key="s.id">
                     <span class="map-legend-item">
                       <span class="legend-number" x-text="idx + 1"></span>
                       <span x-text="s.place"></span>
@@ -784,8 +876,8 @@
               </div>
 
               <!-- List View -->
-              <ul class="session-suggestion-list" x-show="!mapView">
-                <template x-for="s in sortedSessionSuggestions" :key="s.id">
+              <ul class="plan-suggestion-list" x-show="!mapView">
+                <template x-for="s in sortedPlanSuggestions" :key="s.id">
                   <li>
                     <div class="suggestion-info">
                       <span class="suggestion-name" x-text="s.place"></span>
@@ -810,7 +902,7 @@
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
                               @click="toggleVote(s)" x-text="s.user_voted ? 'Voted' : 'Vote'"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
-                              x-show="activeSession?.session?.status === 'open'"></button>
+                              x-show="activePlan?.plan?.status === 'open'"></button>
                       <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
                          target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                       <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
@@ -818,14 +910,14 @@
                   </li>
                 </template>
               </ul>
-              <div x-show="!activeSession?.suggestions?.length" class="empty-state">
+              <div x-show="!activePlan?.suggestions?.length" class="empty-state">
                 <span class="empty-state-icon">&#x1F4DD;</span>
                 <p>No suggestions yet.</p>
                 <p class="empty-state-hint">Search for a restaurant or quick-suggest from your likes.</p>
               </div>
 
               <!-- Pick Buttons -->
-              <div class="buttons pick-buttons" x-show="activeSession?.suggestions?.length > 0 && activeSession?.session?.status === 'open'">
+              <div class="buttons pick-buttons" x-show="activePlan?.suggestions?.length > 0 && activePlan?.plan?.status === 'open'">
                 <button @click="randomPick()" :disabled="picking" aria-label="Random pick weighted by votes">🎲 Random Pick</button>
                 <button @click="closestPick()" :disabled="picking" aria-label="Pick the closest restaurant">📍 Closest</button>
               </div>
@@ -842,30 +934,30 @@
                 <a :href="winnerMapUrl" target="_blank" rel="noopener"
                    x-text="winner?.distance != null ? 'Get Directions' : 'View on Google Maps'"></a>
                 <button class="share-btn" @click="shareWinner()">Share Result</button>
-                <!-- Session Recap -->
-                <div class="session-recap" x-show="sessionRecap">
+                <!-- Plan Recap -->
+                <div class="plan-recap" x-show="planRecap">
                   <div class="recap-stat">
                     <span class="recap-label">Suggestions</span>
-                    <span x-text="sessionRecap?.totalSuggestions"></span>
+                    <span x-text="planRecap?.totalSuggestions"></span>
                   </div>
                   <div class="recap-stat">
                     <span class="recap-label">Total Votes</span>
-                    <span x-text="sessionRecap?.totalVotes"></span>
+                    <span x-text="planRecap?.totalVotes"></span>
                   </div>
                   <div class="recap-stat">
                     <span class="recap-label">Suggested by</span>
-                    <span x-text="sessionRecap?.suggestedBy"></span>
+                    <span x-text="planRecap?.suggestedBy"></span>
                   </div>
-                  <div x-show="sessionRecap?.topPlaces?.length > 1">
+                  <div x-show="planRecap?.topPlaces?.length > 1">
                     <span class="recap-label">Top Picks</span>
-                    <template x-for="tp in sessionRecap?.topPlaces || []" :key="tp.place">
+                    <template x-for="tp in planRecap?.topPlaces || []" :key="tp.place">
                       <span class="recap-place" x-text="tp.place + ' (' + tp.vote_count + 'v)'"></span>
                     </template>
                   </div>
                 </div>
               </div>
 
-              <!-- Session Chat -->
+              <!-- Plan Chat -->
               <div class="chat-section">
                 <button class="chat-toggle" @click="chatVisible = !chatVisible">
                   <span x-text="chatVisible ? '▼ Chat' : '▶ Chat'"></span>
@@ -902,38 +994,58 @@
         <section x-show="activeTab === 'account'" x-transition:enter.opacity.duration.200ms>
           <h3>Account Settings</h3>
 
-          <h4>Update Email</h4>
-          <p style="font-size: 0.9rem; color: var(--text-secondary);">Current: <span x-text="email || 'Not set'"></span></p>
-          <div class="inline-input">
-            <input type="email" x-model="accountForm.newEmail" placeholder="New email address"
-                   @keydown.enter="updateEmail()" aria-label="New email address" />
-            <button @click="updateEmail()">Update</button>
+          <!-- Account Sub-tabs -->
+          <div class="admin-sub-tabs">
+            <button class="admin-sub-tab" :class="{ active: accountTab === 'profile' }" @click="accountTab = 'profile'">Profile</button>
+            <button class="admin-sub-tab" :class="{ active: accountTab === 'security' }" @click="accountTab = 'security'">Security</button>
+            <button class="admin-sub-tab" :class="{ active: accountTab === 'notifications' }" @click="accountTab = 'notifications'">Notifications</button>
+            <button class="admin-sub-tab" :class="{ active: accountTab === 'danger' }" @click="accountTab = 'danger'">Danger Zone</button>
           </div>
 
-          <h4>Change Password</h4>
-          <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
-          <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
-          <input type="password" x-model="accountForm.confirmNewPassword" placeholder="Confirm new password"
-                 aria-label="Confirm new password" />
-          <p class="auth-error" x-show="accountForm.newPassword && accountForm.confirmNewPassword && accountForm.newPassword !== accountForm.confirmNewPassword">
-            Passwords do not match.
-          </p>
-          <button @click="changePassword()"
-                  :disabled="!accountForm.currentPassword || !accountForm.newPassword || accountForm.newPassword !== accountForm.confirmNewPassword">Change Password</button>
-
-          <h4>Notifications</h4>
-          <p x-show="!notificationsSupported" class="warning-text">Push notifications are not supported in this browser.</p>
-          <div x-show="notificationsSupported">
-            <button @click="notificationsEnabled ? disableNotifications() : enableNotifications()"
-                    x-text="notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'"
-                    :class="notificationsEnabled ? 'remove-btn' : 'suggest-btn'"></button>
-            <p class="notification-hint" x-show="notificationsEnabled">You'll receive notifications for session updates, friend requests, and more.</p>
+          <!-- Profile Sub-tab -->
+          <div x-show="accountTab === 'profile'">
+            <h4>Update Email</h4>
+            <p style="font-size: 0.9rem; color: var(--text-secondary);">Current: <span x-text="email || 'Not set'"></span></p>
+            <div class="inline-input">
+              <input type="email" x-model="accountForm.newEmail" placeholder="New email address"
+                     @keydown.enter="updateEmail()" aria-label="New email address" />
+              <button @click="updateEmail()">Update</button>
+            </div>
           </div>
 
-          <h4 class="danger-zone">Delete Account</h4>
-          <p class="warning-text">This will permanently delete your account and all data.</p>
-          <input type="password" x-model="accountForm.deletePassword" placeholder="Enter password to confirm" aria-label="Password to confirm deletion" />
-          <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
+          <!-- Security Sub-tab -->
+          <div x-show="accountTab === 'security'">
+            <h4>Change Password</h4>
+            <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
+            <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
+            <input type="password" x-model="accountForm.confirmNewPassword" placeholder="Confirm new password"
+                   aria-label="Confirm new password" />
+            <p class="auth-error" x-show="accountForm.newPassword && accountForm.confirmNewPassword && accountForm.newPassword !== accountForm.confirmNewPassword">
+              Passwords do not match.
+            </p>
+            <button @click="changePassword()"
+                    :disabled="!accountForm.currentPassword || !accountForm.newPassword || accountForm.newPassword !== accountForm.confirmNewPassword">Change Password</button>
+          </div>
+
+          <!-- Notifications Sub-tab -->
+          <div x-show="accountTab === 'notifications'">
+            <h4>Push Notifications</h4>
+            <p x-show="!notificationsSupported" class="warning-text">Push notifications are not supported in this browser.</p>
+            <div x-show="notificationsSupported">
+              <button @click="notificationsEnabled ? disableNotifications() : enableNotifications()"
+                      x-text="notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'"
+                      :class="notificationsEnabled ? 'remove-btn' : 'suggest-btn'"></button>
+              <p class="notification-hint" x-show="notificationsEnabled">You'll receive notifications for plan updates, friend requests, and more.</p>
+            </div>
+          </div>
+
+          <!-- Danger Zone Sub-tab -->
+          <div x-show="accountTab === 'danger'">
+            <h4 class="danger-zone">Delete Account</h4>
+            <p class="warning-text">This will permanently delete your account and all data.</p>
+            <input type="password" x-model="accountForm.deletePassword" placeholder="Enter password to confirm" aria-label="Password to confirm deletion" />
+            <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
+          </div>
         </section>
 
         <!-- ═══ ADMIN TAB ═══ -->
@@ -948,6 +1060,7 @@
             <button class="admin-sub-tab" :class="{ active: adminTab === 'smtp' }" @click="switchAdminTab('smtp')">SMTP</button>
             <button class="admin-sub-tab" :class="{ active: adminTab === 'vapid' }" @click="switchAdminTab('vapid')">VAPID</button>
             <button class="admin-sub-tab" :class="{ active: adminTab === 'settings' }" @click="switchAdminTab('settings')">Settings</button>
+            <button class="admin-sub-tab" :class="{ active: adminTab === 'plans' }" @click="switchAdminTab('plans')">Plans</button>
           </div>
 
           <!-- Dashboard Sub-tab -->
@@ -961,12 +1074,12 @@
                 <div class="admin-stat-label">Users</div>
               </div>
               <div class="admin-stat-card">
-                <div class="admin-stat-value" x-text="adminStats?.sessions ?? '-'"></div>
-                <div class="admin-stat-label">Sessions</div>
+                <div class="admin-stat-value" x-text="adminStats?.plans ?? '-'"></div>
+                <div class="admin-stat-label">Plans</div>
               </div>
               <div class="admin-stat-card">
-                <div class="admin-stat-value" x-text="adminStats?.active_sessions ?? '-'"></div>
-                <div class="admin-stat-label">Active Sessions</div>
+                <div class="admin-stat-value" x-text="adminStats?.active_plans ?? '-'"></div>
+                <div class="admin-stat-label">Active Plans</div>
               </div>
               <div class="admin-stat-card">
                 <div class="admin-stat-value" x-text="adminStats?.places ?? '-'"></div>
@@ -1009,17 +1122,17 @@
                     </div>
                   </div>
                   <div class="admin-user-actions" x-show="u.id !== userId && adminEditUser !== u.id">
-                    <button class="map-btn btn-sm" @click="adminStartEdit(u)">Edit</button>
-                    <button class="map-btn btn-sm" @click="adminResetPassword(u.id)"
+                    <button class="admin-btn" @click="adminStartEdit(u)">Edit</button>
+                    <button class="admin-btn warning" @click="adminResetPassword(u.id)"
                             x-text="adminResetPwUser === u.id ? 'Confirm Reset' : 'Reset PW'"></button>
-                    <button class="back-btn btn-sm" x-show="adminResetPwUser === u.id"
+                    <button class="admin-btn" x-show="adminResetPwUser === u.id"
                             @click="adminCancelResetPassword()">Cancel</button>
-                    <button class="suggest-btn btn-sm" @click="adminToggleAdmin(u.id)"
+                    <button class="admin-btn success" @click="adminToggleAdmin(u.id)"
                             x-text="u.is_admin ? 'Remove Admin' : 'Make Admin'"></button>
-                    <button class="remove-btn btn-sm" @click="adminDeleteUser(u.id)">Delete</button>
+                    <button class="admin-btn danger" @click="adminDeleteUser(u.id)">Delete</button>
                   </div>
                   <div class="admin-user-actions" x-show="u.id === userId && adminEditUser !== u.id">
-                    <button class="map-btn btn-sm" @click="adminStartEdit(u)">Edit</button>
+                    <button class="admin-btn" @click="adminStartEdit(u)">Edit</button>
                     <span class="type-badge" style="background: var(--accent); color: white;">You</span>
                   </div>
                   <!-- Inline edit form -->
@@ -1035,8 +1148,8 @@
                              @keydown.enter="adminSaveEdit(u.id)" />
                     </div>
                     <div class="admin-user-actions">
-                      <button class="suggest-btn btn-sm" @click="adminSaveEdit(u.id)">Save</button>
-                      <button class="back-btn btn-sm" @click="adminCancelEdit()">Cancel</button>
+                      <button class="admin-btn primary" @click="adminSaveEdit(u.id)">Save</button>
+                      <button class="admin-btn" @click="adminCancelEdit()">Cancel</button>
                     </div>
                   </div>
                   <!-- Inline password reset input -->
@@ -1076,8 +1189,8 @@
               <input type="checkbox" id="admin-smtp-secure" x-model="adminSmtp.secure" style="width: auto;" />
               <label for="admin-smtp-secure" style="margin: 0;">Use TLS/SSL</label>
             </div>
-            <div class="buttons">
-              <button @click="saveAdminSmtp()">Save SMTP Settings</button>
+            <div style="margin-top: 1rem;">
+              <button class="admin-btn primary" @click="saveAdminSmtp()">Save SMTP Settings</button>
             </div>
 
             <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
@@ -1085,7 +1198,7 @@
               <div class="inline-input">
                 <input type="email" x-model="adminTestEmail" placeholder="test@example.com"
                        @keydown.enter="testSmtp()" aria-label="Test email address" />
-                <button @click="testSmtp()">Send Test</button>
+                <button class="admin-btn primary" @click="testSmtp()">Send Test</button>
               </div>
             </div>
           </div>
@@ -1100,8 +1213,8 @@
               <span>Source:</span>
               <span class="type-badge" x-text="adminVapid.source || 'none'"></span>
             </div>
-            <div class="buttons" style="margin-top: 1rem;">
-              <button class="remove-btn" @click="generateVapid()">Generate New VAPID Keys</button>
+            <div style="margin-top: 1rem;">
+              <button class="admin-btn warning" @click="generateVapid()">Generate New VAPID Keys</button>
             </div>
             <p class="warning-text" style="margin-top: 0.5rem;">
               Generating new keys will break all existing push notification subscriptions.
@@ -1115,7 +1228,7 @@
               <label for="admin-google-key">Google API Key</label>
               <div class="admin-key-display" x-show="adminGoogleKey" x-text="adminGoogleKey"></div>
               <input id="admin-google-key" x-model="adminGoogleKey" placeholder="Enter Google API key" />
-              <button class="suggest-btn btn-sm" @click="saveAdminGoogleKey()" style="margin-top: 0.3rem;">Save API Key</button>
+              <button class="admin-btn primary" @click="saveAdminGoogleKey()" style="margin-top: 0.3rem;">Save API Key</button>
             </div>
 
             <div class="admin-form-group">
@@ -1136,8 +1249,37 @@
               <label for="admin-cookie-secure" style="margin: 0;">Cookie Secure flag (requires HTTPS)</label>
             </div>
 
-            <div class="buttons" style="margin-top: 1rem;">
-              <button @click="saveAdminSettings()">Save Settings</button>
+            <div style="margin-top: 1rem;">
+              <button class="admin-btn primary" @click="saveAdminSettings()">Save Settings</button>
+            </div>
+          </div>
+
+          <!-- Plans Sub-tab -->
+          <div x-show="adminTab === 'plans'">
+            <div x-show="adminPlans.length === 0" class="empty-state">
+              <p>No plans found.</p>
+            </div>
+            <div class="admin-plans-list">
+              <template x-for="plan in adminPlans" :key="plan.id">
+                <div class="admin-plan-card">
+                  <div class="admin-plan-header">
+                    <strong x-text="plan.name"></strong>
+                    <span class="admin-plan-status" :class="plan.status" x-text="plan.status"></span>
+                  </div>
+                  <div class="admin-plan-details">
+                    <span>Code: <strong x-text="plan.code"></strong></span>
+                    <span>Creator: <span x-text="plan.creator_name || 'Unknown'"></span></span>
+                    <span>Members: <span x-text="plan.member_count"></span></span>
+                    <span>Suggestions: <span x-text="plan.suggestion_count"></span></span>
+                    <span x-show="plan.winner_place">Winner: <span x-text="plan.winner_place"></span></span>
+                    <span>Created: <span x-text="new Date(plan.created_at).toLocaleDateString()"></span></span>
+                  </div>
+                  <div class="admin-plan-actions">
+                    <button class="admin-btn success" x-show="plan.status === 'open'" @click="adminClosePlan(plan.id)">Close</button>
+                    <button class="admin-btn danger" @click="adminDeletePlan(plan.id)">Delete</button>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
         </section>

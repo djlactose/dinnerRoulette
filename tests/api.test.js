@@ -256,46 +256,70 @@ describe('Want to Try', () => {
   });
 });
 
-// ── Suggestions Tests ───────────────────────────────────────────────────────────
+// ── Star/Favorite Tests ─────────────────────────────────────────────────────────
 
-describe('Suggestions', () => {
+describe('Star/Favorite', () => {
   let cookie;
 
   beforeAll(async () => {
-    const result = await registerUser('suggestuser', 'password123');
+    const result = await registerUser('staruser', 'password123');
     cookie = result.cookie;
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'likes', place: 'Star Cafe', place_id: 'sc001', restaurant_type: 'Cafe' });
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'Star Bistro', place_id: 'sb001', restaurant_type: 'French' });
   });
 
-  test('POST /api/suggest — add a suggestion', async () => {
+  test('POST /api/places/likes/star — stars a liked place', async () => {
     const res = await request(app)
-      .post('/api/suggest')
+      .post('/api/places/likes/star')
       .set('Cookie', cookie)
-      .send({ place: 'Taco Town', place_id: 'tt001' });
+      .send({ place: 'Star Cafe' });
     expect(res.status).toBe(200);
+    expect(res.body.starred).toBe(true);
   });
 
-  test('GET /api/suggestions — returns suggestions', async () => {
+  test('POST /api/places/likes/star — unstars a liked place', async () => {
     const res = await request(app)
-      .get('/api/suggestions')
+      .post('/api/places/likes/star')
+      .set('Cookie', cookie)
+      .send({ place: 'Star Cafe' });
+    expect(res.status).toBe(200);
+    expect(res.body.starred).toBe(false);
+  });
+
+  test('POST /api/places/want_to_try/star — stars a want-to-try place', async () => {
+    const res = await request(app)
+      .post('/api/places/want_to_try/star')
+      .set('Cookie', cookie)
+      .send({ place: 'Star Bistro' });
+    expect(res.status).toBe(200);
+    expect(res.body.starred).toBe(true);
+  });
+
+  test('GET /api/places — returns starred field', async () => {
+    const res = await request(app)
+      .get('/api/places')
       .set('Cookie', cookie);
     expect(res.status).toBe(200);
-    expect(res.body.suggestions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'Taco Town' })])
-    );
+    const wtt = res.body.want_to_try.find(p => p.name === 'Star Bistro');
+    expect(wtt.starred).toBe(true);
   });
 
-  test('POST /api/suggestions/remove — removes suggestion', async () => {
-    await request(app)
-      .post('/api/suggestions/remove')
-      .set('Cookie', cookie)
-      .send({ place: 'Taco Town' });
-
+  test('POST /api/places/likes/star — 404 for nonexistent place', async () => {
     const res = await request(app)
-      .get('/api/suggestions')
-      .set('Cookie', cookie);
-    expect(res.body.suggestions).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'Taco Town' })])
-    );
+      .post('/api/places/likes/star')
+      .set('Cookie', cookie)
+      .send({ place: 'Nonexistent Place' });
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /api/places/badtype/star — 400 for invalid type', async () => {
+    const res = await request(app)
+      .post('/api/places/badtype/star')
+      .set('Cookie', cookie)
+      .send({ place: 'Star Cafe' });
+    expect(res.status).toBe(400);
   });
 });
 
@@ -504,11 +528,11 @@ describe('Friends', () => {
   });
 });
 
-// ── Session Tests ───────────────────────────────────────────────────────────────
+// ── Plan Tests ───────────────────────────────────────────────────────────────
 
-describe('Sessions', () => {
+describe('Plans', () => {
   let cookie1, cookie2;
-  let sessionId, sessionCode;
+  let planId, planCode;
 
   beforeAll(async () => {
     const r1 = await registerUser('sessuser1', 'password123');
@@ -517,70 +541,70 @@ describe('Sessions', () => {
     cookie2 = r2.cookie;
   });
 
-  test('POST /api/sessions — create a session', async () => {
+  test('POST /api/plans — create a plan', async () => {
     const res = await request(app)
-      .post('/api/sessions')
+      .post('/api/plans')
       .set('Cookie', cookie1)
       .send({ name: 'Friday Dinner' });
     expect(res.status).toBe(200);
     expect(res.body.code).toHaveLength(6);
     expect(res.body.name).toBe('Friday Dinner');
-    sessionId = res.body.id;
-    sessionCode = res.body.code;
+    planId = res.body.id;
+    planCode = res.body.code;
   });
 
-  test('POST /api/sessions/join — join by code', async () => {
+  test('POST /api/plans/join — join by code', async () => {
     const res = await request(app)
-      .post('/api/sessions/join')
+      .post('/api/plans/join')
       .set('Cookie', cookie2)
-      .send({ code: sessionCode });
+      .send({ code: planCode });
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe(sessionId);
+    expect(res.body.id).toBe(planId);
   });
 
-  test('POST /api/sessions/join — invalid code returns 404', async () => {
+  test('POST /api/plans/join — invalid code returns 404', async () => {
     const res = await request(app)
-      .post('/api/sessions/join')
+      .post('/api/plans/join')
       .set('Cookie', cookie2)
       .send({ code: 'XXXXXX' });
     expect(res.status).toBe(404);
   });
 
-  test('GET /api/sessions — list sessions', async () => {
+  test('GET /api/plans — list plans', async () => {
     const res = await request(app)
-      .get('/api/sessions')
+      .get('/api/plans')
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
-    expect(res.body.sessions.some(s => s.id === sessionId)).toBe(true);
+    expect(res.body.plans.some(s => s.id === planId)).toBe(true);
   });
 
-  test('GET /api/sessions/:id — session details include both members', async () => {
+  test('GET /api/plans/:id — plan details include both members', async () => {
     const res = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
     expect(res.body.members).toHaveLength(2);
-    expect(res.body.session.status).toBe('open');
+    expect(res.body.plan.status).toBe('open');
   });
 
-  test('GET /api/sessions/:id — non-member gets 403', async () => {
+  test('GET /api/plans/:id — non-member gets 403', async () => {
     const r3 = await registerUser('outsider', 'password123');
     const res = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', r3.cookie);
     expect(res.status).toBe(403);
   });
 
-  test('POST /api/sessions/:id/suggest — add suggestion', async () => {
+  test('POST /api/plans/:id/suggest — add suggestion', async () => {
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/suggest`)
+      .post(`/api/plans/${planId}/suggest`)
       .set('Cookie', cookie1)
       .send({ place: 'Test Restaurant', place_id: null });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeDefined();
   });
 
-  test('GET /api/sessions/:id — includes want_to_try matches', async () => {
+  test('GET /api/plans/:id — includes want_to_try matches', async () => {
     // Add "Test Restaurant" to sessuser1's want-to-try list
     await request(app)
       .post('/api/places')
@@ -588,7 +612,7 @@ describe('Sessions', () => {
       .send({ type: 'want_to_try', place: 'Test Restaurant' });
 
     const res = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
     expect(res.body.want_to_try).toBeDefined();
@@ -596,180 +620,180 @@ describe('Sessions', () => {
     expect(res.body.want_to_try['Test Restaurant'].some(u => u.username === 'sessuser1')).toBe(true);
   });
 
-  test('POST /api/sessions/:id/suggest — duplicate rejected', async () => {
+  test('POST /api/plans/:id/suggest — duplicate rejected', async () => {
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/suggest`)
+      .post(`/api/plans/${planId}/suggest`)
       .set('Cookie', cookie2)
       .send({ place: 'Test Restaurant' });
     expect(res.status).toBe(409);
   });
 
-  test('POST /api/sessions/:id/vote — vote on suggestion', async () => {
+  test('POST /api/plans/:id/vote — vote on suggestion', async () => {
     const detail = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     const suggId = detail.body.suggestions[0].id;
 
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/vote`)
+      .post(`/api/plans/${planId}/vote`)
       .set('Cookie', cookie1)
       .send({ suggestion_id: suggId });
     expect(res.status).toBe(200);
 
     // Verify vote count
     const updated = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     const s = updated.body.suggestions.find(s => s.id === suggId);
     expect(s.vote_count).toBe(1);
     expect(s.user_voted).toBe(true);
   });
 
-  test('POST /api/sessions/:id/vote — double vote has no effect', async () => {
+  test('POST /api/plans/:id/vote — double vote has no effect', async () => {
     const detail = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     const suggId = detail.body.suggestions[0].id;
 
     await request(app)
-      .post(`/api/sessions/${sessionId}/vote`)
+      .post(`/api/plans/${planId}/vote`)
       .set('Cookie', cookie1)
       .send({ suggestion_id: suggId });
 
     const updated = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     const s = updated.body.suggestions.find(s => s.id === suggId);
     expect(s.vote_count).toBe(1);
   });
 
-  test('POST /api/sessions/:id/unvote — removes vote', async () => {
+  test('POST /api/plans/:id/unvote — removes vote', async () => {
     const detail = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     const suggId = detail.body.suggestions[0].id;
 
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/unvote`)
+      .post(`/api/plans/${planId}/unvote`)
       .set('Cookie', cookie1)
       .send({ suggestion_id: suggId });
     expect(res.status).toBe(200);
 
     const updated = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     const s = updated.body.suggestions.find(s => s.id === suggId);
     expect(s.vote_count).toBe(0);
     expect(s.user_voted).toBe(false);
   });
 
-  test('POST /api/sessions/:id/pick — random pick returns winner', async () => {
+  test('POST /api/plans/:id/pick — random pick returns winner', async () => {
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/pick`)
+      .post(`/api/plans/${planId}/pick`)
       .set('Cookie', cookie1)
       .send({ mode: 'random' });
     expect(res.status).toBe(200);
     expect(res.body.winner.place).toBe('Test Restaurant');
   });
 
-  test('POST /api/sessions/:id/close — non-creator gets 403', async () => {
+  test('POST /api/plans/:id/close — non-creator gets 403', async () => {
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/close`)
+      .post(`/api/plans/${planId}/close`)
       .set('Cookie', cookie2);
     expect(res.status).toBe(403);
   });
 
-  test('POST /api/sessions/:id/close — creator can close', async () => {
+  test('POST /api/plans/:id/close — creator can close', async () => {
     const res = await request(app)
-      .post(`/api/sessions/${sessionId}/close`)
+      .post(`/api/plans/${planId}/close`)
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
 
     const detail = await request(app)
-      .get(`/api/sessions/${sessionId}`)
+      .get(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
-    expect(detail.body.session.status).toBe('closed');
+    expect(detail.body.plan.status).toBe('closed');
   });
 
-  test('DELETE /api/sessions/:id — non-creator gets 403', async () => {
+  test('DELETE /api/plans/:id — non-creator gets 403', async () => {
     const res = await request(app)
-      .delete(`/api/sessions/${sessionId}`)
+      .delete(`/api/plans/${planId}`)
       .set('Cookie', cookie2);
     expect(res.status).toBe(403);
   });
 
-  test('DELETE /api/sessions/:id — creator can delete closed session', async () => {
+  test('DELETE /api/plans/:id — creator can delete closed plan', async () => {
     const res = await request(app)
-      .delete(`/api/sessions/${sessionId}`)
+      .delete(`/api/plans/${planId}`)
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
 
-    // Session no longer appears in list
+    // Plan no longer appears in list
     const list = await request(app)
-      .get('/api/sessions')
+      .get('/api/plans')
       .set('Cookie', cookie1);
-    expect(list.body.sessions.some(s => s.id === sessionId)).toBe(false);
+    expect(list.body.plans.some(s => s.id === planId)).toBe(false);
   });
 
-  test('DELETE /api/sessions/:id — cannot delete open session', async () => {
-    // Create a new session (defaults to open)
+  test('DELETE /api/plans/:id — cannot delete open plan', async () => {
+    // Create a new plan (defaults to open)
     const create = await request(app)
-      .post('/api/sessions')
+      .post('/api/plans')
       .set('Cookie', cookie1)
-      .send({ name: 'Open Session' });
+      .send({ name: 'Open Plan' });
     const openId = create.body.id;
 
     const res = await request(app)
-      .delete(`/api/sessions/${openId}`)
+      .delete(`/api/plans/${openId}`)
       .set('Cookie', cookie1);
     expect(res.status).toBe(400);
   });
 
-  test('GET /api/sessions — includes creator_username', async () => {
+  test('GET /api/plans — includes creator_username', async () => {
     const res = await request(app)
-      .get('/api/sessions')
+      .get('/api/plans')
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
-    expect(res.body.sessions.length).toBeGreaterThan(0);
-    expect(res.body.sessions[0].creator_username).toBe('sessuser1');
+    expect(res.body.plans.length).toBeGreaterThan(0);
+    expect(res.body.plans[0].creator_username).toBe('sessuser1');
   });
 
-  test('GET /api/sessions — includes member_count and suggestion_count', async () => {
+  test('GET /api/plans — includes member_count and suggestion_count', async () => {
     const res = await request(app)
-      .get('/api/sessions')
+      .get('/api/plans')
       .set('Cookie', cookie1);
     expect(res.status).toBe(200);
-    expect(res.body.sessions.length).toBeGreaterThan(0);
-    expect(typeof res.body.sessions[0].member_count).toBe('number');
-    expect(typeof res.body.sessions[0].suggestion_count).toBe('number');
+    expect(res.body.plans.length).toBeGreaterThan(0);
+    expect(typeof res.body.plans[0].member_count).toBe('number');
+    expect(typeof res.body.plans[0].suggestion_count).toBe('number');
   });
 
-  test('POST /api/sessions/:id/invite — invites a user by username', async () => {
-    const create = await request(app).post('/api/sessions').set('Cookie', cookie1)
+  test('POST /api/plans/:id/invite — invites a user by username', async () => {
+    const create = await request(app).post('/api/plans').set('Cookie', cookie1)
       .send({ name: 'Invite Test' });
     const sid = create.body.id;
-    const res = await request(app).post(`/api/sessions/${sid}/invite`).set('Cookie', cookie1)
+    const res = await request(app).post(`/api/plans/${sid}/invite`).set('Cookie', cookie1)
       .send({ username: 'sessuser2' });
     expect(res.status).toBe(200);
-    const detail = await request(app).get(`/api/sessions/${sid}`).set('Cookie', cookie2);
+    const detail = await request(app).get(`/api/plans/${sid}`).set('Cookie', cookie2);
     expect(detail.status).toBe(200);
     expect(detail.body.members.some(m => m.username === 'sessuser2')).toBe(true);
   });
 
-  test('POST /api/sessions/:id/invite — non-existent user returns 404', async () => {
-    const create = await request(app).post('/api/sessions').set('Cookie', cookie1)
+  test('POST /api/plans/:id/invite — non-existent user returns 404', async () => {
+    const create = await request(app).post('/api/plans').set('Cookie', cookie1)
       .send({ name: 'Invite Fail' });
-    const res = await request(app).post(`/api/sessions/${create.body.id}/invite`).set('Cookie', cookie1)
+    const res = await request(app).post(`/api/plans/${create.body.id}/invite`).set('Cookie', cookie1)
       .send({ username: 'nonexistent_user_xyz' });
     expect(res.status).toBe(404);
   });
 
-  test('GET /api/sessions/:id/dislikes — returns disliked places by members', async () => {
+  test('GET /api/plans/:id/dislikes — returns disliked places by members', async () => {
     await request(app).post('/api/places').set('Cookie', cookie1)
       .send({ type: 'dislikes', place: 'Hated Diner' });
-    const create = await request(app).post('/api/sessions').set('Cookie', cookie1)
+    const create = await request(app).post('/api/plans').set('Cookie', cookie1)
       .send({ name: 'Dislike Test' });
-    const res = await request(app).get(`/api/sessions/${create.body.id}/dislikes`).set('Cookie', cookie1);
+    const res = await request(app).get(`/api/plans/${create.body.id}/dislikes`).set('Cookie', cookie1);
     expect(res.status).toBe(200);
     expect(res.body.dislikes).toContain('Hated Diner');
   });
@@ -968,13 +992,13 @@ describe('Recent Suggestions', () => {
     expect(res.body.recent).toEqual([]);
   });
 
-  test('GET /api/suggestions/recent — returns suggestions after adding to session', async () => {
-    // Create session and suggest
-    const sess = await request(app).post('/api/sessions').set('Cookie', cookie)
+  test('GET /api/suggestions/recent — returns suggestions after adding to plan', async () => {
+    // Create plan and suggest
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie)
       .send({ name: 'Recent Test' });
-    await request(app).post(`/api/sessions/${sess.body.id}/suggest`).set('Cookie', cookie)
+    await request(app).post(`/api/plans/${sess.body.id}/suggest`).set('Cookie', cookie)
       .send({ place: 'Recent Place 1', place_id: null });
-    await request(app).post(`/api/sessions/${sess.body.id}/suggest`).set('Cookie', cookie)
+    await request(app).post(`/api/plans/${sess.body.id}/suggest`).set('Cookie', cookie)
       .send({ place: 'Recent Place 2', place_id: null });
 
     const res = await request(app).get('/api/suggestions/recent').set('Cookie', cookie);
@@ -987,99 +1011,99 @@ describe('Recent Suggestions', () => {
 // ── Voting Deadline Tests ──────────────────────────────────────────────────
 
 describe('Voting Deadline', () => {
-  let cookie1, cookie2, sessionId;
+  let cookie1, cookie2, planId;
 
   beforeAll(async () => {
     const r1 = await registerUser('deadlineuser1', 'password123');
     cookie1 = r1.cookie;
     const r2 = await registerUser('deadlineuser2', 'password123');
     cookie2 = r2.cookie;
-    const sess = await request(app).post('/api/sessions').set('Cookie', cookie1)
-      .send({ name: 'Deadline Session' });
-    sessionId = sess.body.id;
-    await request(app).post('/api/sessions/join').set('Cookie', cookie2)
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'Deadline Plan' });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
       .send({ code: sess.body.code });
   });
 
-  test('POST /api/sessions/:id/deadline — creator can set deadline', async () => {
+  test('POST /api/plans/:id/deadline — creator can set deadline', async () => {
     const deadline = new Date(Date.now() + 3600000).toISOString();
-    const res = await request(app).post(`/api/sessions/${sessionId}/deadline`).set('Cookie', cookie1)
+    const res = await request(app).post(`/api/plans/${planId}/deadline`).set('Cookie', cookie1)
       .send({ deadline });
     expect(res.status).toBe(200);
 
-    const detail = await request(app).get(`/api/sessions/${sessionId}`).set('Cookie', cookie1);
-    expect(detail.body.session.voting_deadline).toBe(deadline);
+    const detail = await request(app).get(`/api/plans/${planId}`).set('Cookie', cookie1);
+    expect(detail.body.plan.voting_deadline).toBe(deadline);
   });
 
-  test('POST /api/sessions/:id/deadline — non-creator gets 403', async () => {
-    const res = await request(app).post(`/api/sessions/${sessionId}/deadline`).set('Cookie', cookie2)
+  test('POST /api/plans/:id/deadline — non-creator gets 403', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/deadline`).set('Cookie', cookie2)
       .send({ deadline: new Date().toISOString() });
     expect(res.status).toBe(403);
   });
 
-  test('POST /api/sessions/:id/deadline — can remove deadline', async () => {
-    const res = await request(app).post(`/api/sessions/${sessionId}/deadline`).set('Cookie', cookie1)
+  test('POST /api/plans/:id/deadline — can remove deadline', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/deadline`).set('Cookie', cookie1)
       .send({ deadline: null });
     expect(res.status).toBe(200);
 
-    const detail = await request(app).get(`/api/sessions/${sessionId}`).set('Cookie', cookie1);
-    expect(detail.body.session.voting_deadline).toBeNull();
+    const detail = await request(app).get(`/api/plans/${planId}`).set('Cookie', cookie1);
+    expect(detail.body.plan.voting_deadline).toBeNull();
   });
 });
 
-// ── Session Chat Tests ─────────────────────────────────────────────────────
+// ── Plan Chat Tests ─────────────────────────────────────────────────────
 
-describe('Session Chat', () => {
-  let cookie1, cookie2, sessionId;
+describe('Plan Chat', () => {
+  let cookie1, cookie2, planId;
 
   beforeAll(async () => {
     const r1 = await registerUser('chatuser1', 'password123');
     cookie1 = r1.cookie;
     const r2 = await registerUser('chatuser2', 'password123');
     cookie2 = r2.cookie;
-    const sess = await request(app).post('/api/sessions').set('Cookie', cookie1)
-      .send({ name: 'Chat Session' });
-    sessionId = sess.body.id;
-    await request(app).post('/api/sessions/join').set('Cookie', cookie2)
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'Chat Plan' });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
       .send({ code: sess.body.code });
   });
 
-  test('GET /api/sessions/:id/messages — returns empty initially', async () => {
-    const res = await request(app).get(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1);
+  test('GET /api/plans/:id/messages — returns empty initially', async () => {
+    const res = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', cookie1);
     expect(res.status).toBe(200);
     expect(res.body.messages).toEqual([]);
   });
 
-  test('POST /api/sessions/:id/messages — sends message', async () => {
-    const res = await request(app).post(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1)
+  test('POST /api/plans/:id/messages — sends message', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
       .send({ message: 'Hello everyone!' });
     expect(res.status).toBe(200);
     expect(res.body.message.message).toBe('Hello everyone!');
     expect(res.body.message.username).toBe('chatuser1');
   });
 
-  test('GET /api/sessions/:id/messages — returns messages', async () => {
-    const res = await request(app).get(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1);
+  test('GET /api/plans/:id/messages — returns messages', async () => {
+    const res = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', cookie1);
     expect(res.status).toBe(200);
     expect(res.body.messages.length).toBe(1);
     expect(res.body.messages[0].message).toBe('Hello everyone!');
   });
 
-  test('POST /api/sessions/:id/messages — rejects empty message', async () => {
-    const res = await request(app).post(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1)
+  test('POST /api/plans/:id/messages — rejects empty message', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
       .send({ message: '   ' });
     expect(res.status).toBe(400);
   });
 
-  test('POST /api/sessions/:id/messages — rejects too long message', async () => {
-    const res = await request(app).post(`/api/sessions/${sessionId}/messages`).set('Cookie', cookie1)
+  test('POST /api/plans/:id/messages — rejects too long message', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
       .send({ message: 'a'.repeat(501) });
     expect(res.status).toBe(400);
   });
 
-  test('GET /api/sessions/:id/messages — non-member gets 403', async () => {
+  test('GET /api/plans/:id/messages — non-member gets 403', async () => {
     const r3 = await registerUser('chatoutsider', 'password123');
-    const res = await request(app).get(`/api/sessions/${sessionId}/messages`).set('Cookie', r3.cookie);
+    const res = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', r3.cookie);
     expect(res.status).toBe(403);
   });
 });
@@ -1191,7 +1215,7 @@ describe('Admin', () => {
     const res = await request(app).get('/api/admin/stats').set('Cookie', adminCookie);
     expect(res.status).toBe(200);
     expect(typeof res.body.users).toBe('number');
-    expect(typeof res.body.sessions).toBe('number');
+    expect(typeof res.body.plans).toBe('number');
     expect(typeof res.body.smtp_configured).toBe('boolean');
     expect(typeof res.body.vapid_source).toBe('string');
   });
