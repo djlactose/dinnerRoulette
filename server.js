@@ -171,6 +171,7 @@ try { db.exec('ALTER TABLE places ADD COLUMN restaurant_type TEXT'); } catch (e)
 try { db.exec('ALTER TABLE suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE friends ADD COLUMN status TEXT DEFAULT \'accepted\''); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN visited_at TEXT'); } catch (e) { /* already exists */ }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 function generateToken(user) {
@@ -356,14 +357,30 @@ app.post('/api/place', auth, (req, res) => {
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type FROM likes WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at FROM likes WHERE user_id = ?').all(uid);
   const dislikes = db.prepare('SELECT place, place_id, restaurant_type FROM dislikes WHERE user_id = ?').all(uid);
   const all = db.prepare('SELECT place, place_id, restaurant_type FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null })),
     dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
     all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
   });
+});
+
+app.post('/api/places/visit', auth, (req, res) => {
+  const { place } = req.body;
+  if (!place) return res.status(400).json({ error: 'Missing place' });
+  const row = db.prepare('SELECT 1 FROM likes WHERE user_id = ? AND place = ?').get(req.user.id, place);
+  if (!row) return res.status(404).json({ error: 'Place not in your likes' });
+  db.prepare("UPDATE likes SET visited_at = datetime('now') WHERE user_id = ? AND place = ?").run(req.user.id, place);
+  res.json({ success: true });
+});
+
+app.post('/api/places/unvisit', auth, (req, res) => {
+  const { place } = req.body;
+  if (!place) return res.status(400).json({ error: 'Missing place' });
+  db.prepare('UPDATE likes SET visited_at = NULL WHERE user_id = ? AND place = ?').run(req.user.id, place);
+  res.json({ success: true });
 });
 
 app.post('/api/places', auth, (req, res) => {
@@ -457,6 +474,18 @@ app.get('/api/friends/:id/likes', auth, (req, res) => {
   res.json({ likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
 });
 
+app.delete('/api/friends/:id', auth, (req, res) => {
+  const friendId = Number(req.params.id);
+  const friendship = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'").get(req.user.id, friendId);
+  if (!friendship) return res.status(404).json({ error: 'Friendship not found' });
+  const removeBoth = db.transaction(() => {
+    db.prepare('DELETE FROM friends WHERE user_id = ? AND friend_id = ?').run(req.user.id, friendId);
+    db.prepare('DELETE FROM friends WHERE user_id = ? AND friend_id = ?').run(friendId, req.user.id);
+  });
+  removeBoth();
+  res.json({ success: true });
+});
+
 app.get('/api/common-places', auth, (req, res) => {
   const friendUsername = req.query.friendUsername;
   if (!friendUsername) return res.status(400).json({ error: 'Missing friendUsername' });
@@ -522,9 +551,11 @@ app.post('/api/sessions/join', auth, (req, res) => {
 
 app.get('/api/sessions', auth, (req, res) => {
   const sessions = db.prepare(`
-    SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id
+    SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id,
+           u.username AS creator_username
     FROM sessions s
     JOIN session_members sm ON sm.session_id = s.id
+    JOIN users u ON u.id = s.creator_id
     WHERE sm.user_id = ?
     ORDER BY s.created_at DESC
   `).all(req.user.id);

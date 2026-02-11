@@ -382,6 +382,33 @@ describe('Friends', () => {
       .query({ friendUsername: 'frienduser2' });
     expect(res.status).toBe(403);
   });
+
+  test('DELETE /api/friends/:id — removes friendship both ways', async () => {
+    // frienduser1 and frienduser2 are already friends from earlier test
+    const res = await request(app)
+      .delete(`/api/friends/${user2Id}`)
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+
+    // Neither should see the other as a friend
+    const friends1 = await request(app).get('/api/friends').set('Cookie', cookie1);
+    expect(friends1.body.friends.some(f => f.username === 'frienduser2')).toBe(false);
+
+    const friends2 = await request(app).get('/api/friends').set('Cookie', cookie2);
+    expect(friends2.body.friends.some(f => f.username === 'frienduser1')).toBe(false);
+  });
+
+  test('DELETE /api/friends/:id — non-friend returns 404', async () => {
+    const res = await request(app)
+      .delete(`/api/friends/${user2Id}`)
+      .set('Cookie', cookie3);
+    expect(res.status).toBe(404);
+  });
+
+  test('DELETE /api/friends/:id — unauthenticated returns 401', async () => {
+    const res = await request(app).delete(`/api/friends/${user2Id}`);
+    expect(res.status).toBe(401);
+  });
 });
 
 // ── Session Tests ───────────────────────────────────────────────────────────────
@@ -588,6 +615,15 @@ describe('Sessions', () => {
       .set('Cookie', cookie1);
     expect(res.status).toBe(400);
   });
+
+  test('GET /api/sessions — includes creator_username', async () => {
+    const res = await request(app)
+      .get('/api/sessions')
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.sessions.length).toBeGreaterThan(0);
+    expect(res.body.sessions[0].creator_username).toBe('sessuser1');
+  });
 });
 
 // ── Account Management Tests ────────────────────────────────────────────────────
@@ -648,5 +684,68 @@ describe('Account', () => {
       .post('/api/login')
       .send({ username: 'todelete', password: 'password123' });
     expect(login.status).toBe(401);
+  });
+});
+
+// ── Visited Tracking Tests ───────────────────────────────────────────────────
+
+describe('Visited Tracking', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('visituser', 'password123');
+    cookie = result.cookie;
+    // Like a place first
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'likes', place: 'Visit Cafe', place_id: 'vc001' });
+  });
+
+  test('POST /api/places/visit — marks a liked place as visited', async () => {
+    const res = await request(app)
+      .post('/api/places/visit')
+      .set('Cookie', cookie)
+      .send({ place: 'Visit Cafe' });
+    expect(res.status).toBe(200);
+
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const cafe = places.body.likes.find(p => p.name === 'Visit Cafe');
+    expect(cafe.visited_at).toBeTruthy();
+  });
+
+  test('POST /api/places/visit — non-liked place returns 404', async () => {
+    const res = await request(app)
+      .post('/api/places/visit')
+      .set('Cookie', cookie)
+      .send({ place: 'Unknown Place' });
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /api/places/visit — missing place returns 400', async () => {
+    const res = await request(app)
+      .post('/api/places/visit')
+      .set('Cookie', cookie)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/places/unvisit — clears visited_at', async () => {
+    const res = await request(app)
+      .post('/api/places/unvisit')
+      .set('Cookie', cookie)
+      .send({ place: 'Visit Cafe' });
+    expect(res.status).toBe(200);
+
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const cafe = places.body.likes.find(p => p.name === 'Visit Cafe');
+    expect(cafe.visited_at).toBeNull();
+  });
+
+  test('POST /api/places/visit — unauthenticated returns 401', async () => {
+    const res = await request(app)
+      .post('/api/places/visit')
+      .send({ place: 'Visit Cafe' });
+    expect(res.status).toBe(401);
   });
 });

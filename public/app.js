@@ -23,6 +23,12 @@ function dinnerRoulette() {
     likes: [],
     dislikes: [],
     placeFilter: '',
+    placeTypeFilter: '',
+    placeSortBy: 'name',
+
+    // Quick Pick
+    quickPickResult: null,
+    quickPicking: false,
 
     // Suggestions
     suggestions: [],
@@ -73,14 +79,40 @@ function dinnerRoulette() {
     },
 
     // ── Computed ──
+    get uniqueRestaurantTypes() {
+      const types = new Set();
+      this.likes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+      this.dislikes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+      return [...types].sort();
+    },
     get filteredLikes() {
       const f = this.placeFilter.toLowerCase();
-      const list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : [...this.likes];
-      return list.sort((a, b) => a.name.localeCompare(b.name));
+      let list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : [...this.likes];
+      if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
+      if (this.placeSortBy === 'type') {
+        list.sort((a, b) => (a.restaurant_type || '').localeCompare(b.restaurant_type || '') || a.name.localeCompare(b.name));
+      } else if (this.placeSortBy === 'visited') {
+        list.sort((a, b) => (a.visited_at ? 1 : 0) - (b.visited_at ? 1 : 0) || a.name.localeCompare(b.name));
+      } else {
+        list.sort((a, b) => a.name.localeCompare(b.name));
+      }
+      return list;
     },
     get filteredDislikes() {
       const f = this.placeFilter.toLowerCase();
-      return f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f)) : this.dislikes;
+      let list = f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f)) : [...this.dislikes];
+      if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
+      return list.sort((a, b) => a.name.localeCompare(b.name));
+    },
+    get quickPickMapUrl() {
+      if (!this.quickPickResult) return '#';
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.quickPickResult.name)}`;
+    },
+    get activeSessions() {
+      return this.sessions.filter(s => s.status === 'open');
+    },
+    get historySessions() {
+      return this.sessions.filter(s => s.status === 'closed');
     },
     get winnerDistanceText() {
       if (!this.winner?.distance) return '';
@@ -372,6 +404,63 @@ function dinnerRoulette() {
       window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`, '_blank');
     },
 
+    // ── Quick Pick ──
+    async quickPick() {
+      if (this.quickPicking || this.likes.length === 0) return;
+      this.quickPicking = true;
+      this.quickPickResult = null;
+
+      let cycles = 15;
+      let delay = 60;
+      let i = 0;
+
+      await new Promise(resolve => {
+        const spin = () => {
+          this.quickPickResult = this.likes[i % this.likes.length];
+          i++;
+          cycles--;
+          if (cycles > 0) {
+            delay += 20;
+            setTimeout(spin, delay);
+          } else {
+            resolve();
+          }
+        };
+        spin();
+      });
+
+      // Final random pick
+      this.quickPickResult = this.likes[Math.floor(Math.random() * this.likes.length)];
+      this.quickPicking = false;
+    },
+
+    // ── Visited Tracking ──
+    async markVisited(place) {
+      try {
+        await this.api('/api/places/visit', {
+          method: 'POST',
+          body: JSON.stringify({ place: place.name }),
+        });
+        this.showToast(`Marked "${place.name}" as visited`);
+        await this.loadPlaces();
+      } catch (e) {
+        this.showToast('Failed to mark as visited', 'error');
+      }
+    },
+
+    async unmarkVisited(place) {
+      try {
+        await this.api('/api/places/unvisit', {
+          method: 'POST',
+          body: JSON.stringify({ place: place.name }),
+        });
+        this.showToast(`Unmarked "${place.name}"`);
+        await this.loadPlaces();
+      } catch (e) {
+        this.showToast('Failed to unmark', 'error');
+      }
+    },
+
     // ── Suggestions ──
     async suggestPersonal(place) {
       await this.api('/api/suggest', {
@@ -502,6 +591,30 @@ function dinnerRoulette() {
       } catch (e) {
         this.showToast('Failed to add place', 'error');
       }
+    },
+
+    async removeFriend(friendId) {
+      if (!confirm('Remove this friend? This action is mutual.')) return;
+      try {
+        const resp = await this.api(`/api/friends/${friendId}`, { method: 'DELETE' });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to remove friend', 'error');
+          return;
+        }
+        this.showToast('Friend removed.');
+        this.viewingFriendLikes = null;
+        this.commonPlaces = [];
+        await this.loadFriends();
+      } catch (e) {
+        this.showToast('Failed to remove friend', 'error');
+      }
+    },
+
+    formatDate(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr + 'Z');
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     },
 
     // ── Sessions ──

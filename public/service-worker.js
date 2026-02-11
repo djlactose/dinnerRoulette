@@ -1,40 +1,22 @@
-const CACHE_NAME = 'dinner-v6';
-const STATIC_ASSETS = ['./', './index.html', './styles.css', './app.js?v=5', './manifest.json'];
+const CACHE_NAME = 'dinner-v8';
 
+// On install: skip waiting and clear all old caches
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
   );
 });
 
+// On activate: claim clients immediately
 self.addEventListener('activate', event => {
   self.clients.claim();
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
   );
 });
 
+// Fetch: pass through to network (no caching)
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-
-  // Never cache API calls or socket connections
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) {
-    return;
-  }
-
-  // For navigation and static assets: network-first, fallback to cache
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  // Let the browser handle it normally
 });

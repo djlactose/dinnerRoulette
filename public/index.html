@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=5"></script>
+  <script defer src="app.js?v=6"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -93,9 +93,32 @@
                target="_blank" rel="noopener">View on Google Maps</a>
           </p>
 
-          <!-- Filter -->
-          <div x-show="likes.length > 3 || dislikes.length > 3" class="filter-wrapper">
+          <!-- Filter & Sort -->
+          <div x-show="likes.length > 3 || dislikes.length > 3" class="filter-controls">
             <input placeholder="Filter places..." x-model="placeFilter" aria-label="Filter your places" />
+            <select class="filter-select" x-model="placeTypeFilter" aria-label="Filter by type">
+              <option value="">All Types</option>
+              <template x-for="t in uniqueRestaurantTypes" :key="t">
+                <option :value="t" x-text="t"></option>
+              </template>
+            </select>
+            <select class="filter-select" x-model="placeSortBy" aria-label="Sort by">
+              <option value="name">Sort: Name</option>
+              <option value="type">Sort: Type</option>
+              <option value="visited">Sort: Unvisited First</option>
+            </select>
+          </div>
+
+          <!-- Quick Pick -->
+          <div x-show="likes.length > 0" class="quick-pick-section">
+            <button class="quick-pick-btn" @click="quickPick()" :disabled="quickPicking">
+              🎲 Quick Pick from Likes
+            </button>
+            <div x-show="quickPickResult" class="quick-pick-result">
+              <span x-text="quickPickResult?.name"></span>
+              <span class="type-badge" x-show="quickPickResult?.restaurant_type" x-text="quickPickResult?.restaurant_type"></span>
+              <a :href="quickPickMapUrl" target="_blank" rel="noopener">View on Map</a>
+            </div>
           </div>
 
           <h3>Liked</h3>
@@ -105,11 +128,16 @@
                 <div class="place-info">
                   <span x-text="place.name"></span>
                   <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                  <span class="visited-badge" x-show="place.visited_at">Visited</span>
                 </div>
                 <span class="place-actions">
                   <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                      target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                   <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                  <button class="visited-btn" :class="{ 'visited-active': place.visited_at }"
+                          @click="place.visited_at ? unmarkVisited(place) : markVisited(place)"
+                          x-text="place.visited_at ? '✓ Visited' : 'Visited?'"
+                          :aria-label="place.visited_at ? 'Unmark as visited' : 'Mark as visited'"></button>
                   <button class="suggest-btn" @click="suggestPersonal(place)"
                           :disabled="currentSuggestions.has(place.name)"
                           :title="currentSuggestions.has(place.name) ? 'Already suggested' : 'Add to suggestions'"
@@ -146,6 +174,7 @@
       <section x-show="loggedIn">
         <button class="toggle-btn" @click="sections.plan = !sections.plan">
           <span x-text="sections.plan ? '▼' : '▶'"></span> Plan Dinner
+          <span class="badge" x-show="friendRequests.length > 0" x-text="friendRequests.length"></span>
         </button>
         <div x-show="sections.plan" x-collapse>
 
@@ -185,6 +214,7 @@
                   <span class="place-actions">
                     <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
                     <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
+                    <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
                   </span>
                 </li>
               </template>
@@ -265,17 +295,36 @@
                 <button @click="joinSession()">Join Session</button>
               </div>
 
+              <!-- Active Sessions -->
+              <h4 x-show="activeSessions.length > 0">Active Sessions</h4>
               <ul class="session-list">
-                <template x-for="s in sessions" :key="s.id">
+                <template x-for="s in activeSessions" :key="s.id">
                   <li @click="openSession(s.id)">
                     <div>
                       <strong x-text="s.name"></strong>
                       <span class="session-code" x-text="s.code"></span>
+                      <span class="session-creator" x-text="'by ' + s.creator_username"></span>
                     </div>
                     <div>
-                      <span class="session-status" :class="s.status" x-text="s.status"></span>
+                      <span class="session-status open">open</span>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+
+              <!-- Session History -->
+              <h4 x-show="historySessions.length > 0">Session History</h4>
+              <ul class="session-list">
+                <template x-for="s in historySessions" :key="s.id">
+                  <li @click="openSession(s.id)">
+                    <div>
+                      <strong x-text="s.name"></strong>
+                      <span class="session-creator" x-text="'by ' + s.creator_username"></span>
+                      <span class="session-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
+                    </div>
+                    <div>
                       <span x-show="s.winner_place" class="session-winner" x-text="'Winner: ' + s.winner_place"></span>
-                      <button class="remove-btn" x-show="s.status === 'closed' && s.creator_id === userId"
+                      <button class="remove-btn" x-show="s.creator_id === userId"
                               @click.stop="deleteSession(s.id)" aria-label="Delete session">Delete</button>
                     </div>
                   </li>
