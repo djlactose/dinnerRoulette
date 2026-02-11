@@ -328,20 +328,35 @@
               </h3>
             </div>
             <div x-show="placeSections.favorites" x-collapse>
-              <div class="place-card-list">
+              <div class="place-card-grid">
                 <template x-for="place in starredPlaces" :key="'fav-' + place.name">
-                  <div class="place-card">
+                  <div class="place-card"
+                       @touchstart="onTouchStart($event, place.name)"
+                       @touchmove="onTouchMove($event, place.name)"
+                       @touchend="onTouchEnd(place._type, place)"
+                       :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                     <div class="place-card-header">
                       <strong x-text="place.name"></strong>
                       <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                     </div>
+                    <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
+                      <span class="note-text" @click="startEditNote(place)" x-text="place.notes"></span>
+                    </div>
+                    <div class="place-note-edit" x-show="editingNote === place.name">
+                      <input type="text" x-model="noteText" placeholder="Add a note..."
+                             @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
+                      <button class="suggest-btn" @click="saveNote(place)">Save</button>
+                      <button class="back-btn" @click="cancelEditNote()">Cancel</button>
+                    </div>
                     <div class="place-card-actions">
-                      <button class="star-btn" @click="toggleStar(place._type, place.name)"
+                      <button class="star-btn starred" @click="toggleStar(place._type, place.name)"
                               aria-label="Unstar">&#x2605;</button>
-                      <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
-                              @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
-                              :disabled="isAlreadySuggestedToPlan(place.name)"
-                              aria-label="Suggest this place to plan">Suggest</button>
+                      <button class="remove-btn" @click="removePlace(place._type, place.name)" :aria-label="'Remove from ' + place._type">Remove</button>
+                      <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
+                         target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
+                      <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                      <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
+                              @click="startEditNote(place)">+ Note</button>
                     </div>
                   </div>
                 </template>
@@ -354,7 +369,7 @@
             <h3>
               <span class="section-collapse-icon" :class="{ open: placeSections.likes }">&#x25B6;</span>
               Liked
-              <span class="section-count" x-text="likes.length"></span>
+              <span class="section-count" x-text="likes.filter(p => !p.starred).length"></span>
             </h3>
           </div>
           <div x-show="placeSections.likes" x-collapse>
@@ -388,15 +403,7 @@
                     <button class="star-btn" @click="toggleStar('likes', place.name)"
                             :aria-label="place.starred ? 'Unstar ' + place.name : 'Star ' + place.name"
                             x-text="place.starred ? '\u2605' : '\u2606'"></button>
-                    <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
-                            @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
-                            :disabled="isAlreadySuggestedToPlan(place.name)"
-                            :title="isAlreadySuggestedToPlan(place.name) ? 'Already suggested to plan' : 'Suggest to active plan'"
-                            aria-label="Suggest this place to plan">Suggest</button>
                     <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">Remove</button>
-                    <button class="overflow-toggle" @click.stop="toggleCardMenu(place.name)" aria-label="More actions">&#x22EF;</button>
-                  </div>
-                  <div class="overflow-menu" x-show="cardMenuOpen === place.name" x-transition.opacity @click.outside="closeCardMenu()">
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                        target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                     <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
@@ -439,9 +446,6 @@
                   </div>
                   <div class="place-card-actions">
                     <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">Remove</button>
-                    <button class="overflow-toggle" @click.stop="toggleCardMenu(place.name)" aria-label="More actions">&#x22EF;</button>
-                  </div>
-                  <div class="overflow-menu" x-show="cardMenuOpen === place.name" x-transition.opacity @click.outside="closeCardMenu()">
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                        target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                     <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
@@ -461,7 +465,7 @@
             <h3>
               <span class="section-collapse-icon" :class="{ open: placeSections.wantToTry }">&#x25B6;</span>
               Want to Try
-              <span class="section-count" x-text="wantToTry.length"></span>
+              <span class="section-count" x-text="wantToTry.filter(p => !p.starred).length"></span>
             </h3>
           </div>
           <div x-show="placeSections.wantToTry" x-collapse>
@@ -484,15 +488,7 @@
                     <button class="star-btn" @click="toggleStar('want_to_try', place.name)"
                             :aria-label="place.starred ? 'Unstar ' + place.name : 'Star ' + place.name"
                             x-text="place.starred ? '\u2605' : '\u2606'"></button>
-                    <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
-                            @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
-                            :disabled="isAlreadySuggestedToPlan(place.name)"
-                            :title="isAlreadySuggestedToPlan(place.name) ? 'Already suggested to plan' : 'Suggest to active plan'"
-                            aria-label="Suggest this place to plan">Suggest</button>
                     <button class="remove-btn" @click="removePlace('want_to_try', place.name)" aria-label="Remove from want to try">Remove</button>
-                    <button class="overflow-toggle" @click.stop="toggleCardMenu(place.name)" aria-label="More actions">&#x22EF;</button>
-                  </div>
-                  <div class="overflow-menu" x-show="cardMenuOpen === place.name" x-transition.opacity @click.outside="closeCardMenu()">
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                        target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                     <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>

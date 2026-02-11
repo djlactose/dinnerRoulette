@@ -263,6 +263,7 @@ function dinnerRoulette() {
     get filteredLikes() {
       const f = this.placeFilter.toLowerCase();
       let list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : [...this.likes];
+      list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       if (this.placeSortBy === 'type') {
         list.sort((a, b) => (a.restaurant_type || '').localeCompare(b.restaurant_type || '') || a.name.localeCompare(b.name));
@@ -280,6 +281,7 @@ function dinnerRoulette() {
     get filteredWantToTry() {
       const f = this.placeFilter.toLowerCase();
       let list = f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f)) : [...this.wantToTry];
+      list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
