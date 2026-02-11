@@ -11,6 +11,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const { Server } = require('socket.io');
+const webpush = require('web-push');
 
 // ── Environment Validation ─────────────────────────────────────────────────────
 const API_KEY = process.env.GOOGLE_API_KEY;
@@ -27,6 +28,22 @@ if (!JWT_SECRET) {
   JWT_SECRET = crypto.randomBytes(32).toString('hex');
   console.warn('WARNING: JWT_SECRET not set — using random value. Sessions will not persist across restarts.');
 }
+
+// ── VAPID Keys for Web Push ────────────────────────────────────────────────────
+let VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
+let VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
+const VAPID_EMAIL = process.env.VAPID_EMAIL || 'mailto:noreply@example.com';
+
+if (!VAPID_PUBLIC || !VAPID_PRIVATE) {
+  const keys = webpush.generateVAPIDKeys();
+  VAPID_PUBLIC = keys.publicKey;
+  VAPID_PRIVATE = keys.privateKey;
+  console.warn('WARNING: VAPID keys not set — generated ephemeral keys. Push subscriptions will break on restart.');
+  console.warn(`Set these in your environment to persist:`);
+  console.warn(`VAPID_PUBLIC_KEY=${VAPID_PUBLIC}`);
+  console.warn(`VAPID_PRIVATE_KEY=${VAPID_PRIVATE}`);
+}
+webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
 
 console.log(`Environment: ${NODE_ENV}`);
 console.log(`Port: ${PORT}`);
@@ -158,6 +175,15 @@ db.exec(`
     suggestion_id INTEGER,
     UNIQUE(session_id, user_id, suggestion_id)
   );
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -172,6 +198,8 @@ try { db.exec('ALTER TABLE suggestions ADD COLUMN restaurant_type TEXT'); } catc
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN restaurant_type TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE friends ADD COLUMN status TEXT DEFAULT \'accepted\''); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE likes ADD COLUMN visited_at TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN notes TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE session_suggestions ADD COLUMN price_level INTEGER'); } catch (e) { /* already exists */ }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 function generateToken(user) {
@@ -198,6 +226,32 @@ function auth(req, res, next) {
   } catch (err) {
     res.clearCookie('token');
     return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// ── Push Notification Helpers ──────────────────────────────────────────────────
+async function sendPushToUser(userId, payload) {
+  const subs = db.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?').all(userId);
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        JSON.stringify(payload)
+      );
+    } catch (err) {
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint);
+      }
+    }
+  }
+}
+
+async function sendPushToSessionMembers(sessionId, payload, excludeUserId = null) {
+  const members = db.prepare('SELECT user_id FROM session_members WHERE session_id = ?').all(sessionId);
+  for (const m of members) {
+    if (m.user_id !== excludeUserId) {
+      sendPushToUser(m.user_id, payload);
+    }
   }
 }
 
@@ -309,6 +363,7 @@ app.post('/api/delete-account', auth, async (req, res) => {
     db.prepare('DELETE FROM places WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM suggestions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM users WHERE id = ?').run(uid);
   });
   deleteAll();
@@ -357,11 +412,11 @@ app.post('/api/place', auth, (req, res) => {
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at FROM likes WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at, notes FROM likes WHERE user_id = ?').all(uid);
   const dislikes = db.prepare('SELECT place, place_id, restaurant_type FROM dislikes WHERE user_id = ?').all(uid);
   const all = db.prepare('SELECT place, place_id, restaurant_type FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null, notes: r.notes || null })),
     dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
     all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
   });
@@ -383,10 +438,20 @@ app.post('/api/places/unvisit', auth, (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/places/notes', auth, (req, res) => {
+  const { place, notes } = req.body;
+  if (!place) return res.status(400).json({ error: 'Missing place' });
+  const row = db.prepare('SELECT 1 FROM likes WHERE user_id = ? AND place = ?').get(req.user.id, place);
+  if (!row) return res.status(404).json({ error: 'Place not in your likes' });
+  db.prepare('UPDATE likes SET notes = ? WHERE user_id = ? AND place = ?').run(notes || null, req.user.id, place);
+  res.json({ success: true });
+});
+
 app.post('/api/places', auth, (req, res) => {
   const { type, place, place_id, remove, restaurant_type } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
   const uid = req.user.id;
+  let movedFrom = null;
 
   if (remove) {
     if (type === 'likes') {
@@ -397,12 +462,16 @@ app.post('/api/places', auth, (req, res) => {
   } else {
     db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     if (type === 'likes') {
+      const del = db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
+      if (del.changes > 0) movedFrom = 'dislikes';
       db.prepare('INSERT OR IGNORE INTO likes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     } else {
+      const del = db.prepare('DELETE FROM likes WHERE user_id = ? AND place = ?').run(uid, place);
+      if (del.changes > 0) movedFrom = 'likes';
       db.prepare('INSERT OR IGNORE INTO dislikes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     }
   }
-  res.json({ success: true });
+  res.json({ success: true, movedFrom });
 });
 
 // ── Friends Routes ──────────────────────────────────────────────────────────────
@@ -426,6 +495,7 @@ app.post('/api/invite', auth, (req, res) => {
   }
 
   db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status) VALUES (?, ?, 'pending')").run(req.user.id, friend.id);
+  sendPushToUser(friend.id, { title: 'Friend Request', body: `${req.user.username} sent you a friend request`, tag: 'friend-request' });
   res.json({ success: true });
 });
 
@@ -448,6 +518,7 @@ app.post('/api/friend-requests/:id/accept', auth, (req, res) => {
     db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status) VALUES (?, ?, 'accepted')").run(req.user.id, requesterId);
   });
   accept();
+  sendPushToUser(Number(requesterId), { title: 'Friend Accepted', body: `${req.user.username} accepted your friend request`, tag: 'friend-accept' });
   res.json({ success: true });
 });
 
@@ -501,6 +572,31 @@ app.get('/api/common-places', auth, (req, res) => {
   res.json({ common: common.map(r => r.place) });
 });
 
+// ── Push Notification Routes ──────────────────────────────────────────────────
+app.get('/api/push/vapid-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC });
+});
+
+app.post('/api/push/subscribe', auth, (req, res) => {
+  const { endpoint, keys } = req.body;
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Invalid subscription data' });
+  }
+  db.prepare(`
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth
+  `).run(req.user.id, endpoint, keys.p256dh, keys.auth);
+  res.json({ success: true });
+});
+
+app.delete('/api/push/subscribe', auth, (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+  db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(req.user.id, endpoint);
+  res.json({ success: true });
+});
+
 // ── Suggestions Routes ──────────────────────────────────────────────────────────
 app.post('/api/suggest', auth, (req, res) => {
   const { place, place_id, restaurant_type } = req.body;
@@ -546,13 +642,46 @@ app.post('/api/sessions/join', auth, (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found or closed' });
   db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(session.id, req.user.id);
   io.to(`session:${session.id}`).emit('session:member-joined', { username: req.user.username, userId: req.user.id });
+  sendPushToSessionMembers(session.id, { title: 'Member Joined', body: `${req.user.username} joined ${session.name}`, tag: `session-${session.id}` }, req.user.id);
   res.json({ id: session.id, code: session.code, name: session.name });
+});
+
+app.post('/api/sessions/:id/invite', auth, (req, res) => {
+  const sessionId = req.params.id;
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Missing username' });
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ? AND status = 'open'").get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found or closed' });
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+  const target = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username.trim());
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  const alreadyMember = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, target.id);
+  if (alreadyMember) return res.json({ success: true, alreadyMember: true });
+  db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(sessionId, target.id);
+  io.to(`session:${sessionId}`).emit('session:member-joined', { username: target.username, userId: target.id });
+  sendPushToUser(target.id, { title: 'Session Invite', body: `You've been invited to ${session.name}`, tag: `session-invite-${sessionId}` });
+  res.json({ success: true });
+});
+
+app.get('/api/sessions/:id/dislikes', auth, (req, res) => {
+  const sessionId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this session' });
+  const dislikes = db.prepare(`
+    SELECT DISTINCT d.place FROM dislikes d
+    JOIN session_members sm ON sm.user_id = d.user_id
+    WHERE sm.session_id = ?
+  `).all(sessionId);
+  res.json({ dislikes: dislikes.map(r => r.place) });
 });
 
 app.get('/api/sessions', auth, (req, res) => {
   const sessions = db.prepare(`
     SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id,
-           u.username AS creator_username
+           u.username AS creator_username,
+           (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) AS member_count,
+           (SELECT COUNT(*) FROM session_suggestions WHERE session_id = s.id) AS suggestion_count
     FROM sessions s
     JOIN session_members sm ON sm.session_id = s.id
     JOIN users u ON u.id = s.creator_id
@@ -577,7 +706,7 @@ app.get('/api/sessions/:id', auth, (req, res) => {
   `).all(sessionId);
 
   const suggestions = db.prepare(`
-    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.user_id,
+    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.user_id,
            u.username AS suggested_by,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id) AS vote_count
     FROM session_suggestions ss
@@ -603,15 +732,15 @@ app.post('/api/sessions/:id/suggest', auth, async (req, res) => {
   const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(sessionId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member' });
 
-  const session = db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+  const session = db.prepare("SELECT status, name FROM sessions WHERE id = ?").get(sessionId);
   if (!session || session.status !== 'open') return res.status(400).json({ error: 'Session is closed' });
 
-  let lat = null, lng = null;
+  let lat = null, lng = null, priceLevel = null;
   if (place_id) {
     try {
       const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
       url.searchParams.set('place_id', place_id);
-      url.searchParams.set('fields', 'geometry');
+      url.searchParams.set('fields', 'geometry,price_level');
       url.searchParams.set('key', API_KEY);
       const r = await fetch(url);
       const data = await r.json();
@@ -619,19 +748,23 @@ app.post('/api/sessions/:id/suggest', auth, async (req, res) => {
         lat = data.result.geometry.location.lat;
         lng = data.result.geometry.location.lng;
       }
+      if (data.result?.price_level != null) {
+        priceLevel = data.result.price_level;
+      }
     } catch (e) {
       console.error('Failed to fetch place details:', e.message);
     }
   }
 
   try {
-    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)').run(sessionId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng);
+    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel);
     if (result.changes === 0) return res.status(409).json({ error: 'Already suggested' });
     io.to(`session:${sessionId}`).emit('session:suggestion-added', {
       id: result.lastInsertRowid, place, place_id: place_id || null,
       restaurant_type: restaurant_type || null,
-      lat, lng, suggested_by: req.user.username, vote_count: 0, user_voted: false,
+      lat, lng, price_level: priceLevel, suggested_by: req.user.username, vote_count: 0, user_voted: false,
     });
+    sendPushToSessionMembers(sessionId, { title: 'New Suggestion', body: `${req.user.username} suggested ${place}`, tag: `session-${sessionId}` }, req.user.id);
     res.json({ success: true, id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: 'Failed to suggest' });
@@ -699,6 +832,7 @@ app.post('/api/sessions/:id/pick', auth, (req, res) => {
 
   db.prepare('UPDATE sessions SET winner_place = ?, picked_at = datetime(?) WHERE id = ?').run(winner.place, 'now', sessionId);
   io.to(`session:${sessionId}`).emit('session:winner-picked', { winner });
+  sendPushToSessionMembers(sessionId, { title: 'Winner!', body: `${winner.place} was picked!`, tag: `session-${sessionId}-winner` }, req.user.id);
   res.json({ winner });
 });
 
@@ -712,10 +846,12 @@ app.post('/api/sessions/:id/close', auth, (req, res) => {
   if (winner_place) {
     db.prepare("UPDATE sessions SET status = 'closed', winner_place = ?, picked_at = datetime('now') WHERE id = ?").run(winner_place, sessionId);
     io.to(`session:${sessionId}`).emit('session:winner-picked', { winner: { place: winner_place } });
+    sendPushToSessionMembers(sessionId, { title: 'Winner!', body: `${winner_place} was picked in ${session.name}!`, tag: `session-${sessionId}-winner` }, req.user.id);
   } else {
     db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(sessionId);
   }
   io.to(`session:${sessionId}`).emit('session:closed', { sessionId });
+  sendPushToSessionMembers(sessionId, { title: 'Session Closed', body: `${session.name} has been closed`, tag: `session-${sessionId}` }, req.user.id);
   res.json({ success: true });
 });
 

@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=9"></script>
+  <script defer src="app.js?v=10"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -571,6 +571,15 @@
               <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
               <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
               <button @click="changePassword()">Change Password</button>
+
+              <h4>Notifications</h4>
+              <p x-show="!notificationsSupported" class="warning-text">Push notifications are not supported in this browser.</p>
+              <div x-show="notificationsSupported">
+                <button @click="notificationsEnabled ? disableNotifications() : enableNotifications()"
+                        x-text="notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'"
+                        :class="notificationsEnabled ? 'remove-btn' : 'suggest-btn'"></button>
+                <p class="notification-hint" x-show="notificationsEnabled">You'll receive notifications for session updates, friend requests, and more.</p>
+              </div>
 
               <h4 class="danger-zone">Delete Account</h4>
               <p class="warning-text">This will permanently delete your account and all data.</p>

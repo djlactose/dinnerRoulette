@@ -624,6 +624,46 @@ describe('Sessions', () => {
     expect(res.body.sessions.length).toBeGreaterThan(0);
     expect(res.body.sessions[0].creator_username).toBe('sessuser1');
   });
+
+  test('GET /api/sessions — includes member_count and suggestion_count', async () => {
+    const res = await request(app)
+      .get('/api/sessions')
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.sessions.length).toBeGreaterThan(0);
+    expect(typeof res.body.sessions[0].member_count).toBe('number');
+    expect(typeof res.body.sessions[0].suggestion_count).toBe('number');
+  });
+
+  test('POST /api/sessions/:id/invite — invites a user by username', async () => {
+    const create = await request(app).post('/api/sessions').set('Cookie', cookie1)
+      .send({ name: 'Invite Test' });
+    const sid = create.body.id;
+    const res = await request(app).post(`/api/sessions/${sid}/invite`).set('Cookie', cookie1)
+      .send({ username: 'sessuser2' });
+    expect(res.status).toBe(200);
+    const detail = await request(app).get(`/api/sessions/${sid}`).set('Cookie', cookie2);
+    expect(detail.status).toBe(200);
+    expect(detail.body.members.some(m => m.username === 'sessuser2')).toBe(true);
+  });
+
+  test('POST /api/sessions/:id/invite — non-existent user returns 404', async () => {
+    const create = await request(app).post('/api/sessions').set('Cookie', cookie1)
+      .send({ name: 'Invite Fail' });
+    const res = await request(app).post(`/api/sessions/${create.body.id}/invite`).set('Cookie', cookie1)
+      .send({ username: 'nonexistent_user_xyz' });
+    expect(res.status).toBe(404);
+  });
+
+  test('GET /api/sessions/:id/dislikes — returns disliked places by members', async () => {
+    await request(app).post('/api/places').set('Cookie', cookie1)
+      .send({ type: 'dislikes', place: 'Hated Diner' });
+    const create = await request(app).post('/api/sessions').set('Cookie', cookie1)
+      .send({ name: 'Dislike Test' });
+    const res = await request(app).get(`/api/sessions/${create.body.id}/dislikes`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.dislikes).toContain('Hated Diner');
+  });
 });
 
 // ── Account Management Tests ────────────────────────────────────────────────────
@@ -747,5 +787,121 @@ describe('Visited Tracking', () => {
       .post('/api/places/visit')
       .send({ place: 'Visit Cafe' });
     expect(res.status).toBe(401);
+  });
+});
+
+// ── Place Notes Tests ────────────────────────────────────────────────────────
+
+describe('Place Notes', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('noteuser', 'password123');
+    cookie = result.cookie;
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'likes', place: 'Note Cafe', place_id: 'nc001' });
+  });
+
+  test('POST /api/places/notes — saves note on liked place', async () => {
+    const res = await request(app).post('/api/places/notes').set('Cookie', cookie)
+      .send({ place: 'Note Cafe', notes: 'Great coffee' });
+    expect(res.status).toBe(200);
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const cafe = places.body.likes.find(p => p.name === 'Note Cafe');
+    expect(cafe.notes).toBe('Great coffee');
+  });
+
+  test('POST /api/places/notes — non-liked place returns 404', async () => {
+    const res = await request(app).post('/api/places/notes').set('Cookie', cookie)
+      .send({ place: 'Unknown', notes: 'test' });
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /api/places/notes — clears note when empty', async () => {
+    await request(app).post('/api/places/notes').set('Cookie', cookie)
+      .send({ place: 'Note Cafe', notes: '' });
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const cafe = places.body.likes.find(p => p.name === 'Note Cafe');
+    expect(cafe.notes).toBeNull();
+  });
+});
+
+// ── Duplicate Prevention Tests ───────────────────────────────────────────────
+
+describe('Duplicate Prevention', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('crossuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('POST /api/places — liking a disliked place removes it from dislikes', async () => {
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'dislikes', place: 'CrossPlace', place_id: 'cp001' });
+    const res = await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'likes', place: 'CrossPlace', place_id: 'cp001' });
+    expect(res.body.movedFrom).toBe('dislikes');
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    expect(places.body.likes.some(p => p.name === 'CrossPlace')).toBe(true);
+    expect(places.body.dislikes.some(p => p.name === 'CrossPlace')).toBe(false);
+  });
+
+  test('POST /api/places — disliking a liked place removes it from likes', async () => {
+    const res = await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'dislikes', place: 'CrossPlace', place_id: 'cp001' });
+    expect(res.body.movedFrom).toBe('likes');
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    expect(places.body.dislikes.some(p => p.name === 'CrossPlace')).toBe(true);
+    expect(places.body.likes.some(p => p.name === 'CrossPlace')).toBe(false);
+  });
+});
+
+describe('Push Notifications', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('pushuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('GET /api/push/vapid-key — returns public key', async () => {
+    const res = await request(app).get('/api/push/vapid-key');
+    expect(res.statusCode).toBe(200);
+    expect(typeof res.body.publicKey).toBe('string');
+    expect(res.body.publicKey.length).toBeGreaterThan(10);
+  });
+
+  test('POST /api/push/subscribe — saves subscription', async () => {
+    const res = await request(app).post('/api/push/subscribe').set('Cookie', cookie)
+      .send({ endpoint: 'https://example.com/push/1', keys: { p256dh: 'testkey123', auth: 'testauth123' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('POST /api/push/subscribe — duplicate endpoint upserts', async () => {
+    const res = await request(app).post('/api/push/subscribe').set('Cookie', cookie)
+      .send({ endpoint: 'https://example.com/push/1', keys: { p256dh: 'updatedkey', auth: 'updatedauth' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('POST /api/push/subscribe — rejects invalid data', async () => {
+    const res = await request(app).post('/api/push/subscribe').set('Cookie', cookie)
+      .send({ endpoint: 'https://example.com/push/2' });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('DELETE /api/push/subscribe — removes subscription', async () => {
+    const res = await request(app).delete('/api/push/subscribe').set('Cookie', cookie)
+      .send({ endpoint: 'https://example.com/push/1' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('POST /api/push/subscribe — 401 without auth', async () => {
+    const res = await request(app).post('/api/push/subscribe')
+      .send({ endpoint: 'https://example.com/push/3', keys: { p256dh: 'key', auth: 'auth' } });
+    expect(res.statusCode).toBe(401);
   });
 });

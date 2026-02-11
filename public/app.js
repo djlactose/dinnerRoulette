@@ -1,3 +1,10 @@
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
 function dinnerRoulette() {
   return {
     // Auth
@@ -77,6 +84,10 @@ function dinnerRoulette() {
 
     // Network
     online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+
+    // Notifications
+    notificationsEnabled: false,
+    notificationsSupported: false,
 
     // Swipe
     swipeState: { name: null, startX: 0, currentX: 0, swiping: false },
@@ -190,6 +201,7 @@ function dinnerRoulette() {
       window.addEventListener('online', () => { this.online = true; });
       window.addEventListener('offline', () => { this.online = false; });
       this.touchEnabled = 'ontouchstart' in window;
+      this.notificationsSupported = 'Notification' in window && 'PushManager' in window;
 
       try {
         const resp = await fetch('/api/me', { credentials: 'same-origin' });
@@ -200,6 +212,9 @@ function dinnerRoulette() {
           this.userId = data.id;
           this.connectSocket();
           await this.loadAppData();
+          if (this.notificationsSupported && Notification.permission === 'granted') {
+            this.notificationsEnabled = true;
+          }
         }
       } catch (e) {
         // Not logged in
@@ -1156,6 +1171,51 @@ function dinnerRoulette() {
       } else if (navigator.clipboard) {
         await navigator.clipboard.writeText(text);
         this.showToast('Result copied to clipboard!');
+      }
+    },
+
+    // ── Notifications ──
+    async enableNotifications() {
+      if (!this.notificationsSupported) return;
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        this.showToast('Notification permission denied', 'error');
+        return;
+      }
+      try {
+        const resp = await this.api('/api/push/vapid-key');
+        const { publicKey } = await resp.json();
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        await this.api('/api/push/subscribe', {
+          method: 'POST',
+          body: JSON.stringify(sub.toJSON()),
+        });
+        this.notificationsEnabled = true;
+        this.showToast('Notifications enabled!');
+      } catch (e) {
+        this.showToast('Failed to enable notifications', 'error');
+      }
+    },
+
+    async disableNotifications() {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await this.api('/api/push/subscribe', {
+            method: 'DELETE',
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+          await sub.unsubscribe();
+        }
+        this.notificationsEnabled = false;
+        this.showToast('Notifications disabled');
+      } catch (e) {
+        this.showToast('Failed to disable notifications', 'error');
       }
     },
 

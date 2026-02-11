@@ -1211,6 +1211,13 @@ a {
   color: var(--text-secondary);
 }
 
+/* ── Notification Hint ────────────────────────────────────────────────────── */
+.notification-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
 /* ── Focus Styles (a11y) ───────────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid var(--accent);
