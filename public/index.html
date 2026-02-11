@@ -46,6 +46,22 @@
       </div>
     </div>
 
+    <!-- Onboarding Walkthrough -->
+    <div class="onboarding-overlay" x-show="onboarding.active" x-transition.opacity.duration.300ms>
+      <div class="onboarding-tooltip">
+        <p class="onboarding-text" x-text="onboardingSteps[onboarding.step]?.text"></p>
+        <div class="onboarding-dots">
+          <template x-for="(s, i) in onboardingSteps" :key="i">
+            <span class="onboarding-dot" :class="{ active: i === onboarding.step, done: i < onboarding.step }"></span>
+          </template>
+        </div>
+        <div class="onboarding-actions">
+          <button class="back-btn" @click="skipOnboarding()" x-show="onboarding.step < onboardingSteps.length - 1">Skip</button>
+          <button @click="nextOnboardingStep()" x-text="onboarding.step >= onboardingSteps.length - 1 ? 'Get Started' : 'Next'"></button>
+        </div>
+      </div>
+    </div>
+
     <header>
       <div class="header-content">
         <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />

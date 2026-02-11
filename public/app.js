@@ -139,6 +139,15 @@ function dinnerRoulette() {
     // Socket.IO
     socket: null,
 
+    // Onboarding
+    onboarding: { active: false, step: 0 },
+    onboardingSteps: [
+      { text: 'Search for restaurants you love and add them to your list.', tab: 'places', highlight: 'placeSearch' },
+      { text: 'Add friends to plan dinner together.', tab: 'friends', highlight: 'friendInput' },
+      { text: 'Start a session to vote and pick a dinner spot!', tab: 'sessions', highlight: null },
+      { text: "You're all set! Enjoy Dinner Roulette!", tab: null, highlight: null },
+    ],
+
     // Admin
     adminTab: 'dashboard',
     adminStats: null,
@@ -622,6 +631,7 @@ function dinnerRoulette() {
         this.connectSocket();
         await this.loadAppData();
         if (this.pendingInviteCode) await this.autoJoinInvite();
+        this.$nextTick(() => this.startOnboarding());
       } catch (e) {
         this.authError = 'Unexpected error during registration.';
       }
@@ -1949,6 +1959,34 @@ function dinnerRoulette() {
       } catch (e) {
         this.showToast('Failed to delete account', 'error');
       }
+    },
+
+    // ── Onboarding ──
+    startOnboarding() {
+      if (localStorage.getItem('onboarding-done')) return;
+      this.onboarding = { active: true, step: 0 };
+      const step = this.onboardingSteps[0];
+      if (step.tab) this.switchTab(step.tab);
+    },
+
+    nextOnboardingStep() {
+      const next = this.onboarding.step + 1;
+      if (next >= this.onboardingSteps.length) {
+        this.finishOnboarding();
+        return;
+      }
+      this.onboarding.step = next;
+      const step = this.onboardingSteps[next];
+      if (step.tab) this.switchTab(step.tab);
+    },
+
+    skipOnboarding() {
+      this.finishOnboarding();
+    },
+
+    finishOnboarding() {
+      this.onboarding = { active: false, step: 0 };
+      localStorage.setItem('onboarding-done', 'true');
     },
 
     // ── Admin ──

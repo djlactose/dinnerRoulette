@@ -2052,6 +2052,56 @@ a {
   margin-bottom: 0.5rem;
 }
 
+/* ── Onboarding ───────────────────────────────────────────────────────────── */
+.onboarding-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.onboarding-tooltip {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.onboarding-text {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+}
+.onboarding-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.onboarding-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.2s;
+}
+.onboarding-dot.active { background: var(--accent); }
+.onboarding-dot.done { background: var(--success); }
+.onboarding-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.onboarding-actions button {
+  padding: 0.5rem 1.2rem;
+  font-size: 0.9rem;
+}
+
 /* ── Spin Wheel ───────────────────────────────────────────────────────────── */
 .spin-wheel-container {
   display: flex;
