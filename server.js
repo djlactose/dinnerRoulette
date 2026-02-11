@@ -219,6 +219,16 @@ try { db.exec('ALTER TABLE likes ADD COLUMN notes TEXT'); } catch (e) { /* alrea
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN price_level INTEGER'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN voting_deadline TEXT'); } catch (e) { /* already exists */ }
 
+// Deduplicate likes and add unique index to prevent future duplicates
+try {
+  db.exec(`
+    DELETE FROM likes WHERE rowid NOT IN (
+      SELECT MIN(rowid) FROM likes GROUP BY user_id, place
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_likes_user_place ON likes(user_id, place);
+  `);
+} catch (e) { /* index already exists */ }
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 function generateToken(user) {
   return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '12h' });
@@ -569,7 +579,7 @@ app.get('/api/friends/:id/likes', auth, (req, res) => {
   const friendId = req.params.id;
   const friendship = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'").get(req.user.id, friendId);
   if (!friendship) return res.status(403).json({ error: 'Not friends with this user' });
-  const likes = db.prepare('SELECT place, place_id, restaurant_type FROM likes WHERE user_id = ?').all(friendId);
+  const likes = db.prepare('SELECT DISTINCT place, place_id, restaurant_type FROM likes WHERE user_id = ?').all(friendId);
   res.json({ likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
 });
 
@@ -593,7 +603,7 @@ app.get('/api/common-places', auth, (req, res) => {
   const friendship = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'").get(req.user.id, friend.id);
   if (!friendship) return res.status(403).json({ error: 'Not friends with this user' });
   const common = db.prepare(`
-    SELECT l1.place FROM likes l1
+    SELECT DISTINCT l1.place FROM likes l1
     JOIN likes l2 ON l2.place = l1.place
     WHERE l1.user_id = ? AND l2.user_id = ?
   `).all(req.user.id, friend.id);

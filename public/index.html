@@ -333,7 +333,7 @@
           <div x-show="viewingFriendLikes" class="friends-list">
             <h4 x-text="(viewingFriendLikes?.username || '') + String.fromCharCode(39) + 's Liked Places'"></h4>
             <ul class="place-list">
-              <template x-for="place in viewingFriendLikes?.likes || []" :key="place.name">
+              <template x-for="(place, idx) in viewingFriendLikes?.likes || []" :key="idx">
                 <li>
                   <div class="place-info">
                     <span x-text="place.name"></span>
@@ -362,7 +362,7 @@
             <h4 x-text="'Common Places with ' + commonFriend"></h4>
             <template x-if="commonPlaces.length > 0">
               <ul>
-                <template x-for="place in commonPlaces" :key="place">
+                <template x-for="(place, idx) in commonPlaces" :key="idx">
                   <li>
                     <span x-text="place"></span>
                     <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place)"
