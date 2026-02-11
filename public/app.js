@@ -61,7 +61,9 @@ function dinnerRoulette() {
     editingNote: null,
     noteText: '',
     placeSections: { favorites: true, likes: true, dislikes: false, wantToTry: false },
+    suggestSectionOpen: true,
     cardMenuOpen: null,
+    suggestionMenuOpen: null,
 
     // Quick Pick
     quickPickResult: null,
@@ -949,6 +951,49 @@ function dinnerRoulette() {
     },
     closeCardMenu() {
       this.cardMenuOpen = null;
+    },
+    toggleSuggestionMenu(id) {
+      this.suggestionMenuOpen = this.suggestionMenuOpen === id ? null : id;
+    },
+    closeSuggestionMenu() {
+      this.suggestionMenuOpen = null;
+    },
+
+    suggestionInList(placeName) {
+      if (this.likes.some(l => l.name === placeName)) return 'likes';
+      if (this.dislikes.some(d => d.name === placeName)) return 'dislikes';
+      if (this.wantToTry.some(w => w.name === placeName)) return 'want_to_try';
+      return null;
+    },
+
+    async addSuggestionToList(suggestion, action) {
+      const type = action === 'dislike' ? 'dislikes' : action === 'want_to_try' ? 'want_to_try' : 'likes';
+      try {
+        const resp = await this.api('/api/places', {
+          method: 'POST',
+          body: JSON.stringify({ type, place: suggestion.place, place_id: suggestion.place_id, restaurant_type: suggestion.restaurant_type || null }),
+        });
+        if (!resp.ok) {
+          this.showToast('Failed to add place', 'error');
+          return;
+        }
+        if (action === 'favorite') {
+          await this.api('/api/places/likes/star', {
+            method: 'POST',
+            body: JSON.stringify({ place: suggestion.place }),
+          });
+          this.showToast(`Added "${suggestion.place}" to your favorites!`);
+        } else if (action === 'dislike') {
+          this.showToast(`Added "${suggestion.place}" to your dislikes.`);
+        } else if (action === 'want_to_try') {
+          this.showToast(`Added "${suggestion.place}" to your want-to-try list!`);
+        } else {
+          this.showToast(`Added "${suggestion.place}" to your likes!`);
+        }
+        await this.loadPlaces();
+      } catch (e) {
+        this.showToast('Failed to add place', 'error');
+      }
     },
 
     async removePlace(type, placeName) {

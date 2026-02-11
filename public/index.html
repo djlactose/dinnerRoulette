@@ -785,7 +785,13 @@
 
               <!-- Suggest to Plan -->
               <div x-show="activePlan?.plan?.status === 'open'">
-                <h4>Suggest a Place</h4>
+                <div class="section-header" @click="suggestSectionOpen = !suggestSectionOpen">
+                  <h3>
+                    <span class="section-collapse-icon" :class="{ open: suggestSectionOpen }">&#x25B6;</span>
+                    Suggest a Place
+                  </h3>
+                </div>
+                <div x-show="suggestSectionOpen" x-collapse>
                 <div class="autocomplete-container">
                   <input placeholder="Search for a restaurant..." autocomplete="off"
                          x-model="planPlaceSearch" @input.debounce.300ms="searchPlanPlaces()"
@@ -858,6 +864,7 @@
                       <span x-text="'⭐ ' + place.name"></span>
                     </button>
                   </template>
+                </div>
                 </div>
               </div>
 
@@ -934,12 +941,15 @@
                               @click="toggleDownvote(s)" x-text="s.user_downvoted ? 'Noped' : 'Nope'"
                               :aria-label="s.user_downvoted ? 'Remove downvote from ' + s.place : 'Downvote ' + s.place"
                               x-show="activePlan?.plan?.status === 'open'"></button>
-                      <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
-                         target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                      <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
+                      <button class="overflow-toggle" @click.stop="toggleSuggestionMenu(s.id)" aria-label="More actions">···</button>
                       <button class="remove-btn btn-sm" @click="removeSuggestion(s)"
                               x-show="activePlan?.plan?.status === 'open' && s.suggested_by === username"
                               :aria-label="'Remove ' + s.place">✕</button>
+                      <div class="overflow-menu" x-show="suggestionMenuOpen === s.id" @click.outside="closeSuggestionMenu()" x-collapse>
+                        <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
+                           target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
+                        <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
+                      </div>
                     </div>
                     <div class="voters-list" x-show="s._showVoters && ((s.voters?.length > 0) || (s.downvoters?.length > 0))" x-collapse>
                       <template x-for="voter in s.voters || []" :key="'up-' + voter">
@@ -1025,7 +1035,7 @@
                           <div class="chat-bubble" :class="{ 'chat-bubble-gif': msg.message_type === 'gif' }">
                             <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.username"></div>
                             <div x-show="msg.message_type !== 'gif'" x-text="msg.message"></div>
-                            <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" loading="lazy" />
+                            <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" referrerpolicy="no-referrer" />
                             <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
                           </div>
                           <!-- Reactions display -->
@@ -1078,7 +1088,7 @@
                     <div class="gif-grid" x-show="!gifLoading && !gifError">
                       <template x-for="gif in gifResults" :key="gif.id">
                         <img :src="gif.preview" @click="sendGif(gif.url)" alt="GIF"
-                             class="gif-thumb" loading="lazy" />
+                             class="gif-thumb" referrerpolicy="no-referrer" />
                       </template>
                       <div x-show="gifResults.length === 0 && gifSearchQuery" class="chat-empty">No GIFs found</div>
                     </div>

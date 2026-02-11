@@ -146,7 +146,7 @@ header {
   color: white;
   border: none;
   padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
 }
@@ -425,7 +425,7 @@ label {
 
 .place-actions button {
   font-size: 0.8rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.6rem;
 }
 
 .friend-place-actions {
@@ -434,7 +434,7 @@ label {
 .friend-action-btn {
   font-size: 1rem;
   padding: 0.3rem 0.5rem;
-  border-radius: var(--radius);
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   cursor: pointer;
@@ -515,7 +515,7 @@ label {
 
 .reviews-link {
   font-size: 0.8rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 8px;
   background-color: var(--warning);
   color: white;
@@ -732,6 +732,10 @@ a {
   align-items: center;
   gap: 0.4rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.suggestion-actions .overflow-menu {
+  width: 100%;
 }
 
 .vote-count {
@@ -795,8 +799,8 @@ a {
   background-color: var(--warning);
   color: white;
   min-width: 60px;
-  font-size: 0.85rem;
-  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
 }
 
 .vote-btn:hover {
@@ -1048,7 +1052,7 @@ a {
 }
 
 .quick-pick-btn:hover {
-  opacity: 0.9;
+  background: linear-gradient(135deg, var(--warning-hover), var(--danger-hover));
 }
 
 .quick-pick-result {
@@ -1262,7 +1266,7 @@ a {
 
 .place-note-edit button {
   font-size: 0.8rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   margin: 0;
 }
 
@@ -1326,7 +1330,7 @@ a {
   background: var(--border-light);
   color: var(--text-secondary);
   font-size: 0.8rem;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.6rem;
   border: 1px solid var(--border);
   margin: 0;
 }
@@ -1353,14 +1357,6 @@ a {
 }
 
 /* ── Want to Try ─────────────────────────────────────────────────────────── */
-.want-to-try-btn {
-  background: linear-gradient(135deg, var(--warning), var(--warning-hover));
-  color: white;
-  border: none;
-}
-.want-to-try-btn:hover {
-  filter: brightness(1.1);
-}
 .want-to-try-badge {
   display: inline-flex;
   align-items: center;
@@ -1383,15 +1379,14 @@ a {
   background: linear-gradient(135deg, var(--warning), var(--warning-hover));
   color: white;
   border: none;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.8rem;
-  transition: filter 0.2s, transform 0.2s;
+  transition: background 0.2s;
 }
 .want-to-try-quick-btn:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, var(--warning-hover), var(--warning));
 }
 .plan-suggestion-list li:has(.want-to-try-badge) {
   border-left: 3px solid var(--warning);
@@ -1548,7 +1543,7 @@ a {
   background: var(--border-light);
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 16px;
   font-size: 0.8rem;
   cursor: pointer;
@@ -1589,7 +1584,7 @@ a {
   color: var(--text-primary);
   border: 1px dashed var(--border);
   font-size: 0.8rem;
-  padding: 0.25rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 8px;
   cursor: pointer;
   margin: 0;
@@ -1609,7 +1604,7 @@ a {
   font-size: 1.1rem;
   padding: 0.15rem 0.4rem;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 8px;
   line-height: 1;
   transition: color 0.2s, background 0.2s;
 }
@@ -1636,8 +1631,8 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
   border: 1px solid var(--warning);
   border-radius: 8px;
   background: color-mix(in srgb, var(--warning) 10%, var(--bg-card));
@@ -1688,9 +1683,9 @@ a {
   background: rgba(255,255,255,0.25);
   color: white;
   border: 1px solid rgba(255,255,255,0.5);
-  padding: 0.4rem 0.8rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   cursor: pointer;
   margin: 0;
 }
@@ -2472,9 +2467,9 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  padding: 0.4rem 0.75rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 8px;
   border: 1px solid var(--border-light);
   cursor: pointer;
@@ -2792,7 +2787,7 @@ a {
 .place-card-actions button,
 .place-card-actions a {
   font-size: 0.8rem;
-  padding: 0.25rem 0.5rem;
+  padding: 0.3rem 0.6rem;
 }
 @media (min-width: 700px) {
   .place-card-grid {
@@ -2908,8 +2903,8 @@ a {
 .overflow-menu button,
 .overflow-menu a {
   min-height: 40px;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -2971,7 +2966,7 @@ a {
   .place-list li { flex-direction: column; align-items: flex-start; }
   .place-actions { flex-direction: column; gap: 0.3rem; margin-left: 0; margin-top: 0.4rem; width: 100%; }
   .place-actions button,
-  .place-actions a { min-height: 44px; padding: 0.5rem 0.75rem; font-size: 0.85rem; width: 100%; text-align: center; box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+  .place-actions a { min-height: 44px; padding: 0.5rem 0.75rem; font-size: 0.8rem; width: 100%; text-align: center; box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
   .friend-place-actions { flex-direction: row; flex-wrap: wrap; }
   .friend-place-actions .friend-action-btn { width: auto; flex: 0; min-width: 44px; font-size: 1.1rem; }
   .friend-place-actions .map-btn { flex: 1; }
@@ -2980,7 +2975,7 @@ a {
   .place-card { padding: 0.6rem 0.75rem; }
   .place-card-actions { gap: 0.4rem; margin-top: 0.5rem; }
   .place-card-actions button,
-  .place-card-actions a { min-height: 40px; padding: 0.35rem 0.6rem; font-size: 0.85rem; }
+  .place-card-actions a { min-height: 40px; padding: 0.35rem 0.6rem; font-size: 0.8rem; }
 
   /* Filter controls mobile */
   .filter-controls { flex-direction: column; }
