@@ -158,6 +158,8 @@ function dinnerRoulette() {
     adminGoogleKey: '',
     adminResetPwUser: null,
     adminResetPwValue: '',
+    adminEditUser: null,
+    adminEditForm: { username: '', email: '' },
     adminTestEmail: '',
 
     // ── Helpers ──
@@ -2022,6 +2024,9 @@ function dinnerRoulette() {
         if (resp.ok) {
           const data = await resp.json();
           this.adminUsers = data.users || [];
+        } else {
+          const err = await resp.json().catch(() => ({}));
+          this.showToast(err.error || 'Failed to load users', 'error');
         }
       } catch (e) {
         this.showToast('Failed to load users', 'error');
@@ -2037,7 +2042,7 @@ function dinnerRoulette() {
         try {
           const resp = await this.api(`/api/admin/users/${userId}/reset-password`, {
             method: 'POST',
-            body: JSON.stringify({ password: this.adminResetPwValue }),
+            body: JSON.stringify({ newPassword: this.adminResetPwValue }),
           });
           if (!resp.ok) {
             const err = await resp.json();
@@ -2059,6 +2064,36 @@ function dinnerRoulette() {
     adminCancelResetPassword() {
       this.adminResetPwUser = null;
       this.adminResetPwValue = '';
+    },
+
+    adminStartEdit(user) {
+      this.adminEditUser = user.id;
+      this.adminEditForm = { username: user.username, email: user.email || '' };
+    },
+
+    adminCancelEdit() {
+      this.adminEditUser = null;
+      this.adminEditForm = { username: '', email: '' };
+    },
+
+    async adminSaveEdit(userId) {
+      try {
+        const resp = await this.api(`/api/admin/users/${userId}/edit`, {
+          method: 'POST',
+          body: JSON.stringify(this.adminEditForm),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to save changes', 'error');
+          return;
+        }
+        this.showToast('User updated');
+        this.adminEditUser = null;
+        this.adminEditForm = { username: '', email: '' };
+        await this.loadAdminUsers();
+      } catch (e) {
+        this.showToast('Failed to save changes', 'error');
+      }
     },
 
     async adminToggleAdmin(userId) {

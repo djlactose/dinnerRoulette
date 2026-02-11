@@ -994,7 +994,7 @@
             <div x-show="adminUsers.length === 0" class="empty-state">
               <p>No users found.</p>
             </div>
-            <div class="admin-user-list">
+            <div class="admin-user-list" x-show="adminUsers.length > 0">
               <template x-for="u in adminUsers" :key="u.id">
                 <div class="admin-user-row">
                   <div class="admin-user-info">
@@ -1008,7 +1008,8 @@
                       </span>
                     </div>
                   </div>
-                  <div class="admin-user-actions" x-show="u.id !== userId">
+                  <div class="admin-user-actions" x-show="u.id !== userId && adminEditUser !== u.id">
+                    <button class="map-btn btn-sm" @click="adminStartEdit(u)">Edit</button>
                     <button class="map-btn btn-sm" @click="adminResetPassword(u.id)"
                             x-text="adminResetPwUser === u.id ? 'Confirm Reset' : 'Reset PW'"></button>
                     <button class="back-btn btn-sm" x-show="adminResetPwUser === u.id"
@@ -1017,8 +1018,26 @@
                             x-text="u.is_admin ? 'Remove Admin' : 'Make Admin'"></button>
                     <button class="remove-btn btn-sm" @click="adminDeleteUser(u.id)">Delete</button>
                   </div>
-                  <div class="admin-user-actions" x-show="u.id === userId">
+                  <div class="admin-user-actions" x-show="u.id === userId && adminEditUser !== u.id">
+                    <button class="map-btn btn-sm" @click="adminStartEdit(u)">Edit</button>
                     <span class="type-badge" style="background: var(--accent); color: white;">You</span>
+                  </div>
+                  <!-- Inline edit form -->
+                  <div class="admin-edit-inline" x-show="adminEditUser === u.id">
+                    <div class="admin-form-group">
+                      <label>Username</label>
+                      <input type="text" x-model="adminEditForm.username" placeholder="Username"
+                             @keydown.enter="adminSaveEdit(u.id)" />
+                    </div>
+                    <div class="admin-form-group">
+                      <label>Email</label>
+                      <input type="email" x-model="adminEditForm.email" placeholder="Email address"
+                             @keydown.enter="adminSaveEdit(u.id)" />
+                    </div>
+                    <div class="admin-user-actions">
+                      <button class="suggest-btn btn-sm" @click="adminSaveEdit(u.id)">Save</button>
+                      <button class="back-btn btn-sm" @click="adminCancelEdit()">Cancel</button>
+                    </div>
                   </div>
                   <!-- Inline password reset input -->
                   <div class="admin-reset-pw-inline" x-show="adminResetPwUser === u.id">

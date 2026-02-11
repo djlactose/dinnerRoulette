@@ -1190,10 +1190,10 @@ describe('Admin', () => {
   test('GET /api/admin/stats — admin can access', async () => {
     const res = await request(app).get('/api/admin/stats').set('Cookie', adminCookie);
     expect(res.status).toBe(200);
-    expect(typeof res.body.totalUsers).toBe('number');
-    expect(typeof res.body.totalSessions).toBe('number');
-    expect(typeof res.body.smtpConfigured).toBe('boolean');
-    expect(typeof res.body.vapidPersisted).toBe('boolean');
+    expect(typeof res.body.users).toBe('number');
+    expect(typeof res.body.sessions).toBe('number');
+    expect(typeof res.body.smtp_configured).toBe('boolean');
+    expect(typeof res.body.vapid_source).toBe('string');
   });
 
   test('GET /api/admin/stats — non-admin gets 403', async () => {
@@ -1289,17 +1289,17 @@ describe('Admin', () => {
   test('GET /api/admin/settings — returns settings', async () => {
     const res = await request(app).get('/api/admin/settings').set('Cookie', adminCookie);
     expect(res.status).toBe(200);
-    expect(typeof res.body.jwtExpiry).toBe('string');
-    expect(typeof res.body.cookieSecure).toBe('boolean');
+    expect(typeof res.body.jwt_expiry).toBe('string');
+    expect(typeof res.body.cookie_secure).toBe('string');
   });
 
   test('POST /api/admin/settings — saves settings', async () => {
     const res = await request(app).post('/api/admin/settings').set('Cookie', adminCookie)
-      .send({ jwtExpiry: '24h', cookieSecure: false });
+      .send({ jwt_expiry: '24h', cookie_secure: 'false' });
     expect(res.status).toBe(200);
 
     const get = await request(app).get('/api/admin/settings').set('Cookie', adminCookie);
-    expect(get.body.jwtExpiry).toBe('24h');
+    expect(get.body.jwt_expiry).toBe('24h');
   });
 });
 

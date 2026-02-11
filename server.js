@@ -223,7 +223,8 @@ try { db.exec('ALTER TABLE session_suggestions ADD COLUMN price_level INTEGER');
 try { db.exec('ALTER TABLE sessions ADD COLUMN voting_deadline TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN email TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
-try { db.exec("ALTER TABLE users ADD COLUMN created_at TEXT DEFAULT (datetime('now'))"); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN created_at TEXT'); } catch (e) { /* already exists */ }
+try { db.exec("UPDATE users SET created_at = datetime('now') WHERE created_at IS NULL"); } catch (e) { /* ignore */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -273,21 +274,25 @@ function decryptSetting(ciphertext) {
 function getSmtpTransport() {
   const host = getSetting('smtp_host');
   const port = getSetting('smtp_port');
+  if (!host || !port) return null;
   const user = getSetting('smtp_user');
   const passEnc = getSetting('smtp_password');
-  if (!host || !port || !user || !passEnc) return null;
-  try {
-    const pass = decryptSetting(passEnc);
-    return nodemailer.createTransport({
-      host,
-      port: parseInt(port, 10),
-      secure: getSetting('smtp_secure') === 'true',
-      auth: { user, pass },
-    });
-  } catch (e) {
-    console.error('Failed to create SMTP transport:', e.message);
-    return null;
+  const opts = {
+    host,
+    port: parseInt(port, 10),
+    secure: getSetting('smtp_secure') === 'true',
+  };
+  if (user && passEnc) {
+    try {
+      opts.auth = { user, pass: decryptSetting(passEnc) };
+    } catch (e) {
+      console.error('Failed to decrypt SMTP password:', e.message);
+      return null;
+    }
+  } else if (user) {
+    opts.auth = { user, pass: '' };
   }
+  return nodemailer.createTransport(opts);
 }
 
 // ── VAPID Key Initialization (DB → env → ephemeral) ─────────────────────────
@@ -442,7 +447,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
     if (existing) return res.status(400).json({ error: 'Username taken' });
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
     const isAdmin = userCount === 0 ? 1 : 0;
-    const result = db.prepare('INSERT INTO users (username, password, email, is_admin) VALUES (?, ?, ?, ?)').run(trimmedUser, hash, trimmedEmail, isAdmin);
+    const result = db.prepare("INSERT INTO users (username, password, email, is_admin, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(trimmedUser, hash, trimmedEmail, isAdmin);
     const token = generateToken({ id: result.lastInsertRowid, username: trimmedUser, is_admin: isAdmin });
     res.cookie('token', token, cookieOpts(remember));
     res.json({ username: trimmedUser, is_admin: !!isAdmin });
@@ -592,18 +597,40 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
 
 // ── Admin Routes ─────────────────────────────────────────────────────────────────
 app.get('/api/admin/stats', adminAuth, (req, res) => {
-  const totalUsers = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
-  const totalSessions = db.prepare('SELECT COUNT(*) as c FROM sessions').get().c;
-  const activeSessions = db.prepare("SELECT COUNT(*) as c FROM sessions WHERE status = 'open'").get().c;
-  const totalPlaces = db.prepare('SELECT COUNT(*) as c FROM likes').get().c;
-  const smtpConfigured = !!(getSetting('smtp_host') && getSetting('smtp_user') && getSetting('smtp_password'));
-  const vapidPersisted = VAPID_SOURCE !== 'ephemeral';
-  res.json({ totalUsers, totalSessions, activeSessions, totalPlaces, smtpConfigured, vapidPersisted });
+  const users = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+  const sessions = db.prepare('SELECT COUNT(*) as c FROM sessions').get().c;
+  const active_sessions = db.prepare("SELECT COUNT(*) as c FROM sessions WHERE status = 'open'").get().c;
+  const places = db.prepare('SELECT COUNT(*) as c FROM likes').get().c;
+  const smtp_configured = !!(getSetting('smtp_host') && getSetting('smtp_port'));
+  const vapid_source = VAPID_SOURCE || 'none';
+  res.json({ users, sessions, active_sessions, places, smtp_configured, vapid_source });
 });
 
 app.get('/api/admin/users', adminAuth, (req, res) => {
   const users = db.prepare('SELECT id, username, email, is_admin, created_at FROM users ORDER BY id ASC').all();
   res.json({ users });
+});
+
+app.post('/api/admin/users/:id/edit', adminAuth, (req, res) => {
+  const targetId = Number(req.params.id);
+  const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(targetId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  const { username, email } = req.body;
+  if (username !== undefined) {
+    const trimmed = username.trim();
+    if (trimmed.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?').get(trimmed, targetId);
+    if (existing) return res.status(400).json({ error: 'Username already taken' });
+    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(trimmed, targetId);
+  }
+  if (email !== undefined) {
+    const trimmedEmail = email ? email.trim().toLowerCase() : null;
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(trimmedEmail, targetId);
+  }
+  res.json({ success: true });
 });
 
 app.post('/api/admin/users/:id/reset-password', adminAuth, async (req, res) => {
@@ -657,7 +684,7 @@ app.get('/api/admin/smtp', adminAuth, (req, res) => {
     user: getSetting('smtp_user') || '',
     from: getSetting('smtp_from') || '',
     secure: getSetting('smtp_secure') === 'true',
-    configured: !!(getSetting('smtp_host') && getSetting('smtp_user') && getSetting('smtp_password')),
+    configured: !!(getSetting('smtp_host') && getSetting('smtp_port')),
   });
 });
 
@@ -673,7 +700,7 @@ app.post('/api/admin/smtp', adminAuth, (req, res) => {
 });
 
 app.post('/api/admin/smtp/test', adminAuth, async (req, res) => {
-  const { to } = req.body;
+  const to = req.body.to || req.body.email;
   if (!to) return res.status(400).json({ error: 'Recipient email required' });
   const transport = getSmtpTransport();
   if (!transport) return res.status(400).json({ error: 'SMTP not configured' });
@@ -722,15 +749,15 @@ app.post('/api/admin/google-api-key', adminAuth, (req, res) => {
 
 app.get('/api/admin/settings', adminAuth, (req, res) => {
   res.json({
-    jwtExpiry: getSetting('jwt_expiry') || '12h',
-    cookieSecure: (getSetting('cookie_secure') || String(COOKIE_SECURE)) === 'true',
+    jwt_expiry: getSetting('jwt_expiry') || '12h',
+    cookie_secure: (getSetting('cookie_secure') || String(COOKIE_SECURE)) === 'true' ? 'true' : 'false',
   });
 });
 
 app.post('/api/admin/settings', adminAuth, (req, res) => {
-  const { jwtExpiry, cookieSecure } = req.body;
-  if (jwtExpiry !== undefined) setSetting('jwt_expiry', jwtExpiry);
-  if (cookieSecure !== undefined) setSetting('cookie_secure', cookieSecure ? 'true' : 'false');
+  const { jwt_expiry, cookie_secure } = req.body;
+  if (jwt_expiry !== undefined) setSetting('jwt_expiry', jwt_expiry);
+  if (cookie_secure !== undefined) setSetting('cookie_secure', cookie_secure === 'true' ? 'true' : 'false');
   res.json({ success: true });
 });
 

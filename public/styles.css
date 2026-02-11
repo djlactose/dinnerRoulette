@@ -2000,14 +2000,26 @@ a {
   margin: 0;
 }
 
-.admin-reset-pw-inline {
+.admin-reset-pw-inline,
+.admin-edit-inline {
   width: 100%;
   margin-top: 0.3rem;
 }
 
-.admin-reset-pw-inline input {
+.admin-reset-pw-inline input,
+.admin-edit-inline input {
   width: 100%;
   font-size: 0.9rem;
+}
+
+.admin-edit-inline .admin-form-group {
+  margin-bottom: 0.4rem;
+}
+
+.admin-edit-inline label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.15rem;
 }
 
 .admin-form-group {
