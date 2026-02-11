@@ -1344,6 +1344,13 @@
             </div>
 
             <div class="admin-form-group">
+              <label for="admin-giphy-key">Giphy API Key</label>
+              <div class="admin-key-display" x-show="adminGiphyKey" x-text="adminGiphyKey"></div>
+              <input id="admin-giphy-key" x-model="adminGiphyKey" placeholder="Enter Giphy API key" />
+              <button class="admin-btn primary" @click="saveAdminGiphyKey()" style="margin-top: 0.3rem;">Save API Key</button>
+            </div>
+
+            <div class="admin-form-group">
               <label for="admin-jwt-expiry">JWT Token Expiry</label>
               <select id="admin-jwt-expiry" class="filter-select" x-model="adminSettings.jwt_expiry">
                 <option value="1h">1 hour</option>

@@ -171,6 +171,7 @@ function dinnerRoulette() {
     adminVapid: { publicKey: '', source: '' },
     adminSettings: { jwt_expiry: '12h', cookie_secure: 'false' },
     adminGoogleKey: '',
+    adminGiphyKey: '',
     adminResetPwUser: null,
     adminResetPwValue: '',
     adminEditUser: null,
@@ -2343,7 +2344,7 @@ function dinnerRoulette() {
       } else if (tab === 'vapid') {
         await this.loadAdminVapid();
       } else if (tab === 'settings') {
-        await Promise.all([this.loadAdminSettings(), this.loadAdminGoogleKey()]);
+        await Promise.all([this.loadAdminSettings(), this.loadAdminGoogleKey(), this.loadAdminGiphyKey()]);
       } else if (tab === 'plans') {
         await this.loadAdminPlans();
       }
@@ -2622,6 +2623,36 @@ function dinnerRoulette() {
         await this.loadAdminGoogleKey();
       } catch (e) {
         this.showToast('Failed to save Google API key', 'error');
+      }
+    },
+
+    async loadAdminGiphyKey() {
+      try {
+        const resp = await this.api('/api/admin/giphy-api-key');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminGiphyKey = data.key || '';
+        }
+      } catch (e) {
+        this.showToast('Failed to load Giphy API key', 'error');
+      }
+    },
+
+    async saveAdminGiphyKey() {
+      try {
+        const resp = await this.api('/api/admin/giphy-api-key', {
+          method: 'POST',
+          body: JSON.stringify({ key: this.adminGiphyKey }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to save Giphy API key', 'error');
+          return;
+        }
+        this.showToast('Giphy API key saved');
+        await this.loadAdminGiphyKey();
+      } catch (e) {
+        this.showToast('Failed to save Giphy API key', 'error');
       }
     },
 

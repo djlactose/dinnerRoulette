@@ -764,6 +764,20 @@ app.post('/api/admin/google-api-key', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/admin/giphy-api-key', adminAuth, (req, res) => {
+  const key = GIPHY_API_KEY || '';
+  const masked = key.length > 7 ? key.slice(0, 4) + '...' + key.slice(-3) : '(not set)';
+  res.json({ key: masked, hasKey: !!key });
+});
+
+app.post('/api/admin/giphy-api-key', adminAuth, (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'API key is required' });
+  setSetting('giphy_api_key', key);
+  GIPHY_API_KEY = key;
+  res.json({ success: true });
+});
+
 app.get('/api/admin/settings', adminAuth, (req, res) => {
   res.json({
     jwt_expiry: getSetting('jwt_expiry') || '12h',
@@ -1542,7 +1556,7 @@ app.delete('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
 });
 
 // ── Giphy GIF Proxy ──────────────────────────────────────────────────────────
-const GIPHY_API_KEY = process.env.GIPHY_API_KEY;
+let GIPHY_API_KEY = getSetting('giphy_api_key') || process.env.GIPHY_API_KEY;
 
 app.get('/api/giphy/search', auth, async (req, res) => {
   if (!GIPHY_API_KEY) return res.status(400).json({ error: 'Giphy API not configured' });
