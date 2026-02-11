@@ -126,14 +126,40 @@
         <p class="auth-error" x-show="authError" x-text="authError"></p>
       </section>
 
-      <!-- Place Management -->
-      <section x-show="loggedIn">
-        <button class="toggle-btn" @click="sections.places = !sections.places">
-          <span x-text="sections.places ? '▼' : '▶'"></span> Your Places
+      <!-- Tab Bar -->
+      <nav class="tab-bar" x-show="loggedIn" role="tablist">
+        <button class="tab-btn" :class="{ active: activeTab === 'places' }" @click="switchTab('places')" role="tab" aria-label="Places">
+          <span class="tab-btn-icon">&#x1F37D;</span>
+          <span class="tab-btn-label">Places</span>
         </button>
-        <div x-show="sections.places" x-collapse>
+        <button class="tab-btn" :class="{ active: activeTab === 'friends' }" @click="switchTab('friends')" role="tab" aria-label="Friends">
+          <span class="tab-btn-icon">&#x1F465;</span>
+          <span class="tab-btn-label">Friends</span>
+          <span class="tab-badge" x-show="friendRequests.length > 0" x-text="friendRequests.length"></span>
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'sessions' }" @click="switchTab('sessions')" role="tab" aria-label="Sessions">
+          <span class="tab-btn-icon">&#x1F3B2;</span>
+          <span class="tab-btn-label">Sessions</span>
+          <span class="tab-badge" x-show="activeSessions.length > 0" x-text="activeSessions.length"></span>
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'account' }" @click="switchTab('account')" role="tab" aria-label="Account">
+          <span class="tab-btn-icon">&#x2699;</span>
+          <span class="tab-btn-label">Account</span>
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'admin' }" @click="switchTab('admin')" role="tab" aria-label="Admin"
+                x-show="isAdmin">
+          <span class="tab-btn-icon">&#x1F6E1;</span>
+          <span class="tab-btn-label">Admin</span>
+        </button>
+      </nav>
+
+      <!-- Tab Content -->
+      <div x-show="loggedIn" class="tab-content">
+
+        <!-- ═══ PLACES TAB ═══ -->
+        <section x-show="activeTab === 'places'" x-transition:enter.opacity.duration.200ms>
           <div class="autocomplete-container">
-            <input id="place-search" placeholder="Search for a place..." autocomplete="off"
+            <input id="place-search" x-ref="placeSearch" placeholder="Search for a place..." autocomplete="off"
                    x-model="placeSearch" @input.debounce.300ms="searchPlaces()"
                    @keydown.escape="predictions = []; highlightedIndex = -1"
                    @keydown.arrow-down.prevent="handlePlaceKeydown($event)"
@@ -289,25 +315,15 @@
             <p>No places on your bucket list yet.</p>
             <p class="empty-state-hint">Mark places you want to try!</p>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Plan Dinner -->
-      <section x-show="loggedIn">
-        <button class="toggle-btn" @click="sections.plan = !sections.plan">
-          <span x-text="sections.plan ? '▼' : '▶'"></span> Plan Dinner
-          <span class="badge" x-show="friendRequests.length > 0" x-text="friendRequests.length"></span>
-        </button>
-        <div x-show="sections.plan" x-collapse>
-
-          <!-- Friends -->
-          <div>
-            <label for="friend-input">Add a friend</label>
-            <div class="inline-input">
-              <input id="friend-input" x-model="friendUsername" placeholder="Friend's username"
-                     @keydown.enter="inviteFriend()" aria-label="Friend's username" />
-              <button @click="inviteFriend()">Send Request</button>
-            </div>
+        <!-- ═══ FRIENDS TAB ═══ -->
+        <section x-show="activeTab === 'friends'" x-transition:enter.opacity.duration.200ms>
+          <label for="friend-input">Add a friend</label>
+          <div class="inline-input">
+            <input id="friend-input" x-ref="friendInput" x-model="friendUsername" placeholder="Friend's username"
+                   @keydown.enter="inviteFriend()" aria-label="Friend's username" />
+            <button @click="inviteFriend()">Send Request</button>
           </div>
 
           <!-- Pending Friend Requests -->
@@ -402,9 +418,12 @@
               <p class="empty-state-hint">Like some of the same restaurants to find common ground.</p>
             </div>
           </div>
+        </section>
 
+        <!-- ═══ SESSIONS TAB ═══ -->
+        <section x-show="activeTab === 'sessions'" x-transition:enter.opacity.duration.200ms>
           <!-- Personal Suggestions -->
-          <div class="suggestions-subsection">
+          <div class="suggestions-subsection" style="margin-top: 0; border-top: none; padding-top: 0;">
             <h3>Your Suggestions</h3>
             <ul>
               <template x-for="s in suggestions" :key="s.name">
@@ -771,50 +790,53 @@
               </div>
             </div>
           </div>
+        </section>
 
-          <!-- Account Management -->
-          <div class="account-subsection">
-            <button class="toggle-btn" @click="sections.account = !sections.account">
-              <span x-text="sections.account ? '▼' : '▶'"></span> Account Settings
-            </button>
-            <div x-show="sections.account" x-collapse>
-              <h4>Update Email</h4>
-              <p style="font-size: 0.9rem; color: var(--text-secondary);">Current: <span x-text="email || 'Not set'"></span></p>
-              <div class="inline-input">
-                <input type="email" x-model="accountForm.newEmail" placeholder="New email address"
-                       @keydown.enter="updateEmail()" aria-label="New email address" />
-                <button @click="updateEmail()">Update</button>
-              </div>
+        <!-- ═══ ACCOUNT TAB ═══ -->
+        <section x-show="activeTab === 'account'" x-transition:enter.opacity.duration.200ms>
+          <h3>Account Settings</h3>
 
-              <h4>Change Password</h4>
-              <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
-              <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
-              <input type="password" x-model="accountForm.confirmNewPassword" placeholder="Confirm new password"
-                     aria-label="Confirm new password" />
-              <p class="auth-error" x-show="accountForm.newPassword && accountForm.confirmNewPassword && accountForm.newPassword !== accountForm.confirmNewPassword">
-                Passwords do not match.
-              </p>
-              <button @click="changePassword()"
-                      :disabled="!accountForm.currentPassword || !accountForm.newPassword || accountForm.newPassword !== accountForm.confirmNewPassword">Change Password</button>
-
-              <h4>Notifications</h4>
-              <p x-show="!notificationsSupported" class="warning-text">Push notifications are not supported in this browser.</p>
-              <div x-show="notificationsSupported">
-                <button @click="notificationsEnabled ? disableNotifications() : enableNotifications()"
-                        x-text="notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'"
-                        :class="notificationsEnabled ? 'remove-btn' : 'suggest-btn'"></button>
-                <p class="notification-hint" x-show="notificationsEnabled">You'll receive notifications for session updates, friend requests, and more.</p>
-              </div>
-
-              <h4 class="danger-zone">Delete Account</h4>
-              <p class="warning-text">This will permanently delete your account and all data.</p>
-              <input type="password" x-model="accountForm.deletePassword" placeholder="Enter password to confirm" aria-label="Password to confirm deletion" />
-              <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
-            </div>
+          <h4>Update Email</h4>
+          <p style="font-size: 0.9rem; color: var(--text-secondary);">Current: <span x-text="email || 'Not set'"></span></p>
+          <div class="inline-input">
+            <input type="email" x-model="accountForm.newEmail" placeholder="New email address"
+                   @keydown.enter="updateEmail()" aria-label="New email address" />
+            <button @click="updateEmail()">Update</button>
           </div>
 
-        </div>
-      </section>
+          <h4>Change Password</h4>
+          <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
+          <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
+          <input type="password" x-model="accountForm.confirmNewPassword" placeholder="Confirm new password"
+                 aria-label="Confirm new password" />
+          <p class="auth-error" x-show="accountForm.newPassword && accountForm.confirmNewPassword && accountForm.newPassword !== accountForm.confirmNewPassword">
+            Passwords do not match.
+          </p>
+          <button @click="changePassword()"
+                  :disabled="!accountForm.currentPassword || !accountForm.newPassword || accountForm.newPassword !== accountForm.confirmNewPassword">Change Password</button>
+
+          <h4>Notifications</h4>
+          <p x-show="!notificationsSupported" class="warning-text">Push notifications are not supported in this browser.</p>
+          <div x-show="notificationsSupported">
+            <button @click="notificationsEnabled ? disableNotifications() : enableNotifications()"
+                    x-text="notificationsEnabled ? 'Disable Notifications' : 'Enable Notifications'"
+                    :class="notificationsEnabled ? 'remove-btn' : 'suggest-btn'"></button>
+            <p class="notification-hint" x-show="notificationsEnabled">You'll receive notifications for session updates, friend requests, and more.</p>
+          </div>
+
+          <h4 class="danger-zone">Delete Account</h4>
+          <p class="warning-text">This will permanently delete your account and all data.</p>
+          <input type="password" x-model="accountForm.deletePassword" placeholder="Enter password to confirm" aria-label="Password to confirm deletion" />
+          <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
+        </section>
+
+        <!-- ═══ ADMIN TAB ═══ (placeholder - will be built in step 7) -->
+        <section x-show="activeTab === 'admin' && isAdmin" x-transition:enter.opacity.duration.200ms>
+          <h3>Admin Panel</h3>
+          <p style="color: var(--text-muted);">Admin features coming soon.</p>
+        </section>
+
+      </div>
     </main>
   </div>
   <script>

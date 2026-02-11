@@ -22,6 +22,7 @@ function dinnerRoulette() {
 
     // UI sections
     sections: { auth: true, places: true, plan: true, account: false },
+    activeTab: 'places',
 
     // Toast
     toast: { message: '', type: '', visible: false, action: null },
@@ -318,6 +319,15 @@ function dinnerRoulette() {
         this.pendingInviteCode = inviteMatch[1].toUpperCase();
       }
 
+      // Tab deep linking
+      const validTabs = ['places', 'friends', 'sessions', 'account', 'admin'];
+      const hash = window.location.hash.replace('#', '');
+      if (validTabs.includes(hash)) this.activeTab = hash;
+      window.addEventListener('hashchange', () => {
+        const h = window.location.hash.replace('#', '');
+        if (validTabs.includes(h)) this.activeTab = h;
+      });
+
       try {
         const resp = await fetch('/api/me', { credentials: 'same-origin' });
         if (resp.ok) {
@@ -448,6 +458,12 @@ function dinnerRoulette() {
           onCancel: () => { this.confirmModal.visible = false; resolve(false); },
         };
       });
+    },
+
+    // ── Tabs ──
+    switchTab(tab) {
+      this.activeTab = tab;
+      window.location.hash = tab;
     },
 
     // ── Theme ──
@@ -1366,6 +1382,7 @@ function dinnerRoulette() {
         if (resp.ok) {
           const data = await resp.json();
           this.showToast('Joined session!');
+          this.activeTab = 'sessions';
           await this.loadSessions();
           await this.openSession(data.id);
         } else {
