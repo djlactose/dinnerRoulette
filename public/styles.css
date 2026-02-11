@@ -1160,6 +1160,51 @@ a {
   font-weight: 600;
 }
 
+/* ── Want to Try ─────────────────────────────────────────────────────────── */
+.want-to-try-btn {
+  background: linear-gradient(135deg, #f39c12, #f1c40f);
+  color: white;
+  border: none;
+}
+.want-to-try-btn:hover {
+  filter: brightness(1.1);
+}
+.want-to-try-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.45rem;
+  background: linear-gradient(135deg, #f39c12, #f1c40f);
+  color: white;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: help;
+}
+.avatar-xxs {
+  width: 16px;
+  height: 16px;
+  font-size: 0.5rem;
+  line-height: 16px;
+}
+.want-to-try-quick-btn {
+  background: linear-gradient(135deg, #f39c12, #f1c40f);
+  color: white;
+  border: none;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: filter 0.2s, transform 0.2s;
+}
+.want-to-try-quick-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.session-suggestion-list li:has(.want-to-try-badge) {
+  border-left: 3px solid #f39c12;
+}
+
 /* ── Share Button ────────────────────────────────────────────────────────── */
 .share-btn {
   background: var(--accent);

@@ -163,6 +163,81 @@ describe('Places', () => {
   });
 });
 
+// ── Want to Try Tests ────────────────────────────────────────────────────────────
+
+describe('Want to Try', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('wttuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('POST /api/places — add to want_to_try', async () => {
+    const res = await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'Fancy Sushi', place_id: 'fs123', restaurant_type: 'Japanese Restaurant' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('GET /api/places — returns want_to_try list', async () => {
+    const res = await request(app)
+      .get('/api/places')
+      .set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.want_to_try).toBeDefined();
+    expect(res.body.want_to_try.some(p => p.name === 'Fancy Sushi')).toBe(true);
+  });
+
+  test('POST /api/places — want_to_try is independent from likes', async () => {
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'likes', place: 'Fancy Sushi', place_id: 'fs123' });
+    const res = await request(app)
+      .get('/api/places')
+      .set('Cookie', cookie);
+    expect(res.body.likes.some(p => p.name === 'Fancy Sushi')).toBe(true);
+    expect(res.body.want_to_try.some(p => p.name === 'Fancy Sushi')).toBe(true);
+  });
+
+  test('POST /api/places — want_to_try removes dislikes', async () => {
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'dislikes', place: 'Disliked Place', place_id: 'dp123' });
+    const res = await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'Disliked Place', place_id: 'dp123' });
+    expect(res.body.movedFrom).toBe('dislikes');
+
+    const placesRes = await request(app)
+      .get('/api/places')
+      .set('Cookie', cookie);
+    expect(placesRes.body.dislikes.some(p => p.name === 'Disliked Place')).toBe(false);
+    expect(placesRes.body.want_to_try.some(p => p.name === 'Disliked Place')).toBe(true);
+  });
+
+  test('POST /api/places — remove from want_to_try', async () => {
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'Remove Me', place_id: 'rm123' });
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'Remove Me', remove: true });
+
+    const res = await request(app)
+      .get('/api/places')
+      .set('Cookie', cookie);
+    expect(res.body.want_to_try.some(p => p.name === 'Remove Me')).toBe(false);
+  });
+});
+
 // ── Suggestions Tests ───────────────────────────────────────────────────────────
 
 describe('Suggestions', () => {
@@ -485,6 +560,22 @@ describe('Sessions', () => {
       .send({ place: 'Test Restaurant', place_id: null });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeDefined();
+  });
+
+  test('GET /api/sessions/:id — includes want_to_try matches', async () => {
+    // Add "Test Restaurant" to sessuser1's want-to-try list
+    await request(app)
+      .post('/api/places')
+      .set('Cookie', cookie1)
+      .send({ type: 'want_to_try', place: 'Test Restaurant' });
+
+    const res = await request(app)
+      .get(`/api/sessions/${sessionId}`)
+      .set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.want_to_try).toBeDefined();
+    expect(res.body.want_to_try['Test Restaurant']).toBeDefined();
+    expect(res.body.want_to_try['Test Restaurant'].some(u => u.username === 'sessuser1')).toBe(true);
   });
 
   test('POST /api/sessions/:id/suggest — duplicate rejected', async () => {

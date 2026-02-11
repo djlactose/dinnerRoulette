@@ -130,6 +130,13 @@ db.exec(`
     place_id TEXT,
     restaurant_type TEXT
   );
+  CREATE TABLE IF NOT EXISTS want_to_try (
+    user_id INTEGER,
+    place TEXT,
+    place_id TEXT,
+    restaurant_type TEXT,
+    UNIQUE(user_id, place)
+  );
   CREATE TABLE IF NOT EXISTS places (
     user_id INTEGER,
     place TEXT,
@@ -371,6 +378,7 @@ app.post('/api/delete-account', auth, async (req, res) => {
     db.prepare('DELETE FROM session_members WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM likes WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM dislikes WHERE user_id = ?').run(uid);
+    db.prepare('DELETE FROM want_to_try WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM places WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM suggestions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').run(uid, uid);
@@ -426,10 +434,12 @@ app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
   const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at, notes FROM likes WHERE user_id = ?').all(uid);
   const dislikes = db.prepare('SELECT place, place_id, restaurant_type FROM dislikes WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type FROM want_to_try WHERE user_id = ?').all(uid);
   const all = db.prepare('SELECT place, place_id, restaurant_type FROM places WHERE user_id = ?').all(uid);
   res.json({
     likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null, notes: r.notes || null })),
     dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
+    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
     all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
   });
 });
@@ -468,6 +478,8 @@ app.post('/api/places', auth, (req, res) => {
   if (remove) {
     if (type === 'likes') {
       db.prepare('DELETE FROM likes WHERE user_id = ? AND place = ?').run(uid, place);
+    } else if (type === 'want_to_try') {
+      db.prepare('DELETE FROM want_to_try WHERE user_id = ? AND place = ?').run(uid, place);
     } else {
       db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
     }
@@ -477,6 +489,10 @@ app.post('/api/places', auth, (req, res) => {
       const del = db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
       if (del.changes > 0) movedFrom = 'dislikes';
       db.prepare('INSERT OR IGNORE INTO likes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
+    } else if (type === 'want_to_try') {
+      const del = db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
+      if (del.changes > 0) movedFrom = 'dislikes';
+      db.prepare('INSERT OR IGNORE INTO want_to_try (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
     } else {
       const del = db.prepare('DELETE FROM likes WHERE user_id = ? AND place = ?').run(uid, place);
       if (del.changes > 0) movedFrom = 'likes';
@@ -740,10 +756,29 @@ app.get('/api/sessions/:id', auth, (req, res) => {
   const userVotes = db.prepare('SELECT suggestion_id FROM session_votes WHERE session_id = ? AND user_id = ?').all(sessionId, req.user.id);
   const votedIds = new Set(userVotes.map(v => v.suggestion_id));
 
+  // Find which session suggestions are on members' want-to-try lists
+  const memberIds = members.map(m => m.id);
+  const wantToTryMap = {};
+  if (memberIds.length > 0 && suggestions.length > 0) {
+    const placeholders = memberIds.map(() => '?').join(',');
+    const wantToTryRows = db.prepare(`
+      SELECT wt.place, wt.user_id, u.username
+      FROM want_to_try wt
+      JOIN users u ON u.id = wt.user_id
+      WHERE wt.user_id IN (${placeholders})
+        AND wt.place IN (SELECT place FROM session_suggestions WHERE session_id = ?)
+    `).all(...memberIds, sessionId);
+    wantToTryRows.forEach(row => {
+      if (!wantToTryMap[row.place]) wantToTryMap[row.place] = [];
+      wantToTryMap[row.place].push({ user_id: row.user_id, username: row.username });
+    });
+  }
+
   res.json({
     session,
     members,
     suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id) })),
+    want_to_try: wantToTryMap,
   });
 });
 
@@ -845,9 +880,20 @@ app.post('/api/sessions/:id/pick', auth, (req, res) => {
     withCoords.sort((a, b) => a.distance - b.distance);
     winner = withCoords[0];
   } else {
+    // Get want-to-try counts for weight boost (+1 per member who wants to try)
+    const wantToTryCounts = {};
+    const wttRows = db.prepare(`
+      SELECT ss.place, COUNT(*) as cnt FROM want_to_try wt
+      JOIN session_suggestions ss ON ss.place = wt.place AND ss.session_id = ?
+      JOIN session_members sm ON sm.user_id = wt.user_id AND sm.session_id = ?
+      WHERE ss.session_id = ?
+      GROUP BY ss.place
+    `).all(sessionId, sessionId, sessionId);
+    wttRows.forEach(r => { wantToTryCounts[r.place] = r.cnt; });
+
     const weighted = [];
     suggestions.forEach(s => {
-      const weight = Math.max(s.vote_count, 1);
+      const weight = Math.max(s.vote_count, 1) + (wantToTryCounts[s.place] || 0);
       for (let i = 0; i < weight; i++) weighted.push(s);
     });
     winner = weighted[Math.floor(Math.random() * weighted.length)];

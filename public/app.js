@@ -36,6 +36,7 @@ function dinnerRoulette() {
     selectedPlace: null,
     likes: [],
     dislikes: [],
+    wantToTry: [],
     placeFilter: '',
     placeTypeFilter: '',
     placeSortBy: 'name',
@@ -70,6 +71,7 @@ function dinnerRoulette() {
     sessionHighlightedIndex: -1,
     sessionInviteUsername: '',
     sessionDislikes: [],
+    sessionWantToTry: {},
     sessionSuggestSort: 'votes',
 
     // Picking
@@ -210,6 +212,7 @@ function dinnerRoulette() {
       const types = new Set();
       this.likes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
       this.dislikes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+      this.wantToTry.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
       return [...types].sort();
     },
     get filteredLikes() {
@@ -228,6 +231,12 @@ function dinnerRoulette() {
     get filteredDislikes() {
       const f = this.placeFilter.toLowerCase();
       let list = f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f)) : [...this.dislikes];
+      if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
+      return list.sort((a, b) => a.name.localeCompare(b.name));
+    },
+    get filteredWantToTry() {
+      const f = this.placeFilter.toLowerCase();
+      let list = f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f)) : [...this.wantToTry];
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
@@ -627,8 +636,28 @@ function dinnerRoulette() {
       await this.loadPlaces();
     },
 
+    async wantToTryPlace() {
+      if (!this.selectedPlace) return;
+      const resp = await this.api('/api/places', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
+      });
+      const data = await resp.json();
+      this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to want to try!' : 'Added to want to try!');
+      this.selectedPlace = null;
+      this.placeSearch = '';
+      await this.loadPlaces();
+    },
+
+    isWantToTry(placeName) {
+      return (this.sessionWantToTry[placeName] || []).length > 0;
+    },
+    getWantToTryUsers(placeName) {
+      return this.sessionWantToTry[placeName] || [];
+    },
+
     async removePlace(type, placeName) {
-      const list = type === 'likes' ? 'likes' : 'dislikes';
+      const list = type === 'likes' ? 'likes' : type === 'want_to_try' ? 'wantToTry' : 'dislikes';
       const removedItem = this[list].find(p => p.name === placeName);
       if (!removedItem) return;
       this[list] = this[list].filter(p => p.name !== placeName);
@@ -657,6 +686,7 @@ function dinnerRoulette() {
         const data = await resp.json();
         this.likes = data.likes || [];
         this.dislikes = data.dislikes || [];
+        this.wantToTry = data.want_to_try || [];
       } catch (e) { /* ignore */ }
     },
 
@@ -968,7 +998,9 @@ function dinnerRoulette() {
     async openSession(sessionId) {
       try {
         const resp = await this.api(`/api/sessions/${sessionId}`);
-        this.activeSession = await resp.json();
+        const data = await resp.json();
+        this.sessionWantToTry = data.want_to_try || {};
+        this.activeSession = data;
         this.winner = null;
         this.sessionCuisineFilter = '';
         this.mapView = false;
@@ -992,7 +1024,9 @@ function dinnerRoulette() {
       if (!this.activeSession) return;
       try {
         const resp = await this.api(`/api/sessions/${this.activeSession.session.id}`);
-        this.activeSession = await resp.json();
+        const data = await resp.json();
+        this.sessionWantToTry = data.want_to_try || {};
+        this.activeSession = data;
       } catch (e) { /* ignore */ }
     },
 

@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=11"></script>
+  <script defer src="app.js?v=13"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -127,6 +127,7 @@
           <div class="buttons" x-show="selectedPlace">
             <button @click="likePlace()" aria-label="Like this place">👍 Like</button>
             <button @click="dislikePlace()" aria-label="Dislike this place">👎 Dislike</button>
+            <button class="want-to-try-btn" @click="wantToTryPlace()" aria-label="Add to want to try list">⭐ Want to Try</button>
           </div>
           <p x-show="selectedPlace">
             <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(selectedPlace?.name || '')"
@@ -134,7 +135,7 @@
           </p>
 
           <!-- Filter & Sort -->
-          <div x-show="likes.length > 3 || dislikes.length > 3" class="filter-controls">
+          <div x-show="likes.length > 3 || dislikes.length > 3 || wantToTry.length > 3" class="filter-controls">
             <input placeholder="Filter places..." x-model="placeFilter" aria-label="Filter your places" />
             <select class="filter-select" x-model="placeTypeFilter" aria-label="Filter by type">
               <option value="">All Types</option>
@@ -231,6 +232,37 @@
             <span class="empty-state-icon">&#x1F44E;</span>
             <p>No disliked places yet.</p>
             <p class="empty-state-hint">Places you dislike will appear here.</p>
+          </div>
+
+          <h3>⭐ Want to Try</h3>
+          <ul class="place-list">
+            <template x-for="place in filteredWantToTry" :key="place.name">
+              <li @touchstart="onTouchStart($event, place.name)"
+                  @touchmove="onTouchMove($event, place.name)"
+                  @touchend="onTouchEnd('want_to_try', place)"
+                  :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name), transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                <div class="place-info">
+                  <span x-text="place.name"></span>
+                  <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                </div>
+                <span class="place-actions">
+                  <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
+                     target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
+                  <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                  <button class="suggest-btn" x-show="activeSession && activeSession.session.status === 'open'"
+                          @click="suggestToSession(place.name, place.place_id, place.restaurant_type)"
+                          :disabled="currentSuggestions.has(place.name)"
+                          :title="currentSuggestions.has(place.name) ? 'Already suggested' : 'Suggest to session'"
+                          aria-label="Suggest this place">Suggest</button>
+                  <button class="remove-btn" @click="removePlace('want_to_try', place.name)" aria-label="Remove from want to try">Remove</button>
+                </span>
+              </li>
+            </template>
+          </ul>
+          <div x-show="wantToTry.length === 0" class="empty-state">
+            <span class="empty-state-icon">⭐</span>
+            <p>No places on your bucket list yet.</p>
+            <p class="empty-state-hint">Mark places you want to try!</p>
           </div>
         </div>
       </section>
@@ -556,6 +588,16 @@
                     </button>
                   </template>
                 </div>
+
+                <div x-show="wantToTry.length > 0" class="liked-suggest-grid">
+                  <span class="grid-label">From your bucket list:</span>
+                  <template x-for="place in wantToTry" :key="place.name">
+                    <button class="want-to-try-quick-btn" @click="suggestToSession(place.name, place.place_id, place.restaurant_type)"
+                            :aria-label="'Suggest ' + place.name">
+                      <span x-text="'⭐ ' + place.name"></span>
+                    </button>
+                  </template>
+                </div>
               </div>
 
               <!-- Session Suggestions with Votes -->
@@ -602,6 +644,13 @@
                   <li>
                     <div class="suggestion-info">
                       <span class="suggestion-name" x-text="s.place"></span>
+                      <span class="want-to-try-badge" x-show="isWantToTry(s.place)"
+                            :title="getWantToTryUsers(s.place).map(u => u.username).join(', ') + ' want' + (getWantToTryUsers(s.place).length === 1 ? 's' : '') + ' to try this'">
+                        ⭐
+                        <template x-for="u in getWantToTryUsers(s.place).slice(0, 3)" :key="u.user_id">
+                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(u.username) }" x-text="getInitials(u.username)"></span>
+                        </template>
+                      </span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
                       <span class="price-badge" x-show="s.price_level" x-text="priceDisplay(s.price_level)"></span>
                       <span class="suggestion-by">
