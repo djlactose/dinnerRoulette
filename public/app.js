@@ -16,6 +16,13 @@ function dinnerRoulette() {
     authMode: 'login',
     authForm: { username: '', password: '', confirmPassword: '', email: '', remember: false },
     authError: '',
+    resetMode: false,
+    resetEmail: '',
+    resetToken: '',
+    resetNewPassword: '',
+    resetConfirmPassword: '',
+    resetTokenValid: false,
+    resetUsername: '',
 
     // Theme
     theme: 'auto',
@@ -126,6 +133,18 @@ function dinnerRoulette() {
 
     // Socket.IO
     socket: null,
+
+    // Admin
+    adminTab: 'dashboard',
+    adminStats: null,
+    adminUsers: [],
+    adminSmtp: { host: '', port: 587, user: '', password: '', from: '', secure: false },
+    adminVapid: { publicKey: '', source: '' },
+    adminSettings: { jwt_expiry: '12h', cookie_secure: 'false' },
+    adminGoogleKey: '',
+    adminResetPwUser: null,
+    adminResetPwValue: '',
+    adminTestEmail: '',
 
     // ── Helpers ──
     getInitials(username) {
@@ -317,6 +336,14 @@ function dinnerRoulette() {
       const inviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9]{6})$/);
       if (inviteMatch) {
         this.pendingInviteCode = inviteMatch[1].toUpperCase();
+      }
+
+      // Detect password reset URL (/reset/TOKEN)
+      const resetMatch = window.location.pathname.match(/^\/reset\/([a-f0-9]{64})$/);
+      if (resetMatch) {
+        this.resetToken = resetMatch[1];
+        this.resetMode = true;
+        await this.checkResetToken();
       }
 
       // Tab deep linking
@@ -543,6 +570,82 @@ function dinnerRoulette() {
         if (this.pendingInviteCode) await this.autoJoinInvite();
       } catch (e) {
         this.authError = 'Unexpected error during login.';
+      }
+    },
+
+    async forgotPassword() {
+      this.authError = '';
+      if (!this.resetEmail.trim()) {
+        this.authError = 'Please enter your email address.';
+        return;
+      }
+      try {
+        const resp = await fetch('/api/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.resetEmail.trim() }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          this.authError = data.error || 'Failed to send reset email.';
+          return;
+        }
+        this.showToast(data.message || 'If an account with that email exists, a reset link has been sent.');
+        this.resetMode = false;
+        this.authMode = 'login';
+      } catch (e) {
+        this.authError = 'Failed to send reset email.';
+      }
+    },
+
+    async checkResetToken() {
+      if (!this.resetToken) return;
+      try {
+        const resp = await fetch(`/api/reset-password/${this.resetToken}`);
+        const data = await resp.json();
+        if (data.valid) {
+          this.resetTokenValid = true;
+          this.resetUsername = data.username;
+        } else {
+          this.resetTokenValid = false;
+          this.showToast('Reset link is invalid or expired', 'error');
+        }
+      } catch (e) {
+        this.resetTokenValid = false;
+      }
+    },
+
+    async submitPasswordReset() {
+      this.authError = '';
+      if (this.resetNewPassword !== this.resetConfirmPassword) {
+        this.authError = 'Passwords do not match.';
+        return;
+      }
+      if (this.resetNewPassword.length < 6) {
+        this.authError = 'Password must be at least 6 characters.';
+        return;
+      }
+      try {
+        const resp = await fetch('/api/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: this.resetToken, newPassword: this.resetNewPassword }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json();
+          this.authError = data.error || 'Failed to reset password.';
+          return;
+        }
+        this.showToast('Password reset! You can now log in.');
+        this.resetToken = '';
+        this.resetTokenValid = false;
+        this.resetNewPassword = '';
+        this.resetConfirmPassword = '';
+        this.resetMode = false;
+        this.authMode = 'login';
+        window.history.replaceState(null, '', '/');
+      } catch (e) {
+        this.authError = 'Failed to reset password.';
       }
     },
 
@@ -1684,6 +1787,265 @@ function dinnerRoulette() {
         this.showToast('Account deleted.');
       } catch (e) {
         this.showToast('Failed to delete account', 'error');
+      }
+    },
+
+    // ── Admin ──
+    async switchAdminTab(tab) {
+      this.adminTab = tab;
+      if (tab === 'dashboard') {
+        await this.loadAdminStats();
+      } else if (tab === 'users') {
+        await this.loadAdminUsers();
+      } else if (tab === 'smtp') {
+        await this.loadAdminSmtp();
+      } else if (tab === 'vapid') {
+        await this.loadAdminVapid();
+      } else if (tab === 'settings') {
+        await Promise.all([this.loadAdminSettings(), this.loadAdminGoogleKey()]);
+      }
+    },
+
+    async loadAdminStats() {
+      try {
+        const resp = await this.api('/api/admin/stats');
+        if (resp.ok) {
+          this.adminStats = await resp.json();
+        }
+      } catch (e) {
+        this.showToast('Failed to load admin stats', 'error');
+      }
+    },
+
+    async loadAdminUsers() {
+      try {
+        const resp = await this.api('/api/admin/users');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminUsers = data.users || [];
+        }
+      } catch (e) {
+        this.showToast('Failed to load users', 'error');
+      }
+    },
+
+    async adminResetPassword(userId) {
+      if (this.adminResetPwUser === userId) {
+        if (!this.adminResetPwValue.trim()) {
+          this.showToast('Please enter a new password', 'error');
+          return;
+        }
+        try {
+          const resp = await this.api(`/api/admin/users/${userId}/reset-password`, {
+            method: 'POST',
+            body: JSON.stringify({ password: this.adminResetPwValue }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json();
+            this.showToast(err.error || 'Failed to reset password', 'error');
+            return;
+          }
+          this.showToast('Password reset successfully');
+          this.adminResetPwUser = null;
+          this.adminResetPwValue = '';
+        } catch (e) {
+          this.showToast('Failed to reset password', 'error');
+        }
+      } else {
+        this.adminResetPwUser = userId;
+        this.adminResetPwValue = '';
+      }
+    },
+
+    adminCancelResetPassword() {
+      this.adminResetPwUser = null;
+      this.adminResetPwValue = '';
+    },
+
+    async adminToggleAdmin(userId) {
+      try {
+        const resp = await this.api(`/api/admin/users/${userId}/toggle-admin`, {
+          method: 'POST',
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to toggle admin', 'error');
+          return;
+        }
+        this.showToast('Admin status toggled');
+        await this.loadAdminUsers();
+      } catch (e) {
+        this.showToast('Failed to toggle admin', 'error');
+      }
+    },
+
+    async adminDeleteUser(userId) {
+      if (!await this.showConfirm('Permanently delete this user and all their data? This cannot be undone.')) return;
+      try {
+        const resp = await this.api(`/api/admin/users/${userId}`, {
+          method: 'DELETE',
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to delete user', 'error');
+          return;
+        }
+        this.showToast('User deleted');
+        await this.loadAdminUsers();
+      } catch (e) {
+        this.showToast('Failed to delete user', 'error');
+      }
+    },
+
+    async loadAdminSmtp() {
+      try {
+        const resp = await this.api('/api/admin/smtp');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminSmtp = {
+            host: data.host || '',
+            port: data.port || 587,
+            user: data.user || '',
+            password: '',
+            from: data.from || '',
+            secure: !!data.secure,
+          };
+        }
+      } catch (e) {
+        this.showToast('Failed to load SMTP settings', 'error');
+      }
+    },
+
+    async saveAdminSmtp() {
+      try {
+        const resp = await this.api('/api/admin/smtp', {
+          method: 'POST',
+          body: JSON.stringify(this.adminSmtp),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to save SMTP settings', 'error');
+          return;
+        }
+        this.showToast('SMTP settings saved');
+      } catch (e) {
+        this.showToast('Failed to save SMTP settings', 'error');
+      }
+    },
+
+    async testSmtp() {
+      if (!this.adminTestEmail.trim()) {
+        this.showToast('Please enter a test email address', 'error');
+        return;
+      }
+      try {
+        const resp = await this.api('/api/admin/smtp/test', {
+          method: 'POST',
+          body: JSON.stringify({ email: this.adminTestEmail.trim() }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          this.showToast(data.message || 'Test email sent successfully');
+        } else {
+          this.showToast(data.error || 'Failed to send test email', 'error');
+        }
+      } catch (e) {
+        this.showToast('Failed to send test email', 'error');
+      }
+    },
+
+    async loadAdminVapid() {
+      try {
+        const resp = await this.api('/api/admin/vapid');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminVapid = {
+            publicKey: data.publicKey || '',
+            source: data.source || 'none',
+          };
+        }
+      } catch (e) {
+        this.showToast('Failed to load VAPID settings', 'error');
+      }
+    },
+
+    async generateVapid() {
+      if (!await this.showConfirm('Generate new VAPID keys? This will invalidate all existing push notification subscriptions. Users will need to re-enable notifications.')) return;
+      try {
+        const resp = await this.api('/api/admin/vapid/generate', {
+          method: 'POST',
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to generate VAPID keys', 'error');
+          return;
+        }
+        this.showToast('New VAPID keys generated');
+        await this.loadAdminVapid();
+      } catch (e) {
+        this.showToast('Failed to generate VAPID keys', 'error');
+      }
+    },
+
+    async loadAdminSettings() {
+      try {
+        const resp = await this.api('/api/admin/settings');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminSettings = {
+            jwt_expiry: data.jwt_expiry || '12h',
+            cookie_secure: data.cookie_secure || 'false',
+          };
+        }
+      } catch (e) {
+        this.showToast('Failed to load settings', 'error');
+      }
+    },
+
+    async saveAdminSettings() {
+      try {
+        const resp = await this.api('/api/admin/settings', {
+          method: 'POST',
+          body: JSON.stringify(this.adminSettings),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to save settings', 'error');
+          return;
+        }
+        this.showToast('Settings saved');
+      } catch (e) {
+        this.showToast('Failed to save settings', 'error');
+      }
+    },
+
+    async loadAdminGoogleKey() {
+      try {
+        const resp = await this.api('/api/admin/google-api-key');
+        if (resp.ok) {
+          const data = await resp.json();
+          this.adminGoogleKey = data.key || '';
+        }
+      } catch (e) {
+        this.showToast('Failed to load Google API key', 'error');
+      }
+    },
+
+    async saveAdminGoogleKey() {
+      try {
+        const resp = await this.api('/api/admin/google-api-key', {
+          method: 'POST',
+          body: JSON.stringify({ key: this.adminGoogleKey }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to save Google API key', 'error');
+          return;
+        }
+        this.showToast('Google API key saved');
+        await this.loadAdminGoogleKey();
+      } catch (e) {
+        this.showToast('Failed to save Google API key', 'error');
       }
     },
   };

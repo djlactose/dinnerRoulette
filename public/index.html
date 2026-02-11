@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=14"></script>
+  <script defer src="app.js?v=15"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -71,59 +71,103 @@
 
       <!-- Authentication -->
       <section x-show="!loggedIn">
-        <div class="auth-tabs">
-          <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="authMode = 'login'; authError = ''">Login</button>
-          <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="authMode = 'register'; authError = ''">Register</button>
+        <!-- Password Reset Token Form -->
+        <div x-show="resetMode && resetToken">
+          <h3>Reset Password</h3>
+          <div x-show="resetTokenValid">
+            <p style="color: var(--text-secondary);">Resetting password for <strong x-text="resetUsername"></strong></p>
+            <label>New Password</label>
+            <input type="password" x-model="resetNewPassword" placeholder="New password (min 6 chars)"
+                   @keydown.enter="$refs.resetConfirm.focus()" aria-label="New password" />
+            <label>Confirm Password</label>
+            <input type="password" x-ref="resetConfirm" x-model="resetConfirmPassword" placeholder="Confirm password"
+                   @keydown.enter="submitPasswordReset()" aria-label="Confirm password" />
+            <p class="auth-error" x-show="resetNewPassword && resetConfirmPassword && resetNewPassword !== resetConfirmPassword">
+              Passwords do not match.
+            </p>
+            <div class="buttons">
+              <button @click="submitPasswordReset()"
+                      :disabled="!resetNewPassword || resetNewPassword !== resetConfirmPassword">Reset Password</button>
+            </div>
+          </div>
+          <div x-show="!resetTokenValid">
+            <p class="warning-text">This reset link is invalid or has expired.</p>
+          </div>
+          <p class="auth-error" x-show="authError" x-text="authError"></p>
+          <p><a href="#" @click.prevent="resetMode = false; resetToken = ''; window.history.replaceState(null, '', '/')">Back to login</a></p>
         </div>
 
-        <!-- Login Form -->
-        <div x-show="authMode === 'login'">
-          <label for="auth-username">Username</label>
-          <input id="auth-username" x-model="authForm.username" placeholder="Username"
-                 @keydown.enter="$refs.loginPass.focus()" aria-label="Username" />
-          <label for="auth-password">Password</label>
-          <input id="auth-password" x-ref="loginPass" x-model="authForm.password" type="password"
-                 placeholder="Password" @keydown.enter="login()" aria-label="Password" />
-          <div class="remember-wrapper">
-            <label for="remember-me">
-              <input type="checkbox" id="remember-me" x-model="authForm.remember" />
-              Remember Me
-            </label>
-          </div>
+        <!-- Forgot Password Form -->
+        <div x-show="resetMode && !resetToken">
+          <h3>Forgot Password</h3>
+          <p style="color: var(--text-secondary); font-size: 0.9rem;">Enter your email address and we'll send you a link to reset your password.</p>
+          <label for="reset-email">Email</label>
+          <input id="reset-email" x-model="resetEmail" type="email" placeholder="Your email address"
+                 @keydown.enter="forgotPassword()" aria-label="Email for password reset" />
           <div class="buttons">
-            <button @click="login()">Login</button>
+            <button @click="forgotPassword()">Send Reset Link</button>
+            <button class="back-btn" @click="resetMode = false">Back</button>
           </div>
+          <p class="auth-error" x-show="authError" x-text="authError"></p>
         </div>
 
-        <!-- Register Form -->
-        <div x-show="authMode === 'register'">
-          <label for="reg-username">Username</label>
-          <input id="reg-username" x-model="authForm.username" placeholder="Username"
-                 @keydown.enter="$refs.regEmail.focus()" aria-label="Username" />
-          <label for="reg-email">Email</label>
-          <input id="reg-email" x-ref="regEmail" x-model="authForm.email" type="email" placeholder="Email address"
-                 @keydown.enter="$refs.regPass.focus()" aria-label="Email address" />
-          <label for="reg-password">Password</label>
-          <input id="reg-password" x-ref="regPass" x-model="authForm.password" type="password"
-                 placeholder="Password (min 6 chars)" @keydown.enter="$refs.regConfirm.focus()" aria-label="Password" />
-          <label for="reg-confirm">Confirm Password</label>
-          <input id="reg-confirm" x-ref="regConfirm" x-model="authForm.confirmPassword" type="password"
-                 placeholder="Confirm password" @keydown.enter="register()" aria-label="Confirm password" />
-          <p class="auth-error" x-show="authForm.password && authForm.confirmPassword && authForm.password !== authForm.confirmPassword">
-            Passwords do not match.
-          </p>
-          <div class="remember-wrapper">
-            <label for="reg-remember">
-              <input type="checkbox" id="reg-remember" x-model="authForm.remember" />
-              Remember Me
-            </label>
+        <!-- Normal Auth (Login/Register) -->
+        <div x-show="!resetMode">
+          <div class="auth-tabs">
+            <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="authMode = 'login'; authError = ''">Login</button>
+            <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="authMode = 'register'; authError = ''">Register</button>
           </div>
-          <div class="buttons">
-            <button @click="register()"
-                    :disabled="!authForm.username || !authForm.password || !authForm.email || authForm.password !== authForm.confirmPassword">Register</button>
+
+          <!-- Login Form -->
+          <div x-show="authMode === 'login'">
+            <label for="auth-username">Username</label>
+            <input id="auth-username" x-model="authForm.username" placeholder="Username"
+                   @keydown.enter="$refs.loginPass.focus()" aria-label="Username" />
+            <label for="auth-password">Password</label>
+            <input id="auth-password" x-ref="loginPass" x-model="authForm.password" type="password"
+                   placeholder="Password" @keydown.enter="login()" aria-label="Password" />
+            <div class="remember-wrapper">
+              <label for="remember-me">
+                <input type="checkbox" id="remember-me" x-model="authForm.remember" />
+                Remember Me
+              </label>
+            </div>
+            <div class="buttons">
+              <button @click="login()">Login</button>
+            </div>
+            <p><a href="#" @click.prevent="resetMode = true; authError = ''">Forgot Password?</a></p>
           </div>
+
+          <!-- Register Form -->
+          <div x-show="authMode === 'register'">
+            <label for="reg-username">Username</label>
+            <input id="reg-username" x-model="authForm.username" placeholder="Username"
+                   @keydown.enter="$refs.regEmail.focus()" aria-label="Username" />
+            <label for="reg-email">Email</label>
+            <input id="reg-email" x-ref="regEmail" x-model="authForm.email" type="email" placeholder="Email address"
+                   @keydown.enter="$refs.regPass.focus()" aria-label="Email address" />
+            <label for="reg-password">Password</label>
+            <input id="reg-password" x-ref="regPass" x-model="authForm.password" type="password"
+                   placeholder="Password (min 6 chars)" @keydown.enter="$refs.regConfirm.focus()" aria-label="Password" />
+            <label for="reg-confirm">Confirm Password</label>
+            <input id="reg-confirm" x-ref="regConfirm" x-model="authForm.confirmPassword" type="password"
+                   placeholder="Confirm password" @keydown.enter="register()" aria-label="Confirm password" />
+            <p class="auth-error" x-show="authForm.password && authForm.confirmPassword && authForm.password !== authForm.confirmPassword">
+              Passwords do not match.
+            </p>
+            <div class="remember-wrapper">
+              <label for="reg-remember">
+                <input type="checkbox" id="reg-remember" x-model="authForm.remember" />
+                Remember Me
+              </label>
+            </div>
+            <div class="buttons">
+              <button @click="register()"
+                      :disabled="!authForm.username || !authForm.password || !authForm.email || authForm.password !== authForm.confirmPassword">Register</button>
+            </div>
+          </div>
+          <p class="auth-error" x-show="authError" x-text="authError"></p>
         </div>
-        <p class="auth-error" x-show="authError" x-text="authError"></p>
       </section>
 
       <!-- Tab Bar -->
@@ -830,10 +874,191 @@
           <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
         </section>
 
-        <!-- ═══ ADMIN TAB ═══ (placeholder - will be built in step 7) -->
-        <section x-show="activeTab === 'admin' && isAdmin" x-transition:enter.opacity.duration.200ms>
+        <!-- ═══ ADMIN TAB ═══ -->
+        <section x-show="activeTab === 'admin' && isAdmin" x-transition:enter.opacity.duration.200ms
+                 x-init="$watch('activeTab', val => { if (val === 'admin') switchAdminTab(adminTab); })">
           <h3>Admin Panel</h3>
-          <p style="color: var(--text-muted);">Admin features coming soon.</p>
+
+          <!-- Admin Sub-tabs -->
+          <div class="admin-sub-tabs">
+            <button class="admin-sub-tab" :class="{ active: adminTab === 'dashboard' }" @click="switchAdminTab('dashboard')">Dashboard</button>
+            <button class="admin-sub-tab" :class="{ active: adminTab === 'users' }" @click="switchAdminTab('users')">Users</button>
+            <button class="admin-sub-tab" :class="{ active: adminTab === 'smtp' }" @click="switchAdminTab('smtp')">SMTP</button>
+            <button class="admin-sub-tab" :class="{ active: adminTab === 'vapid' }" @click="switchAdminTab('vapid')">VAPID</button>
+            <button class="admin-sub-tab" :class="{ active: adminTab === 'settings' }" @click="switchAdminTab('settings')">Settings</button>
+          </div>
+
+          <!-- Dashboard Sub-tab -->
+          <div x-show="adminTab === 'dashboard'">
+            <div x-show="!adminStats" class="empty-state">
+              <p>Loading stats...</p>
+            </div>
+            <div x-show="adminStats" class="admin-stats-grid">
+              <div class="admin-stat-card">
+                <div class="admin-stat-value" x-text="adminStats?.users ?? '-'"></div>
+                <div class="admin-stat-label">Users</div>
+              </div>
+              <div class="admin-stat-card">
+                <div class="admin-stat-value" x-text="adminStats?.sessions ?? '-'"></div>
+                <div class="admin-stat-label">Sessions</div>
+              </div>
+              <div class="admin-stat-card">
+                <div class="admin-stat-value" x-text="adminStats?.active_sessions ?? '-'"></div>
+                <div class="admin-stat-label">Active Sessions</div>
+              </div>
+              <div class="admin-stat-card">
+                <div class="admin-stat-value" x-text="adminStats?.places ?? '-'"></div>
+                <div class="admin-stat-label">Places</div>
+              </div>
+            </div>
+            <div x-show="adminStats" style="margin-top: 1rem;">
+              <div class="admin-form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                <span>SMTP:</span>
+                <span class="admin-status-indicator" :class="adminStats?.smtp_configured ? 'configured' : 'not-configured'"></span>
+                <span x-text="adminStats?.smtp_configured ? 'Configured' : 'Not configured'"
+                      :style="{ color: adminStats?.smtp_configured ? 'var(--success)' : 'var(--danger)' }"></span>
+              </div>
+              <div class="admin-form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                <span>VAPID:</span>
+                <span class="admin-status-indicator" :class="adminStats?.vapid_source !== 'none' ? 'configured' : 'not-configured'"></span>
+                <span x-text="adminStats?.vapid_source ? ('Source: ' + adminStats.vapid_source) : 'Not configured'"
+                      :style="{ color: adminStats?.vapid_source && adminStats.vapid_source !== 'none' ? 'var(--success)' : 'var(--danger)' }"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Users Sub-tab -->
+          <div x-show="adminTab === 'users'">
+            <div x-show="adminUsers.length === 0" class="empty-state">
+              <p>No users found.</p>
+            </div>
+            <div class="admin-user-list">
+              <template x-for="u in adminUsers" :key="u.id">
+                <div class="admin-user-row">
+                  <div class="admin-user-info">
+                    <span class="avatar avatar-sm" :style="{ background: hashColor(u.username) }" x-text="getInitials(u.username)"></span>
+                    <div class="admin-user-details">
+                      <strong x-text="u.username"></strong>
+                      <span class="admin-user-email" x-text="u.email || 'No email'"></span>
+                      <span class="admin-user-meta">
+                        <span class="type-badge" x-show="u.is_admin">Admin</span>
+                        <span class="admin-user-date" x-text="'Joined ' + formatDate(u.created_at)"></span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="admin-user-actions" x-show="u.id !== userId">
+                    <button class="map-btn btn-sm" @click="adminResetPassword(u.id)"
+                            x-text="adminResetPwUser === u.id ? 'Confirm Reset' : 'Reset PW'"></button>
+                    <button class="back-btn btn-sm" x-show="adminResetPwUser === u.id"
+                            @click="adminCancelResetPassword()">Cancel</button>
+                    <button class="suggest-btn btn-sm" @click="adminToggleAdmin(u.id)"
+                            x-text="u.is_admin ? 'Remove Admin' : 'Make Admin'"></button>
+                    <button class="remove-btn btn-sm" @click="adminDeleteUser(u.id)">Delete</button>
+                  </div>
+                  <div class="admin-user-actions" x-show="u.id === userId">
+                    <span class="type-badge" style="background: var(--accent); color: white;">You</span>
+                  </div>
+                  <!-- Inline password reset input -->
+                  <div class="admin-reset-pw-inline" x-show="adminResetPwUser === u.id">
+                    <input type="password" x-model="adminResetPwValue" placeholder="New password (min 6 chars)"
+                           @keydown.enter="adminResetPassword(u.id)" aria-label="New password for user" />
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- SMTP Sub-tab -->
+          <div x-show="adminTab === 'smtp'">
+            <div class="admin-form-group">
+              <label for="admin-smtp-host">SMTP Host</label>
+              <input id="admin-smtp-host" x-model="adminSmtp.host" placeholder="smtp.example.com" />
+            </div>
+            <div class="admin-form-group">
+              <label for="admin-smtp-port">Port</label>
+              <input id="admin-smtp-port" type="number" x-model.number="adminSmtp.port" placeholder="587" />
+            </div>
+            <div class="admin-form-group">
+              <label for="admin-smtp-user">Username</label>
+              <input id="admin-smtp-user" x-model="adminSmtp.user" placeholder="user@example.com" />
+            </div>
+            <div class="admin-form-group">
+              <label for="admin-smtp-password">Password</label>
+              <input id="admin-smtp-password" type="password" x-model="adminSmtp.password"
+                     placeholder="Leave blank to keep existing" />
+            </div>
+            <div class="admin-form-group">
+              <label for="admin-smtp-from">From Address</label>
+              <input id="admin-smtp-from" x-model="adminSmtp.from" placeholder="noreply@example.com" />
+            </div>
+            <div class="admin-form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="admin-smtp-secure" x-model="adminSmtp.secure" style="width: auto;" />
+              <label for="admin-smtp-secure" style="margin: 0;">Use TLS/SSL</label>
+            </div>
+            <div class="buttons">
+              <button @click="saveAdminSmtp()">Save SMTP Settings</button>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-light);">
+              <h4>Send Test Email</h4>
+              <div class="inline-input">
+                <input type="email" x-model="adminTestEmail" placeholder="test@example.com"
+                       @keydown.enter="testSmtp()" aria-label="Test email address" />
+                <button @click="testSmtp()">Send Test</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- VAPID Sub-tab -->
+          <div x-show="adminTab === 'vapid'">
+            <div class="admin-form-group">
+              <label>Public Key</label>
+              <div class="admin-key-display" x-text="adminVapid.publicKey || 'No VAPID key configured'"></div>
+            </div>
+            <div class="admin-form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+              <span>Source:</span>
+              <span class="type-badge" x-text="adminVapid.source || 'none'"></span>
+            </div>
+            <div class="buttons" style="margin-top: 1rem;">
+              <button class="remove-btn" @click="generateVapid()">Generate New VAPID Keys</button>
+            </div>
+            <p class="warning-text" style="margin-top: 0.5rem;">
+              Generating new keys will break all existing push notification subscriptions.
+              Users will need to re-enable notifications.
+            </p>
+          </div>
+
+          <!-- Settings Sub-tab -->
+          <div x-show="adminTab === 'settings'">
+            <div class="admin-form-group">
+              <label for="admin-google-key">Google API Key</label>
+              <div class="admin-key-display" x-show="adminGoogleKey" x-text="adminGoogleKey"></div>
+              <input id="admin-google-key" x-model="adminGoogleKey" placeholder="Enter Google API key" />
+              <button class="suggest-btn btn-sm" @click="saveAdminGoogleKey()" style="margin-top: 0.3rem;">Save API Key</button>
+            </div>
+
+            <div class="admin-form-group">
+              <label for="admin-jwt-expiry">JWT Token Expiry</label>
+              <select id="admin-jwt-expiry" class="filter-select" x-model="adminSettings.jwt_expiry">
+                <option value="1h">1 hour</option>
+                <option value="6h">6 hours</option>
+                <option value="12h">12 hours</option>
+                <option value="24h">24 hours</option>
+                <option value="7d">7 days</option>
+              </select>
+            </div>
+
+            <div class="admin-form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="admin-cookie-secure" style="width: auto;"
+                     :checked="adminSettings.cookie_secure === 'true'"
+                     @change="adminSettings.cookie_secure = $event.target.checked ? 'true' : 'false'" />
+              <label for="admin-cookie-secure" style="margin: 0;">Cookie Secure flag (requires HTTPS)</label>
+            </div>
+
+            <div class="buttons" style="margin-top: 1rem;">
+              <button @click="saveAdminSettings()">Save Settings</button>
+            </div>
+          </div>
         </section>
 
       </div>
