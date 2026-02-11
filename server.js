@@ -454,22 +454,6 @@ app.get('/api/places', auth, (req, res) => {
   });
 });
 
-app.post('/api/places/visit', auth, (req, res) => {
-  const { place } = req.body;
-  if (!place) return res.status(400).json({ error: 'Missing place' });
-  const row = db.prepare('SELECT 1 FROM likes WHERE user_id = ? AND place = ?').get(req.user.id, place);
-  if (!row) return res.status(404).json({ error: 'Place not in your likes' });
-  db.prepare("UPDATE likes SET visited_at = datetime('now') WHERE user_id = ? AND place = ?").run(req.user.id, place);
-  res.json({ success: true });
-});
-
-app.post('/api/places/unvisit', auth, (req, res) => {
-  const { place } = req.body;
-  if (!place) return res.status(400).json({ error: 'Missing place' });
-  db.prepare('UPDATE likes SET visited_at = NULL WHERE user_id = ? AND place = ?').run(req.user.id, place);
-  res.json({ success: true });
-});
-
 app.post('/api/places/notes', auth, (req, res) => {
   const { place, notes } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });

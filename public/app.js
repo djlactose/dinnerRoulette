@@ -15,7 +15,7 @@ function dinnerRoulette() {
     authError: '',
 
     // Theme
-    theme: 'light',
+    theme: 'auto',
 
     // UI sections
     sections: { auth: true, places: true, plan: true, account: false },
@@ -221,8 +221,6 @@ function dinnerRoulette() {
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       if (this.placeSortBy === 'type') {
         list.sort((a, b) => (a.restaurant_type || '').localeCompare(b.restaurant_type || '') || a.name.localeCompare(b.name));
-      } else if (this.placeSortBy === 'visited') {
-        list.sort((a, b) => (a.visited_at ? 1 : 0) - (b.visited_at ? 1 : 0) || a.name.localeCompare(b.name));
       } else {
         list.sort((a, b) => a.name.localeCompare(b.name));
       }
@@ -304,7 +302,7 @@ function dinnerRoulette() {
 
     // ── Init ──
     async init() {
-      this.theme = document.cookie.replace(/(?:(?:^|.*;\s*)theme\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'light';
+      this.theme = document.cookie.replace(/(?:(?:^|.*;\s*)theme\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'auto';
       document.documentElement.setAttribute('data-theme', this.theme);
       window.addEventListener('online', () => { this.online = true; });
       window.addEventListener('offline', () => { this.online = false; });
@@ -449,7 +447,8 @@ function dinnerRoulette() {
 
     // ── Theme ──
     toggleTheme() {
-      this.theme = this.theme === 'dark' ? 'light' : 'dark';
+      const order = ['auto', 'light', 'dark'];
+      this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
       document.documentElement.setAttribute('data-theme', this.theme);
       document.cookie = `theme=${this.theme};path=/;max-age=${365 * 24 * 60 * 60}`;
     },
@@ -722,33 +721,6 @@ function dinnerRoulette() {
       // Final random pick
       this.quickPickResult = this.likes[Math.floor(Math.random() * this.likes.length)];
       this.quickPicking = false;
-    },
-
-    // ── Visited Tracking ──
-    async markVisited(place) {
-      try {
-        await this.api('/api/places/visit', {
-          method: 'POST',
-          body: JSON.stringify({ place: place.name }),
-        });
-        this.showToast(`Marked "${place.name}" as visited`);
-        await this.loadPlaces();
-      } catch (e) {
-        this.showToast('Failed to mark as visited', 'error');
-      }
-    },
-
-    async unmarkVisited(place) {
-      try {
-        await this.api('/api/places/unvisit', {
-          method: 'POST',
-          body: JSON.stringify({ place: place.name }),
-        });
-        this.showToast(`Unmarked "${place.name}"`);
-        await this.loadPlaces();
-      } catch (e) {
-        this.showToast('Failed to unmark', 'error');
-      }
     },
 
     // ── Notes ──

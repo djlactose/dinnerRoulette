@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="auto">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -51,8 +51,8 @@
         <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
         <h1>Dinner Roulette</h1>
         <div class="header-actions" x-show="loggedIn">
-          <button class="theme-toggle" @click="toggleTheme()" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
-            <span x-text="theme === 'dark' ? '☀️' : '🌙'"></span>
+          <button class="theme-toggle" @click="toggleTheme()" :aria-label="theme === 'auto' ? 'Switch to light mode' : theme === 'light' ? 'Switch to dark mode' : 'Switch to auto mode'">
+            <span x-text="theme === 'auto' ? '💻' : theme === 'light' ? '☀️' : '🌙'"></span>
           </button>
           <span class="avatar avatar-sm" :style="{ background: hashColor(username) }" x-text="getInitials(username)"></span>
           <span class="username-badge" x-text="username"></span>
@@ -146,7 +146,6 @@
             <select class="filter-select" x-model="placeSortBy" aria-label="Sort by">
               <option value="name">Sort: Name</option>
               <option value="type">Sort: Type</option>
-              <option value="visited">Sort: Unvisited First</option>
             </select>
           </div>
 
@@ -172,16 +171,11 @@
                 <div class="place-info">
                   <span x-text="place.name"></span>
                   <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
-                  <span class="visited-badge" x-show="place.visited_at">Visited</span>
                 </div>
                 <span class="place-actions">
                   <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                      target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                   <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
-                  <button class="visited-btn" :class="{ 'visited-active': place.visited_at }"
-                          @click="place.visited_at ? unmarkVisited(place) : markVisited(place)"
-                          x-text="place.visited_at ? '✓ Visited' : 'Visited?'"
-                          :aria-label="place.visited_at ? 'Unmark as visited' : 'Mark as visited'"></button>
                   <button class="suggest-btn" @click="suggestPersonal(place)"
                           :disabled="currentSuggestions.has(place.name)"
                           :title="currentSuggestions.has(place.name) ? 'Already suggested' : 'Add to suggestions'"
