@@ -704,11 +704,17 @@ app.post('/api/sessions/:id/pick', auth, (req, res) => {
 
 app.post('/api/sessions/:id/close', auth, (req, res) => {
   const sessionId = req.params.id;
+  const { winner_place } = req.body || {};
   const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (session.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can close this session' });
 
-  db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(sessionId);
+  if (winner_place) {
+    db.prepare("UPDATE sessions SET status = 'closed', winner_place = ?, picked_at = datetime('now') WHERE id = ?").run(winner_place, sessionId);
+    io.to(`session:${sessionId}`).emit('session:winner-picked', { winner: { place: winner_place } });
+  } else {
+    db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(sessionId);
+  }
   io.to(`session:${sessionId}`).emit('session:closed', { sessionId });
   res.json({ success: true });
 });

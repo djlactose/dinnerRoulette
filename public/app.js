@@ -52,6 +52,7 @@ function dinnerRoulette() {
 
     // Picking
     picking: false,
+    closingSession: false,
     winner: null,
     userLat: null,
     userLng: null,
@@ -691,15 +692,41 @@ function dinnerRoulette() {
       }
       this.activeSession = null;
       this.winner = null;
+      this.closingSession = false;
       this.sessionPlaceSearch = '';
       this.sessionPredictions = [];
       this.loadSessions();
     },
 
-    async closeSession() {
+    closeSession() {
       if (!this.activeSession) return;
-      if (!confirm('Close this session? No more suggestions or votes will be allowed.')) return;
-      await this.api(`/api/sessions/${this.activeSession.session.id}/close`, { method: 'POST' });
+      this.closingSession = true;
+    },
+
+    cancelClose() {
+      this.closingSession = false;
+    },
+
+    async closeWithWinner(place) {
+      if (!this.activeSession) return;
+      await this.api(`/api/sessions/${this.activeSession.session.id}/close`, {
+        method: 'POST',
+        body: JSON.stringify({ winner_place: place }),
+      });
+      this.closingSession = false;
+      this.winner = { place };
+      this.showToast(`Session closed! Winner: ${place}`);
+      await this.refreshSession();
+    },
+
+    async closeWithoutWinner() {
+      if (!this.activeSession) return;
+      if (!confirm('Close without selecting a winner?')) return;
+      await this.api(`/api/sessions/${this.activeSession.session.id}/close`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      this.closingSession = false;
       this.showToast('Session closed.');
       await this.refreshSession();
     },

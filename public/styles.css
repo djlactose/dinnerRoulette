@@ -827,6 +827,42 @@ a {
   opacity: 0.85;
 }
 
+/* ── Close Session Winner Selection ────────────────────────────────────────── */
+.close-winner-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 2px solid var(--warning);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.close-winner-panel h4 {
+  margin: 0 0 0.75rem 0;
+  color: var(--warning);
+}
+
+.close-winner-list {
+  list-style: none;
+  padding: 0;
+}
+
+.close-winner-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.close-winner-list li:hover {
+  background: var(--border-light);
+  border-color: var(--success);
+}
+
 /* ── Focus Styles (a11y) ───────────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid var(--accent);
