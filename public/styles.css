@@ -322,8 +322,10 @@ label {
 }
 
 .autocomplete-list li:hover,
-.autocomplete-list li:focus {
-  background: var(--border-light);
+.autocomplete-list li:focus,
+.autocomplete-list li.highlighted {
+  background: var(--accent);
+  color: white;
 }
 
 /* ── Place Lists ───────────────────────────────────────────────────────────── */
@@ -336,8 +338,11 @@ label {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--border-light);
+  touch-action: pan-y;
+  user-select: none;
 }
 
 .place-actions {
@@ -739,7 +744,10 @@ a {
   font-size: 0.95rem;
   z-index: 100;
   box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-  pointer-events: none;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .toast.success {
@@ -748,6 +756,37 @@ a {
 
 .toast.error {
   background: var(--danger);
+}
+
+.toast-action {
+  background: rgba(255,255,255,0.25);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.5);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  background: rgba(255,255,255,0.4);
+}
+
+/* ── Offline Banner ───────────────────────────────────────────────────────── */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: var(--warning);
+  color: white;
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  z-index: 150;
 }
 
 /* ── Account ───────────────────────────────────────────────────────────────── */
@@ -996,6 +1035,180 @@ a {
 .friends-list li,
 .close-winner-list li {
   animation: fadeSlideIn 0.2s ease-out;
+}
+
+/* ── Place Notes ──────────────────────────────────────────────────────────── */
+.place-note {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.note-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+  cursor: pointer;
+}
+
+.note-text:hover {
+  color: var(--text-secondary);
+}
+
+.place-note-edit {
+  width: 100%;
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  align-items: center;
+}
+
+.place-note-edit input {
+  flex: 1;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.place-note-edit button {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
+  margin: 0;
+}
+
+.note-add-btn {
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  margin: 0;
+  margin-top: 0.25rem;
+  width: 100%;
+  cursor: pointer;
+}
+
+.note-add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: none;
+}
+
+/* ── Member Count Badge ──────────────────────────────────────────────────── */
+.member-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: 0.5rem;
+}
+
+/* ── Session Invite Input ────────────────────────────────────────────────── */
+.session-invite-input {
+  margin: 0.5rem 0;
+}
+
+.session-invite-input input {
+  font-size: 0.9rem;
+}
+
+.session-invite-input button {
+  font-size: 0.9rem;
+}
+
+/* ── Dislike Warning ─────────────────────────────────────────────────────── */
+.dislike-warn-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  background: var(--danger);
+  color: white;
+  margin-left: 0.4rem;
+  white-space: nowrap;
+}
+
+/* ── Sort Controls ───────────────────────────────────────────────────────── */
+.sort-controls {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.sort-btn {
+  background: var(--border-light);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  margin: 0;
+}
+
+.sort-btn:hover {
+  background: var(--border);
+}
+
+.sort-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* ── Price Badge ─────────────────────────────────────────────────────────── */
+.price-badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  background: var(--success);
+  color: white;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* ── Share Button ────────────────────────────────────────────────────────── */
+.share-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin-top: 0.75rem;
+  cursor: pointer;
+}
+
+.share-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Session Recap ───────────────────────────────────────────────────────── */
+.session-recap {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--success);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  text-align: center;
+}
+
+.recap-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.recap-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.recap-place {
+  display: inline-block;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.5rem;
+  background: var(--border-light);
+  border-radius: 6px;
+  margin: 0.2rem;
+  color: var(--text-secondary);
 }
 
 /* ── Focus Styles (a11y) ───────────────────────────────────────────────────── */

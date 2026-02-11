@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=8"></script>
+  <script defer src="app.js?v=9"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -23,7 +23,16 @@
 
     <!-- Toast -->
     <div class="toast" x-show="toast.visible" x-transition.opacity.duration.300ms
-         :class="toast.type" x-text="toast.message"></div>
+         :class="toast.type">
+      <span x-text="toast.message"></span>
+      <button class="toast-action" x-show="toast.action" x-text="toast.action?.label"
+              @click="toast.action?.callback()"></button>
+    </div>
+
+    <!-- Offline Banner -->
+    <div class="offline-banner" x-show="!online" x-transition.opacity>
+      You are offline. Some features may be unavailable.
+    </div>
 
     <!-- Confirm Modal -->
     <div class="confirm-overlay" x-show="confirmModal.visible" x-transition.opacity.duration.200ms
@@ -87,13 +96,20 @@
           <div class="autocomplete-container">
             <input id="place-search" placeholder="Search for a place..." autocomplete="off"
                    x-model="placeSearch" @input.debounce.300ms="searchPlaces()"
-                   @keydown.escape="predictions = []" aria-label="Search for a restaurant"
-                   role="combobox" aria-expanded="false" :aria-expanded="predictions.length > 0" />
+                   @keydown.escape="predictions = []; highlightedIndex = -1"
+                   @keydown.arrow-down.prevent="handlePlaceKeydown($event)"
+                   @keydown.arrow-up.prevent="handlePlaceKeydown($event)"
+                   @keydown.enter.prevent="handlePlaceKeydown($event)"
+                   aria-label="Search for a restaurant"
+                   role="combobox" aria-expanded="false" :aria-expanded="predictions.length > 0"
+                   :aria-activedescendant="highlightedIndex >= 0 ? 'place-opt-' + highlightedIndex : null" />
             <span class="spinner" x-show="searching"></span>
             <ul class="autocomplete-list" x-show="predictions.length > 0" role="listbox">
-              <template x-for="pred in predictions" :key="pred.place_id">
+              <template x-for="(pred, index) in predictions" :key="pred.place_id">
                 <li @click="selectPlace(pred)" x-text="pred.description" role="option" tabindex="0"
-                    @keydown.enter="selectPlace(pred)"></li>
+                    @keydown.enter="selectPlace(pred)"
+                    :id="'place-opt-' + index"
+                    :class="{ 'highlighted': index === highlightedIndex }"></li>
               </template>
             </ul>
             <p class="no-results" x-show="predictions.length === 0 && placeSearch.length > 2 && searchedOnce">
@@ -140,7 +156,10 @@
           <h3>Liked</h3>
           <ul class="place-list">
             <template x-for="place in filteredLikes" :key="place.name">
-              <li>
+              <li @touchstart="onTouchStart($event, place.name)"
+                  @touchmove="onTouchMove($event, place.name)"
+                  @touchend="onTouchEnd('likes', place)"
+                  :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name), transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                 <div class="place-info">
                   <span x-text="place.name"></span>
                   <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
@@ -160,6 +179,17 @@
                           aria-label="Suggest this place">Suggest</button>
                   <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">Remove</button>
                 </span>
+                <div class="place-note" x-show="editingNote !== place.name && place.notes">
+                  <span class="note-text" @click="startEditNote(place)" x-text="place.notes"></span>
+                </div>
+                <div class="place-note-edit" x-show="editingNote === place.name">
+                  <input type="text" x-model="noteText" placeholder="Add a note..."
+                         @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
+                  <button class="suggest-btn" @click="saveNote(place)">Save</button>
+                  <button class="back-btn" @click="cancelEditNote()">Cancel</button>
+                </div>
+                <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
+                        @click="startEditNote(place)">+ Note</button>
               </li>
             </template>
           </ul>
@@ -172,7 +202,10 @@
           <h3>Disliked</h3>
           <ul class="place-list">
             <template x-for="place in filteredDislikes" :key="place.name">
-              <li>
+              <li @touchstart="onTouchStart($event, place.name)"
+                  @touchmove="onTouchMove($event, place.name)"
+                  @touchend="onTouchEnd('dislikes', place)"
+                  :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name), transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                 <div class="place-info">
                   <span x-text="place.name"></span>
                   <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
@@ -238,6 +271,8 @@
                   <span class="place-actions">
                     <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
                     <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
+                    <button class="suggest-btn" x-show="activeSession && activeSession.session.status === 'open'"
+                            @click="quickInviteFriend(f.username)" aria-label="Invite to session">Invite</button>
                     <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
                   </span>
                 </li>
@@ -338,6 +373,7 @@
                       <span class="session-creator" x-text="'by ' + s.creator_username"></span>
                     </div>
                     <div>
+                      <span class="member-count" x-text="s.member_count + ' members'"></span>
                       <span class="session-status open">open</span>
                     </div>
                   </li>
@@ -355,6 +391,7 @@
                       <span class="session-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
                     </div>
                     <div>
+                      <span class="member-count" x-text="s.member_count + ' members'"></span>
                       <span x-show="s.winner_place" class="session-winner" x-text="'Winner: ' + s.winner_place"></span>
                       <button class="remove-btn" x-show="s.creator_id === userId"
                               @click.stop="deleteSession(s.id)" aria-label="Delete session">Delete</button>
@@ -385,6 +422,11 @@
               <p class="members-line">
                 <strong>Members:</strong> <span x-text="activeSession?.members?.map(m => m.username).join(', ')"></span>
               </p>
+              <div class="inline-input session-invite-input" x-show="activeSession?.session?.status === 'open'">
+                <input x-model="sessionInviteUsername" placeholder="Invite by username..."
+                       @keydown.enter="inviteToSession()" aria-label="Invite user to session" />
+                <button @click="inviteToSession()">Invite</button>
+              </div>
               <p x-show="activeSession?.session?.status === 'closed'" class="closed-badge">This session is closed.</p>
 
               <!-- Winner Selection on Close -->
@@ -410,12 +452,22 @@
                 <div class="autocomplete-container">
                   <input placeholder="Search for a restaurant..." autocomplete="off"
                          x-model="sessionPlaceSearch" @input.debounce.300ms="searchSessionPlaces()"
-                         @keydown.escape="sessionPredictions = []" aria-label="Search to suggest a restaurant" />
+                         @keydown.escape="sessionPredictions = []; sessionHighlightedIndex = -1"
+                         @keydown.arrow-down.prevent="handleSessionKeydown($event)"
+                         @keydown.arrow-up.prevent="handleSessionKeydown($event)"
+                         @keydown.enter.prevent="handleSessionKeydown($event)"
+                         aria-label="Search to suggest a restaurant"
+                         role="combobox" aria-expanded="false" :aria-expanded="sessionPredictions.length > 0"
+                         :aria-activedescendant="sessionHighlightedIndex >= 0 ? 'session-opt-' + sessionHighlightedIndex : null" />
                   <span class="spinner" x-show="sessionSearching"></span>
                   <ul class="autocomplete-list" x-show="sessionPredictions.length > 0" role="listbox">
-                    <template x-for="pred in sessionPredictions" :key="pred.place_id">
-                      <li @click="suggestToSession(pred.description, pred.place_id, formatPlaceType(pred.types))" x-text="pred.description"
-                          role="option" tabindex="0"></li>
+                    <template x-for="(pred, index) in sessionPredictions" :key="pred.place_id">
+                      <li @click="suggestToSession(pred.description, pred.place_id, formatPlaceType(pred.types))"
+                          role="option" tabindex="0" :id="'session-opt-' + index"
+                          :class="{ 'highlighted': index === sessionHighlightedIndex }">
+                        <span x-text="pred.description"></span>
+                        <span class="dislike-warn-badge" x-show="isSessionDisliked(pred.description)">Disliked by member</span>
+                      </li>
                     </template>
                   </ul>
                   <p class="no-results" x-show="sessionPredictions.length === 0 && sessionPlaceSearch.length > 2 && sessionSearchedOnce">
@@ -426,19 +478,28 @@
                   <span class="grid-label">Quick suggest from likes:</span>
                   <template x-for="place in likes" :key="place.name">
                     <button class="suggest-btn" @click="suggestToSession(place.name, place.place_id, place.restaurant_type)"
-                            x-text="'+ ' + place.name" :aria-label="'Suggest ' + place.name"></button>
+                            :aria-label="'Suggest ' + place.name">
+                      <span x-text="'+ ' + place.name"></span>
+                      <span class="dislike-warn-badge" x-show="isSessionDisliked(place.name)">!</span>
+                    </button>
                   </template>
                 </div>
               </div>
 
               <!-- Session Suggestions with Votes -->
               <h4>Suggestions <span class="vote-hint" x-show="activeSession?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
+              <div class="sort-controls" x-show="activeSession?.suggestions?.length > 1">
+                <button class="sort-btn" :class="{ active: sessionSuggestSort === 'votes' }" @click="sessionSuggestSort = 'votes'">By Votes</button>
+                <button class="sort-btn" :class="{ active: sessionSuggestSort === 'name' }" @click="sessionSuggestSort = 'name'">By Name</button>
+                <button class="sort-btn" :class="{ active: sessionSuggestSort === 'suggester' }" @click="sessionSuggestSort = 'suggester'">By Suggester</button>
+              </div>
               <ul class="session-suggestion-list">
-                <template x-for="s in activeSession?.suggestions || []" :key="s.id">
+                <template x-for="s in sortedSessionSuggestions" :key="s.id">
                   <li>
                     <div class="suggestion-info">
                       <span class="suggestion-name" x-text="s.place"></span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
+                      <span class="price-badge" x-show="s.price_level" x-text="priceDisplay(s.price_level)"></span>
                       <span class="suggestion-by" x-text="'by ' + s.suggested_by"></span>
                     </div>
                     <div class="suggestion-actions">
@@ -474,6 +535,28 @@
                 <p x-show="winner?.distance != null" x-text="winnerDistanceText"></p>
                 <a :href="winnerMapUrl" target="_blank" rel="noopener"
                    x-text="winner?.distance != null ? 'Get Directions' : 'View on Google Maps'"></a>
+                <button class="share-btn" @click="shareWinner()">Share Result</button>
+                <!-- Session Recap -->
+                <div class="session-recap" x-show="sessionRecap">
+                  <div class="recap-stat">
+                    <span class="recap-label">Suggestions</span>
+                    <span x-text="sessionRecap?.totalSuggestions"></span>
+                  </div>
+                  <div class="recap-stat">
+                    <span class="recap-label">Total Votes</span>
+                    <span x-text="sessionRecap?.totalVotes"></span>
+                  </div>
+                  <div class="recap-stat">
+                    <span class="recap-label">Suggested by</span>
+                    <span x-text="sessionRecap?.suggestedBy"></span>
+                  </div>
+                  <div x-show="sessionRecap?.topPlaces?.length > 1">
+                    <span class="recap-label">Top Picks</span>
+                    <template x-for="tp in sessionRecap?.topPlaces || []" :key="tp.place">
+                      <span class="recap-place" x-text="tp.place + ' (' + tp.vote_count + 'v)'"></span>
+                    </template>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

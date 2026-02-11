@@ -14,7 +14,8 @@ function dinnerRoulette() {
     sections: { auth: true, places: true, plan: true, account: false },
 
     // Toast
-    toast: { message: '', type: '', visible: false },
+    toast: { message: '', type: '', visible: false, action: null },
+    toastTimer: null,
 
     // Confirm modal
     confirmModal: { visible: false, message: '', onConfirm: null, onCancel: null },
@@ -24,12 +25,15 @@ function dinnerRoulette() {
     predictions: [],
     searching: false,
     searchedOnce: false,
+    highlightedIndex: -1,
     selectedPlace: null,
     likes: [],
     dislikes: [],
     placeFilter: '',
     placeTypeFilter: '',
     placeSortBy: 'name',
+    editingNote: null,
+    noteText: '',
 
     // Quick Pick
     quickPickResult: null,
@@ -56,6 +60,10 @@ function dinnerRoulette() {
     sessionPredictions: [],
     sessionSearching: false,
     sessionSearchedOnce: false,
+    sessionHighlightedIndex: -1,
+    sessionInviteUsername: '',
+    sessionDislikes: [],
+    sessionSuggestSort: 'votes',
 
     // Picking
     picking: false,
@@ -67,6 +75,13 @@ function dinnerRoulette() {
     // Account
     accountForm: { currentPassword: '', newPassword: '', deletePassword: '' },
 
+    // Network
+    online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+
+    // Swipe
+    swipeState: { name: null, startX: 0, currentX: 0, swiping: false },
+    touchEnabled: false,
+
     // Socket.IO
     socket: null,
 
@@ -77,6 +92,11 @@ function dinnerRoulette() {
       const meaningful = types.filter(t => !ignore.has(t));
       if (!meaningful.length) return '';
       return meaningful[0].replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    },
+
+    priceDisplay(level) {
+      if (level == null || level === 0) return '';
+      return '$'.repeat(level);
     },
 
     googleReviewsUrl(name, placeId) {
@@ -136,10 +156,40 @@ function dinnerRoulette() {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.winner.place)}`;
     },
 
+    get sortedSessionSuggestions() {
+      const suggestions = this.activeSession?.suggestions || [];
+      const sorted = [...suggestions];
+      if (this.sessionSuggestSort === 'votes') {
+        sorted.sort((a, b) => b.vote_count - a.vote_count || a.place.localeCompare(b.place));
+      } else if (this.sessionSuggestSort === 'name') {
+        sorted.sort((a, b) => a.place.localeCompare(b.place));
+      } else if (this.sessionSuggestSort === 'suggester') {
+        sorted.sort((a, b) => (a.suggested_by || '').localeCompare(b.suggested_by || '') || b.vote_count - a.vote_count);
+      }
+      return sorted;
+    },
+
+    get sessionRecap() {
+      if (!this.activeSession || !this.winner) return null;
+      const suggestions = this.activeSession.suggestions || [];
+      const totalVotes = suggestions.reduce((sum, s) => sum + (s.vote_count || 0), 0);
+      const winnerSugg = suggestions.find(s => s.place === this.winner.place);
+      const topPlaces = [...suggestions].sort((a, b) => b.vote_count - a.vote_count).slice(0, 3);
+      return {
+        totalSuggestions: suggestions.length,
+        totalVotes,
+        suggestedBy: winnerSugg?.suggested_by || 'Unknown',
+        topPlaces,
+      };
+    },
+
     // ── Init ──
     async init() {
       this.theme = document.cookie.replace(/(?:(?:^|.*;\s*)theme\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'light';
       document.documentElement.setAttribute('data-theme', this.theme);
+      window.addEventListener('online', () => { this.online = true; });
+      window.addEventListener('offline', () => { this.online = false; });
+      this.touchEnabled = 'ontouchstart' in window;
 
       try {
         const resp = await fetch('/api/me', { credentials: 'same-origin' });
@@ -229,9 +279,12 @@ function dinnerRoulette() {
     },
 
     // ── Toast ──
-    showToast(message, type = 'success') {
-      this.toast = { message, type, visible: true };
-      setTimeout(() => { this.toast.visible = false; }, 3000);
+    showToast(message, type = 'success', actionLabel = null, actionCallback = null) {
+      if (this.toastTimer) clearTimeout(this.toastTimer);
+      const action = actionLabel ? { label: actionLabel, callback: actionCallback } : null;
+      const timeout = action ? 5000 : 3000;
+      this.toast = { message, type, visible: true, action };
+      this.toastTimer = setTimeout(() => { this.toast.visible = false; this.toast.action = null; }, timeout);
     },
 
     showConfirm(message) {
@@ -355,6 +408,7 @@ function dinnerRoulette() {
 
     // ── Places ──
     async searchPlaces() {
+      this.highlightedIndex = -1;
       const q = this.placeSearch.trim();
       if (!q) { this.predictions = []; this.searchedOnce = false; return; }
       this.searching = true;
@@ -375,19 +429,44 @@ function dinnerRoulette() {
       this.selectedPlace = { name: pred.description, place_id: pred.place_id, restaurant_type: restaurantType };
       this.placeSearch = pred.description;
       this.predictions = [];
+      this.highlightedIndex = -1;
       this.api('/api/place', {
         method: 'POST',
         body: JSON.stringify({ place: pred.description, place_id: pred.place_id, restaurant_type: restaurantType || null }),
       });
     },
 
+    handlePlaceKeydown(event) {
+      if (this.predictions.length === 0) return;
+      if (event.key === 'ArrowDown') {
+        this.highlightedIndex = (this.highlightedIndex + 1) % this.predictions.length;
+      } else if (event.key === 'ArrowUp') {
+        this.highlightedIndex = this.highlightedIndex <= 0 ? this.predictions.length - 1 : this.highlightedIndex - 1;
+      } else if (event.key === 'Enter' && this.highlightedIndex >= 0) {
+        this.selectPlace(this.predictions[this.highlightedIndex]);
+      }
+    },
+
+    handleSessionKeydown(event) {
+      if (this.sessionPredictions.length === 0) return;
+      if (event.key === 'ArrowDown') {
+        this.sessionHighlightedIndex = (this.sessionHighlightedIndex + 1) % this.sessionPredictions.length;
+      } else if (event.key === 'ArrowUp') {
+        this.sessionHighlightedIndex = this.sessionHighlightedIndex <= 0 ? this.sessionPredictions.length - 1 : this.sessionHighlightedIndex - 1;
+      } else if (event.key === 'Enter' && this.sessionHighlightedIndex >= 0) {
+        const pred = this.sessionPredictions[this.sessionHighlightedIndex];
+        this.suggestToSession(pred.description, pred.place_id, this.formatPlaceType(pred.types));
+      }
+    },
+
     async likePlace() {
       if (!this.selectedPlace) return;
-      await this.api('/api/places', {
+      const resp = await this.api('/api/places', {
         method: 'POST',
         body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
       });
-      this.showToast('Place liked!');
+      const data = await resp.json();
+      this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to likes!' : 'Place liked!');
       this.selectedPlace = null;
       this.placeSearch = '';
       await this.loadPlaces();
@@ -395,23 +474,39 @@ function dinnerRoulette() {
 
     async dislikePlace() {
       if (!this.selectedPlace) return;
-      await this.api('/api/places', {
+      const resp = await this.api('/api/places', {
         method: 'POST',
         body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
       });
-      this.showToast('Place disliked.');
+      const data = await resp.json();
+      this.showToast(data.movedFrom === 'likes' ? 'Moved from likes to dislikes.' : 'Place disliked.');
       this.selectedPlace = null;
       this.placeSearch = '';
       await this.loadPlaces();
     },
 
-    async removePlace(type, place) {
-      await this.api('/api/places', {
-        method: 'POST',
-        body: JSON.stringify({ type, place, remove: true }),
+    async removePlace(type, placeName) {
+      const list = type === 'likes' ? 'likes' : 'dislikes';
+      const removedItem = this[list].find(p => p.name === placeName);
+      if (!removedItem) return;
+      this[list] = this[list].filter(p => p.name !== placeName);
+
+      let undone = false;
+      const timer = setTimeout(async () => {
+        if (undone) return;
+        await this.api('/api/places', {
+          method: 'POST',
+          body: JSON.stringify({ type, place: placeName, remove: true }),
+        });
+      }, 5000);
+
+      this.showToast(`Removed "${placeName}"`, 'success', 'Undo', () => {
+        undone = true;
+        clearTimeout(timer);
+        this[list].push(removedItem);
+        this[list].sort((a, b) => a.name.localeCompare(b.name));
+        this.toast.visible = false;
       });
-      this.showToast('Place removed.');
-      await this.loadPlaces();
     },
 
     async loadPlaces() {
@@ -484,6 +579,32 @@ function dinnerRoulette() {
       }
     },
 
+    // ── Notes ──
+    startEditNote(place) {
+      this.editingNote = place.name;
+      this.noteText = place.notes || '';
+    },
+
+    async saveNote(place) {
+      try {
+        await this.api('/api/places/notes', {
+          method: 'POST',
+          body: JSON.stringify({ place: place.name, notes: this.noteText.trim() }),
+        });
+        place.notes = this.noteText.trim() || null;
+        this.editingNote = null;
+        this.noteText = '';
+        this.showToast('Note saved');
+      } catch (e) {
+        this.showToast('Failed to save note', 'error');
+      }
+    },
+
+    cancelEditNote() {
+      this.editingNote = null;
+      this.noteText = '';
+    },
+
     // ── Suggestions ──
     async suggestPersonal(place) {
       await this.api('/api/suggest', {
@@ -495,11 +616,27 @@ function dinnerRoulette() {
     },
 
     async removeSuggestion(placeName) {
-      await this.api('/api/suggestions/remove', {
-        method: 'POST',
-        body: JSON.stringify({ place: placeName }),
+      const removedItem = this.suggestions.find(s => s.name === placeName);
+      if (!removedItem) return;
+      this.suggestions = this.suggestions.filter(s => s.name !== placeName);
+      this.currentSuggestions = new Set(this.suggestions.map(s => s.name));
+
+      let undone = false;
+      const timer = setTimeout(async () => {
+        if (undone) return;
+        await this.api('/api/suggestions/remove', {
+          method: 'POST',
+          body: JSON.stringify({ place: placeName }),
+        });
+      }, 5000);
+
+      this.showToast(`Removed "${placeName}"`, 'success', 'Undo', () => {
+        undone = true;
+        clearTimeout(timer);
+        this.suggestions.push(removedItem);
+        this.currentSuggestions = new Set(this.suggestions.map(s => s.name));
+        this.toast.visible = false;
       });
-      await this.loadSuggestions();
     },
 
     async loadSuggestions() {
@@ -695,6 +832,11 @@ function dinnerRoulette() {
           this.winner = { place: this.activeSession.session.winner_place };
         }
         if (this.socket) this.socket.emit('join-session', sessionId);
+        try {
+          const dResp = await this.api(`/api/sessions/${sessionId}/dislikes`);
+          const dData = await dResp.json();
+          this.sessionDislikes = dData.dislikes || [];
+        } catch (e) { this.sessionDislikes = []; }
       } catch (e) {
         this.showToast('Failed to open session', 'error');
       }
@@ -773,6 +915,36 @@ function dinnerRoulette() {
       }
     },
 
+    async inviteToSession() {
+      if (!this.sessionInviteUsername.trim() || !this.activeSession) return;
+      try {
+        const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/invite`, {
+          method: 'POST',
+          body: JSON.stringify({ username: this.sessionInviteUsername.trim() }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to invite', 'error');
+          return;
+        }
+        const data = await resp.json();
+        this.showToast(data.alreadyMember ? 'User is already a member' : `Invited ${this.sessionInviteUsername.trim()}!`);
+        this.sessionInviteUsername = '';
+        await this.refreshSession();
+      } catch (e) {
+        this.showToast('Failed to invite user', 'error');
+      }
+    },
+
+    quickInviteFriend(friendUsername) {
+      this.sessionInviteUsername = friendUsername;
+      this.inviteToSession();
+    },
+
+    isSessionDisliked(placeName) {
+      return this.sessionDislikes.includes(placeName);
+    },
+
     copyCode() {
       const code = this.activeSession?.session?.code;
       if (code) {
@@ -783,6 +955,7 @@ function dinnerRoulette() {
 
     // ── Session Suggest ──
     async searchSessionPlaces() {
+      this.sessionHighlightedIndex = -1;
       const q = this.sessionPlaceSearch.trim();
       if (!q) { this.sessionPredictions = []; this.sessionSearchedOnce = false; return; }
       this.sessionSearching = true;
@@ -936,6 +1109,54 @@ function dinnerRoulette() {
         }
       }
       this.picking = false;
+    },
+
+    // ── Swipe Gestures ──
+    onTouchStart(event, placeName) {
+      if (!this.touchEnabled) return;
+      this.swipeState = { name: placeName, startX: event.touches[0].clientX, currentX: 0, swiping: true };
+    },
+
+    onTouchMove(event, placeName) {
+      if (!this.swipeState.swiping || this.swipeState.name !== placeName) return;
+      this.swipeState.currentX = event.touches[0].clientX - this.swipeState.startX;
+    },
+
+    onTouchEnd(type, place) {
+      if (!this.swipeState.swiping) return;
+      const offset = this.swipeState.currentX;
+      this.swipeState = { name: null, startX: 0, currentX: 0, swiping: false };
+      if (offset > 80) {
+        this.suggestPersonal(place);
+      } else if (offset < -80) {
+        this.removePlace(type, place.name);
+      }
+    },
+
+    getSwipeTransform(placeName) {
+      if (this.swipeState.name === placeName && this.swipeState.swiping) {
+        return `translateX(${this.swipeState.currentX}px)`;
+      }
+      return '';
+    },
+
+    getSwipeBg(placeName) {
+      if (this.swipeState.name !== placeName || !this.swipeState.swiping) return '';
+      if (this.swipeState.currentX > 40) return 'rgba(39, 174, 96, 0.15)';
+      if (this.swipeState.currentX < -40) return 'rgba(231, 76, 60, 0.15)';
+      return '';
+    },
+
+    // ── Share ──
+    async shareWinner() {
+      if (!this.winner) return;
+      const text = `We picked ${this.winner.place}! -- from Dinner Roulette`;
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Dinner Roulette', text }); } catch (e) { /* user cancelled */ }
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        this.showToast('Result copied to clipboard!');
+      }
     },
 
     // ── Account ──
