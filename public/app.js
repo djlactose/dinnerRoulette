@@ -16,9 +16,14 @@ function dinnerRoulette() {
     // Toast
     toast: { message: '', type: '', visible: false },
 
+    // Confirm modal
+    confirmModal: { visible: false, message: '', onConfirm: null, onCancel: null },
+
     // Places
     placeSearch: '',
     predictions: [],
+    searching: false,
+    searchedOnce: false,
     selectedPlace: null,
     likes: [],
     dislikes: [],
@@ -49,6 +54,8 @@ function dinnerRoulette() {
     activeSession: null,
     sessionPlaceSearch: '',
     sessionPredictions: [],
+    sessionSearching: false,
+    sessionSearchedOnce: false,
 
     // Picking
     picking: false,
@@ -227,6 +234,17 @@ function dinnerRoulette() {
       setTimeout(() => { this.toast.visible = false; }, 3000);
     },
 
+    showConfirm(message) {
+      return new Promise((resolve) => {
+        this.confirmModal = {
+          visible: true,
+          message,
+          onConfirm: () => { this.confirmModal.visible = false; resolve(true); },
+          onCancel: () => { this.confirmModal.visible = false; resolve(false); },
+        };
+      });
+    },
+
     // ── Theme ──
     toggleTheme() {
       this.theme = this.theme === 'dark' ? 'light' : 'dark';
@@ -338,13 +356,17 @@ function dinnerRoulette() {
     // ── Places ──
     async searchPlaces() {
       const q = this.placeSearch.trim();
-      if (!q) { this.predictions = []; return; }
+      if (!q) { this.predictions = []; this.searchedOnce = false; return; }
+      this.searching = true;
       try {
         const resp = await this.api(`/api/autocomplete?input=${encodeURIComponent(q)}`);
         const data = await resp.json();
         this.predictions = data.predictions || [];
+        this.searchedOnce = true;
       } catch (e) {
         this.predictions = [];
+      } finally {
+        this.searching = false;
       }
     },
 
@@ -595,7 +617,7 @@ function dinnerRoulette() {
     },
 
     async removeFriend(friendId) {
-      if (!confirm('Remove this friend? This action is mutual.')) return;
+      if (!await this.showConfirm('Remove this friend? This action is mutual.')) return;
       try {
         const resp = await this.api(`/api/friends/${friendId}`, { method: 'DELETE' });
         if (!resp.ok) {
@@ -721,7 +743,7 @@ function dinnerRoulette() {
 
     async closeWithoutWinner() {
       if (!this.activeSession) return;
-      if (!confirm('Close without selecting a winner?')) return;
+      if (!await this.showConfirm('Close without selecting a winner?')) return;
       await this.api(`/api/sessions/${this.activeSession.session.id}/close`, {
         method: 'POST',
         body: JSON.stringify({}),
@@ -732,7 +754,7 @@ function dinnerRoulette() {
     },
 
     async deleteSession(sessionId) {
-      if (!confirm('Permanently delete this session? This cannot be undone.')) return;
+      if (!await this.showConfirm('Permanently delete this session? This cannot be undone.')) return;
       try {
         const resp = await this.api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
         if (!resp.ok) {
@@ -762,13 +784,17 @@ function dinnerRoulette() {
     // ── Session Suggest ──
     async searchSessionPlaces() {
       const q = this.sessionPlaceSearch.trim();
-      if (!q) { this.sessionPredictions = []; return; }
+      if (!q) { this.sessionPredictions = []; this.sessionSearchedOnce = false; return; }
+      this.sessionSearching = true;
       try {
         const resp = await this.api(`/api/autocomplete?input=${encodeURIComponent(q)}`);
         const data = await resp.json();
         this.sessionPredictions = data.predictions || [];
+        this.sessionSearchedOnce = true;
       } catch (e) {
         this.sessionPredictions = [];
+      } finally {
+        this.sessionSearching = false;
       }
     },
 
@@ -936,7 +962,7 @@ function dinnerRoulette() {
     },
 
     async deleteAccount() {
-      if (!confirm('Are you sure? This cannot be undone.')) return;
+      if (!await this.showConfirm('Are you sure? This cannot be undone.')) return;
       try {
         const resp = await this.api('/api/delete-account', {
           method: 'POST',

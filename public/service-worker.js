@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dinner-v9';
+const CACHE_NAME = 'dinner-v10';
 
 // On install: skip waiting and clear all old caches
 self.addEventListener('install', event => {

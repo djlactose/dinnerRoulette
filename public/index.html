@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=7"></script>
+  <script defer src="app.js?v=8"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -24,6 +24,18 @@
     <!-- Toast -->
     <div class="toast" x-show="toast.visible" x-transition.opacity.duration.300ms
          :class="toast.type" x-text="toast.message"></div>
+
+    <!-- Confirm Modal -->
+    <div class="confirm-overlay" x-show="confirmModal.visible" x-transition.opacity.duration.200ms
+         @click.self="confirmModal.onCancel()">
+      <div class="confirm-modal" x-show="confirmModal.visible" x-transition.scale.origin.center>
+        <p x-text="confirmModal.message"></p>
+        <div class="confirm-modal-actions">
+          <button class="back-btn" @click="confirmModal.onCancel()">Cancel</button>
+          <button class="remove-btn" @click="confirmModal.onConfirm()">Confirm</button>
+        </div>
+      </div>
+    </div>
 
     <header>
       <div class="header-content">
@@ -77,12 +89,16 @@
                    x-model="placeSearch" @input.debounce.300ms="searchPlaces()"
                    @keydown.escape="predictions = []" aria-label="Search for a restaurant"
                    role="combobox" aria-expanded="false" :aria-expanded="predictions.length > 0" />
+            <span class="spinner" x-show="searching"></span>
             <ul class="autocomplete-list" x-show="predictions.length > 0" role="listbox">
               <template x-for="pred in predictions" :key="pred.place_id">
                 <li @click="selectPlace(pred)" x-text="pred.description" role="option" tabindex="0"
                     @keydown.enter="selectPlace(pred)"></li>
               </template>
             </ul>
+            <p class="no-results" x-show="predictions.length === 0 && placeSearch.length > 2 && searchedOnce">
+              No results found. Try a different search term.
+            </p>
           </div>
           <div class="buttons" x-show="selectedPlace">
             <button @click="likePlace()" aria-label="Like this place">👍 Like</button>
@@ -147,7 +163,11 @@
               </li>
             </template>
           </ul>
-          <p x-show="likes.length === 0" class="empty-msg">No liked places yet.</p>
+          <div x-show="likes.length === 0" class="empty-state">
+            <span class="empty-state-icon">&#x1F37D;</span>
+            <p>No liked places yet.</p>
+            <p class="empty-state-hint">Search for a restaurant above to get started.</p>
+          </div>
 
           <h3>Disliked</h3>
           <ul class="place-list">
@@ -166,7 +186,11 @@
               </li>
             </template>
           </ul>
-          <p x-show="dislikes.length === 0" class="empty-msg">No disliked places yet.</p>
+          <div x-show="dislikes.length === 0" class="empty-state">
+            <span class="empty-state-icon">&#x1F44E;</span>
+            <p>No disliked places yet.</p>
+            <p class="empty-state-hint">Places you dislike will appear here.</p>
+          </div>
         </div>
       </section>
 
@@ -241,7 +265,11 @@
                 </li>
               </template>
             </ul>
-            <p x-show="viewingFriendLikes?.likes?.length === 0" class="empty-msg">This friend hasn't liked any places yet.</p>
+            <div x-show="viewingFriendLikes?.likes?.length === 0" class="empty-state">
+              <span class="empty-state-icon">&#x1F50D;</span>
+              <p>This friend hasn't liked any places yet.</p>
+              <p class="empty-state-hint">Check back later!</p>
+            </div>
             <button class="back-btn" @click="viewingFriendLikes = null">Back</button>
           </div>
 
@@ -277,7 +305,11 @@
                 </li>
               </template>
             </ul>
-            <p x-show="suggestions.length === 0" class="empty-msg">No suggestions yet.</p>
+            <div x-show="suggestions.length === 0" class="empty-state">
+              <span class="empty-state-icon">&#x1F4A1;</span>
+              <p>No suggestions yet.</p>
+              <p class="empty-state-hint">Suggest a liked place to start planning.</p>
+            </div>
           </div>
 
           <!-- Session Management -->
@@ -330,7 +362,11 @@
                   </li>
                 </template>
               </ul>
-              <p x-show="sessions.length === 0" class="empty-msg">No sessions yet. Create one or join with a code.</p>
+              <div x-show="sessions.length === 0" class="empty-state">
+                <span class="empty-state-icon">&#x1F46B;</span>
+                <p>No sessions yet.</p>
+                <p class="empty-state-hint">Create a session or join one with an invite code.</p>
+              </div>
             </div>
 
             <!-- Active Session View -->
@@ -359,7 +395,9 @@
                     <li @click="closeWithWinner(s.place)">
                       <span class="suggestion-name" x-text="s.place"></span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
-                      <span class="vote-count" x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
+                      <span class="vote-count"
+                            :class="{ 'vote-count-high': s.vote_count >= 3, 'vote-count-med': s.vote_count === 2 }"
+                            x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
                     </li>
                   </template>
                 </ul>
@@ -373,12 +411,16 @@
                   <input placeholder="Search for a restaurant..." autocomplete="off"
                          x-model="sessionPlaceSearch" @input.debounce.300ms="searchSessionPlaces()"
                          @keydown.escape="sessionPredictions = []" aria-label="Search to suggest a restaurant" />
+                  <span class="spinner" x-show="sessionSearching"></span>
                   <ul class="autocomplete-list" x-show="sessionPredictions.length > 0" role="listbox">
                     <template x-for="pred in sessionPredictions" :key="pred.place_id">
                       <li @click="suggestToSession(pred.description, pred.place_id, formatPlaceType(pred.types))" x-text="pred.description"
                           role="option" tabindex="0"></li>
                     </template>
                   </ul>
+                  <p class="no-results" x-show="sessionPredictions.length === 0 && sessionPlaceSearch.length > 2 && sessionSearchedOnce">
+                    No results found. Try a different search term.
+                  </p>
                 </div>
                 <div x-show="likes.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">Quick suggest from likes:</span>
@@ -400,7 +442,9 @@
                       <span class="suggestion-by" x-text="'by ' + s.suggested_by"></span>
                     </div>
                     <div class="suggestion-actions">
-                      <span class="vote-count" x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
+                      <span class="vote-count"
+                            :class="{ 'vote-count-high': s.vote_count >= 3, 'vote-count-med': s.vote_count === 2 }"
+                            x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
                               @click="toggleVote(s)" x-text="s.user_voted ? 'Voted' : 'Vote'"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
@@ -412,7 +456,11 @@
                   </li>
                 </template>
               </ul>
-              <p x-show="!activeSession?.suggestions?.length" class="empty-msg">No suggestions yet. Add one above.</p>
+              <div x-show="!activeSession?.suggestions?.length" class="empty-state">
+                <span class="empty-state-icon">&#x1F4DD;</span>
+                <p>No suggestions yet.</p>
+                <p class="empty-state-hint">Search for a restaurant or quick-suggest from your likes.</p>
+              </div>
 
               <!-- Pick Buttons -->
               <div class="buttons pick-buttons" x-show="activeSession?.suggestions?.length > 0">
