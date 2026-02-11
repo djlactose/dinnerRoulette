@@ -2029,7 +2029,7 @@ a {
 .gif-thumb:hover {
   transform: scale(1.05);
 }
-.tenor-attribution {
+.giphy-attribution {
   text-align: center;
   padding: 0.3rem;
   opacity: 0.5;

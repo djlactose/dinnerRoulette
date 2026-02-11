@@ -1223,13 +1223,13 @@ describe('GIF Messages & Reactions', () => {
 
   test('POST /api/plans/:id/messages — GIF message with valid Tenor URL', async () => {
     const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
-      .send({ message: 'https://media.tenor.com/abc123/test.gif', message_type: 'gif' });
+      .send({ message: 'https://media0.giphy.com/media/abc123/giphy.gif', message_type: 'gif' });
     expect(res.status).toBe(200);
     expect(res.body.message.message_type).toBe('gif');
-    expect(res.body.message.message).toBe('https://media.tenor.com/abc123/test.gif');
+    expect(res.body.message.message).toBe('https://media0.giphy.com/media/abc123/giphy.gif');
   });
 
-  test('POST /api/plans/:id/messages — rejects non-Tenor GIF URL', async () => {
+  test('POST /api/plans/:id/messages — rejects non-Giphy GIF URL', async () => {
     const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
       .send({ message: 'https://evil.com/malware.gif', message_type: 'gif' });
     expect(res.status).toBe(400);
@@ -1307,14 +1307,14 @@ describe('GIF Messages & Reactions', () => {
     expect(res.status).toBe(404);
   });
 
-  test('GET /api/tenor/search — returns 400 without TENOR_API_KEY', async () => {
-    const res = await request(app).get('/api/tenor/search?q=funny').set('Cookie', cookie1);
+  test('GET /api/giphy/search — returns 400 without GIPHY_API_KEY', async () => {
+    const res = await request(app).get('/api/giphy/search?q=funny').set('Cookie', cookie1);
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('not configured');
   });
 
-  test('GET /api/tenor/trending — returns 400 without TENOR_API_KEY', async () => {
-    const res = await request(app).get('/api/tenor/trending').set('Cookie', cookie1);
+  test('GET /api/giphy/trending — returns 400 without GIPHY_API_KEY', async () => {
+    const res = await request(app).get('/api/giphy/trending').set('Cookie', cookie1);
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('not configured');
   });

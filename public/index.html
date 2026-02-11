@@ -1072,9 +1072,10 @@
                   <div class="gif-search-panel" x-show="gifSearchVisible"
                        @click.outside="gifSearchVisible = false" x-transition>
                     <input type="text" class="gif-search-input" x-model="gifSearchQuery"
-                           @input.debounce.400ms="searchGifs()" placeholder="Search Tenor..."
+                           @input.debounce.400ms="searchGifs()" placeholder="Search GIPHY..."
                            aria-label="Search GIFs" />
-                    <div class="gif-grid" x-show="!gifLoading">
+                    <div x-show="gifError" class="chat-empty" x-text="gifError" style="color: var(--danger)"></div>
+                    <div class="gif-grid" x-show="!gifLoading && !gifError">
                       <template x-for="gif in gifResults" :key="gif.id">
                         <img :src="gif.preview" @click="sendGif(gif.url)" alt="GIF"
                              class="gif-thumb" loading="lazy" />
@@ -1082,7 +1083,7 @@
                       <div x-show="gifResults.length === 0 && gifSearchQuery" class="chat-empty">No GIFs found</div>
                     </div>
                     <div x-show="gifLoading" class="chat-empty">Loading...</div>
-                    <div class="tenor-attribution">Powered by Tenor</div>
+                    <div class="giphy-attribution">Powered by GIPHY</div>
                   </div>
 
                   <!-- Chat Input Row -->

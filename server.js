@@ -48,7 +48,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io", "https://maps.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://media.tenor.com", "https://www.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://*.giphy.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       upgradeInsecureRequests: null,
@@ -1479,7 +1479,7 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
   const type = message_type === 'gif' ? 'gif' : 'text';
 
   if (type === 'gif') {
-    if (!message || !message.startsWith('https://media.tenor.com/')) return res.status(400).json({ error: 'Invalid GIF URL' });
+    if (!message || !/^https:\/\/media\d*\.giphy\.com\//.test(message)) return res.status(400).json({ error: 'Invalid GIF URL' });
     if (message.length > 1000) return res.status(400).json({ error: 'URL too long' });
   } else {
     if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
@@ -1541,46 +1541,44 @@ app.delete('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
   res.json({ success: true });
 });
 
-// ── Tenor GIF Proxy ──────────────────────────────────────────────────────────
-const TENOR_API_KEY = process.env.TENOR_API_KEY;
+// ── Giphy GIF Proxy ──────────────────────────────────────────────────────────
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY;
 
-app.get('/api/tenor/search', auth, async (req, res) => {
-  if (!TENOR_API_KEY) return res.status(400).json({ error: 'Tenor API not configured' });
-  const { q, pos } = req.query;
+app.get('/api/giphy/search', auth, async (req, res) => {
+  if (!GIPHY_API_KEY) return res.status(400).json({ error: 'Giphy API not configured' });
+  const { q, offset } = req.query;
   if (!q) return res.status(400).json({ error: 'Missing search query' });
 
   try {
-    const url = new URL('https://tenor.googleapis.com/v2/search');
+    const url = new URL('https://api.giphy.com/v1/gifs/search');
+    url.searchParams.set('api_key', GIPHY_API_KEY);
     url.searchParams.set('q', q);
-    url.searchParams.set('key', TENOR_API_KEY);
-    url.searchParams.set('client_key', 'dinner_roulette');
     url.searchParams.set('limit', '20');
-    url.searchParams.set('media_filter', 'tinygif,gif');
-    if (pos) url.searchParams.set('pos', pos);
+    url.searchParams.set('rating', 'g');
+    if (offset) url.searchParams.set('offset', offset);
 
     const r = await fetch(url);
     const data = await r.json();
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: 'Tenor API error' });
+    res.status(500).json({ error: 'Giphy API error' });
   }
 });
 
-app.get('/api/tenor/trending', auth, async (req, res) => {
-  if (!TENOR_API_KEY) return res.status(400).json({ error: 'Tenor API not configured' });
+app.get('/api/giphy/trending', auth, async (req, res) => {
+  if (!GIPHY_API_KEY) return res.status(400).json({ error: 'Giphy API not configured' });
 
   try {
-    const url = new URL('https://tenor.googleapis.com/v2/featured');
-    url.searchParams.set('key', TENOR_API_KEY);
-    url.searchParams.set('client_key', 'dinner_roulette');
+    const url = new URL('https://api.giphy.com/v1/gifs/trending');
+    url.searchParams.set('api_key', GIPHY_API_KEY);
     url.searchParams.set('limit', '20');
-    url.searchParams.set('media_filter', 'tinygif,gif');
+    url.searchParams.set('rating', 'g');
 
     const r = await fetch(url);
     const data = await r.json();
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: 'Tenor API error' });
+    res.status(500).json({ error: 'Giphy API error' });
   }
 });
 

@@ -135,6 +135,7 @@ function dinnerRoulette() {
     gifSearchQuery: '',
     gifResults: [],
     gifLoading: false,
+    gifError: '',
     reactionPickerMessageId: null,
 
     // Map
@@ -1938,30 +1939,38 @@ function dinnerRoulette() {
 
     async loadTrendingGifs() {
       this.gifLoading = true;
+      this.gifError = '';
       try {
-        const resp = await this.api('/api/tenor/trending');
+        const resp = await this.api('/api/giphy/trending');
         const data = await resp.json();
-        this.gifResults = (data.results || []).map(r => ({
-          id: r.id,
-          preview: r.media_formats?.tinygif?.url || r.media_formats?.gif?.url,
-          url: r.media_formats?.gif?.url,
-        }));
-      } catch (e) { this.gifResults = []; }
+        if (!resp.ok) { this.gifError = data.error || 'Failed to load GIFs'; this.gifResults = []; }
+        else {
+          this.gifResults = (data.data || []).map(r => ({
+            id: r.id,
+            preview: r.images?.fixed_height_small?.url || r.images?.fixed_height?.url,
+            url: r.images?.original?.url,
+          }));
+        }
+      } catch (e) { this.gifResults = []; this.gifError = 'Failed to load GIFs'; }
       this.gifLoading = false;
     },
 
     async searchGifs() {
       if (!this.gifSearchQuery.trim()) { this.loadTrendingGifs(); return; }
       this.gifLoading = true;
+      this.gifError = '';
       try {
-        const resp = await this.api(`/api/tenor/search?q=${encodeURIComponent(this.gifSearchQuery.trim())}`);
+        const resp = await this.api(`/api/giphy/search?q=${encodeURIComponent(this.gifSearchQuery.trim())}`);
         const data = await resp.json();
-        this.gifResults = (data.results || []).map(r => ({
-          id: r.id,
-          preview: r.media_formats?.tinygif?.url || r.media_formats?.gif?.url,
-          url: r.media_formats?.gif?.url,
-        }));
-      } catch (e) { this.gifResults = []; }
+        if (!resp.ok) { this.gifError = data.error || 'Search failed'; this.gifResults = []; }
+        else {
+          this.gifResults = (data.data || []).map(r => ({
+            id: r.id,
+            preview: r.images?.fixed_height_small?.url || r.images?.fixed_height?.url,
+            url: r.images?.original?.url,
+          }));
+        }
+      } catch (e) { this.gifResults = []; this.gifError = 'Search failed'; }
       this.gifLoading = false;
     },
 
