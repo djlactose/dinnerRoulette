@@ -1,66 +1,75 @@
 /* ── CSS Custom Properties ─────────────────────────────────────────────────── */
 :root, [data-theme="light"] {
-  --bg-primary: #f8f8f8;
-  --bg-card: #ffffff;
-  --bg-input: #ffffff;
-  --text-primary: #333333;
-  --text-secondary: #666666;
-  --text-muted: #999999;
-  --border: #cccccc;
-  --border-light: #eeeeee;
-  --accent: #4a90e2;
-  --accent-hover: #357ABD;
-  --danger: #e74c3c;
-  --danger-hover: #c0392b;
-  --success: #27ae60;
-  --success-hover: #1e874b;
-  --warning: #f39c12;
-  --warning-hover: #e67e22;
-  --shadow: rgba(0,0,0,0.05);
-  --shadow-md: rgba(0,0,0,0.1);
+  --bg-primary: #FDF6F0;
+  --bg-card: #FFFFFF;
+  --bg-input: #FFFFFF;
+  --text-primary: #2D2A26;
+  --text-secondary: #6B6560;
+  --text-muted: #A09890;
+  --border: #D4CBC3;
+  --border-light: #EDE6DF;
+  --accent: #E07A5F;
+  --accent-hover: #C96A52;
+  --danger: #D64545;
+  --danger-hover: #BE3A3A;
+  --success: #5B9A6F;
+  --success-hover: #4A8360;
+  --warning: #E8A838;
+  --warning-hover: #D49530;
+  --secondary: #8B7E74;
+  --secondary-hover: #776B62;
+  --success-bg: #EEF5F0;
+  --shadow: rgba(45,42,38,0.06);
+  --shadow-md: rgba(45,42,38,0.12);
 }
 
 [data-theme="dark"] {
-  --bg-primary: #121212;
-  --bg-card: #1e1e1e;
-  --bg-input: #2a2a2a;
-  --text-primary: #e0e0e0;
-  --text-secondary: #b0b0b0;
-  --text-muted: #808080;
-  --border: #444444;
-  --border-light: #333333;
-  --accent: #5a9cf0;
-  --accent-hover: #4a8ce0;
-  --danger: #f05050;
-  --danger-hover: #e03030;
-  --success: #3cc070;
-  --success-hover: #2ca05a;
-  --warning: #f5a623;
-  --warning-hover: #e09010;
-  --shadow: rgba(0,0,0,0.2);
-  --shadow-md: rgba(0,0,0,0.3);
+  --bg-primary: #1A1714;
+  --bg-card: #262220;
+  --bg-input: #302B28;
+  --text-primary: #E8E0D8;
+  --text-secondary: #B8ADA4;
+  --text-muted: #887D74;
+  --border: #443E39;
+  --border-light: #332E2A;
+  --accent: #E8896F;
+  --accent-hover: #F09A82;
+  --danger: #E55B5B;
+  --danger-hover: #F06E6E;
+  --success: #6DAF81;
+  --success-hover: #7FC093;
+  --warning: #F0B848;
+  --warning-hover: #F5C85A;
+  --secondary: #9E9189;
+  --secondary-hover: #B0A49C;
+  --success-bg: #1E2A20;
+  --shadow: rgba(0,0,0,0.25);
+  --shadow-md: rgba(0,0,0,0.4);
 }
 
 @media (prefers-color-scheme: dark) {
   [data-theme="auto"] {
-    --bg-primary: #121212;
-    --bg-card: #1e1e1e;
-    --bg-input: #2a2a2a;
-    --text-primary: #e0e0e0;
-    --text-secondary: #b0b0b0;
-    --text-muted: #808080;
-    --border: #444444;
-    --border-light: #333333;
-    --accent: #5a9cf0;
-    --accent-hover: #4a8ce0;
-    --danger: #f05050;
-    --danger-hover: #e03030;
-    --success: #3cc070;
-    --success-hover: #2ca05a;
-    --warning: #f5a623;
-    --warning-hover: #e09010;
-    --shadow: rgba(0,0,0,0.2);
-    --shadow-md: rgba(0,0,0,0.3);
+    --bg-primary: #1A1714;
+    --bg-card: #262220;
+    --bg-input: #302B28;
+    --text-primary: #E8E0D8;
+    --text-secondary: #B8ADA4;
+    --text-muted: #887D74;
+    --border: #443E39;
+    --border-light: #332E2A;
+    --accent: #E8896F;
+    --accent-hover: #F09A82;
+    --danger: #E55B5B;
+    --danger-hover: #F06E6E;
+    --success: #6DAF81;
+    --success-hover: #7FC093;
+    --warning: #F0B848;
+    --warning-hover: #F5C85A;
+    --secondary: #9E9189;
+    --secondary-hover: #B0A49C;
+    --success-bg: #1E2A20;
+    --shadow: rgba(0,0,0,0.25);
+    --shadow-md: rgba(0,0,0,0.4);
   }
 }
 
@@ -291,10 +300,10 @@ label {
 }
 
 .back-btn {
-  background-color: #95a5a6;
+  background-color: var(--secondary);
 }
 .back-btn:hover {
-  background-color: #7f8c8d;
+  background-color: var(--secondary-hover);
 }
 
 /* ── Toggle / Collapsible ──────────────────────────────────────────────────── */
@@ -717,20 +726,10 @@ a {
 .winner-display {
   margin-top: 1rem;
   padding: 1.25rem;
-  background: #e8f5e9;
+  background: var(--success-bg);
   border-radius: 10px;
   text-align: center;
   border: 2px solid var(--success);
-}
-
-[data-theme="dark"] .winner-display {
-  background: #1b3a1b;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme="auto"] .winner-display {
-    background: #1b3a1b;
-  }
 }
 
 .winner-display h3 {
@@ -1164,7 +1163,7 @@ a {
 
 /* ── Want to Try ─────────────────────────────────────────────────────────── */
 .want-to-try-btn {
-  background: linear-gradient(135deg, #f39c12, #f1c40f);
+  background: linear-gradient(135deg, var(--warning), var(--warning-hover));
   color: white;
   border: none;
 }
@@ -1176,7 +1175,7 @@ a {
   align-items: center;
   gap: 0.2rem;
   padding: 0.15rem 0.45rem;
-  background: linear-gradient(135deg, #f39c12, #f1c40f);
+  background: linear-gradient(135deg, var(--warning), var(--warning-hover));
   color: white;
   border-radius: 12px;
   font-size: 0.75rem;
@@ -1190,7 +1189,7 @@ a {
   line-height: 16px;
 }
 .want-to-try-quick-btn {
-  background: linear-gradient(135deg, #f39c12, #f1c40f);
+  background: linear-gradient(135deg, var(--warning), var(--warning-hover));
   color: white;
   border: none;
   padding: 0.35rem 0.65rem;
@@ -1204,7 +1203,7 @@ a {
   transform: translateY(-1px);
 }
 .session-suggestion-list li:has(.want-to-try-badge) {
-  border-left: 3px solid #f39c12;
+  border-left: 3px solid var(--warning);
 }
 
 /* ── Share Button ────────────────────────────────────────────────────────── */
