@@ -204,7 +204,14 @@
       </button>
 
       <!-- Tab Content -->
-      <div x-show="loggedIn" class="tab-content">
+      <div x-show="loggedIn" class="tab-content"
+           @touchstart="handleTabSwipeStart($event); handlePullStart($event)"
+           @touchmove="handlePullMove($event)"
+           @touchend="handleTabSwipeEnd($event); handlePullEnd()">
+        <!-- Pull-to-refresh indicator -->
+        <div class="pull-indicator" :style="{ transform: 'translateY(' + (pullDistance - 40) + 'px)', opacity: pullDistance / 50 }">
+          <span :class="{ 'pull-spinner': refreshing }" x-text="refreshing ? '↻' : '↓'"></span>
+        </div>
 
         <!-- ═══ PLACES TAB ═══ -->
         <section x-show="activeTab === 'places'" x-transition:enter.opacity.duration.200ms>

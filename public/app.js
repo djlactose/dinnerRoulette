@@ -496,6 +496,70 @@ function dinnerRoulette() {
       window.location.hash = tab;
     },
 
+    // ── Tab Swipe ──
+    tabSwipeStartX: 0,
+    tabSwipeStartY: 0,
+
+    handleTabSwipeStart(e) {
+      this.tabSwipeStartX = e.touches[0].clientX;
+      this.tabSwipeStartY = e.touches[0].clientY;
+    },
+
+    // ── Pull to Refresh ──
+    pullStartY: 0,
+    pullDistance: 0,
+    pulling: false,
+    refreshing: false,
+
+    handlePullStart(e) {
+      if (window.scrollY === 0) {
+        this.pullStartY = e.touches[0].clientY;
+        this.pulling = true;
+      }
+    },
+
+    handlePullMove(e) {
+      if (!this.pulling) return;
+      const dy = e.touches[0].clientY - this.pullStartY;
+      if (dy > 0 && window.scrollY === 0) {
+        this.pullDistance = Math.min(dy * 0.5, 80);
+      }
+    },
+
+    handlePullEnd() {
+      if (this.pullDistance > 50) {
+        this.refreshTab();
+      }
+      this.pulling = false;
+      this.pullDistance = 0;
+    },
+
+    async refreshTab() {
+      this.refreshing = true;
+      if (this.activeTab === 'places') {
+        await this.loadPlaces();
+      } else if (this.activeTab === 'friends') {
+        await Promise.all([this.loadFriends(), this.loadFriendRequests()]);
+      } else if (this.activeTab === 'sessions') {
+        await this.loadSessions();
+        if (this.activeSession) await this.refreshSession();
+      }
+      this.refreshing = false;
+      this.showToast('Refreshed!');
+    },
+
+    handleTabSwipeEnd(e) {
+      const dx = e.changedTouches[0].clientX - this.tabSwipeStartX;
+      const dy = e.changedTouches[0].clientY - this.tabSwipeStartY;
+      if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+      const tabs = ['places', 'friends', 'sessions', 'account'];
+      if (this.isAdmin) tabs.push('admin');
+      const idx = tabs.indexOf(this.activeTab);
+      if (idx === -1) return;
+      if (dx < 0 && idx < tabs.length - 1) this.switchTab(tabs[idx + 1]);
+      else if (dx > 0 && idx > 0) this.switchTab(tabs[idx - 1]);
+    },
+
     fabAction() {
       if (this.activeTab === 'places') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
