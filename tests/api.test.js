@@ -15,10 +15,10 @@ afterAll(() => {
 });
 
 // Helper to register and get cookie
-async function registerUser(username, password) {
+async function registerUser(username, password, email) {
   const res = await request(app)
     .post('/api/register')
-    .send({ username, password, remember: true });
+    .send({ username, password, email: email || `${username}@test.com`, remember: true });
   const cookie = res.headers['set-cookie'];
   return { res, cookie };
 }
@@ -36,7 +36,7 @@ describe('Auth', () => {
   test('POST /api/register — short username rejected', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ username: 'ab', password: 'password123' });
+      .send({ username: 'ab', password: 'password123', email: 'ab@test.com' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/3 characters/);
   });
@@ -44,16 +44,32 @@ describe('Auth', () => {
   test('POST /api/register — short password rejected', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ username: 'testuser', password: '12345' });
+      .send({ username: 'testuser', password: '12345', email: 'testuser@test.com' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/6 characters/);
+  });
+
+  test('POST /api/register — email required', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({ username: 'noemail', password: 'password123' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/email/i);
+  });
+
+  test('POST /api/register — invalid email rejected', async () => {
+    const res = await request(app)
+      .post('/api/register')
+      .send({ username: 'bademail', password: 'password123', email: 'not-an-email' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/email/i);
   });
 
   test('POST /api/register — duplicate username rejected', async () => {
     await registerUser('dupuser', 'password123');
     const res = await request(app)
       .post('/api/register')
-      .send({ username: 'dupuser', password: 'password456' });
+      .send({ username: 'dupuser', password: 'password456', email: 'dup2@test.com' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/taken/i);
   });
@@ -81,14 +97,16 @@ describe('Auth', () => {
     expect(res.status).toBe(401);
   });
 
-  test('GET /api/me — with auth returns user info', async () => {
-    const { cookie } = await registerUser('meuser', 'password123');
+  test('GET /api/me — with auth returns user info including email and is_admin', async () => {
+    const { cookie } = await registerUser('meuser', 'password123', 'meuser@test.com');
     const res = await request(app)
       .get('/api/me')
       .set('Cookie', cookie);
     expect(res.status).toBe(200);
     expect(res.body.username).toBe('meuser');
     expect(res.body.id).toBeDefined();
+    expect(res.body.email).toBe('meuser@test.com');
+    expect(typeof res.body.is_admin).toBe('boolean');
   });
 
   test('POST /api/logout — clears cookie', async () => {
@@ -1085,5 +1103,266 @@ describe('Maps Config', () => {
   test('GET /api/config/maps-key — 401 without auth', async () => {
     const res = await request(app).get('/api/config/maps-key');
     expect(res.status).toBe(401);
+  });
+});
+
+// ── Settings Infrastructure Tests ────────────────────────────────────────────
+
+describe('Settings Infrastructure', () => {
+  test('getSetting/setSetting — round-trip works', () => {
+    const { getSetting, setSetting } = require('../server');
+    setSetting('test_key', 'test_value');
+    expect(getSetting('test_key')).toBe('test_value');
+    setSetting('test_key', 'updated_value');
+    expect(getSetting('test_key')).toBe('updated_value');
+  });
+
+  test('getSetting — returns null for missing key', () => {
+    const { getSetting } = require('../server');
+    expect(getSetting('nonexistent_key')).toBeNull();
+  });
+
+  test('encryptSetting/decryptSetting — round-trip works', () => {
+    const { encryptSetting, decryptSetting } = require('../server');
+    const plaintext = 'my-secret-password';
+    const encrypted = encryptSetting(plaintext);
+    expect(encrypted).not.toBe(plaintext);
+    expect(encrypted).toContain(':');
+    expect(decryptSetting(encrypted)).toBe(plaintext);
+  });
+});
+
+// ── Email Update Tests ───────────────────────────────────────────────────────
+
+describe('Email Update', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('emailuser', 'password123', 'old@test.com');
+    cookie = result.cookie;
+  });
+
+  test('POST /api/update-email — updates email', async () => {
+    const res = await request(app).post('/api/update-email').set('Cookie', cookie)
+      .send({ email: 'new@test.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe('new@test.com');
+
+    const me = await request(app).get('/api/me').set('Cookie', cookie);
+    expect(me.body.email).toBe('new@test.com');
+  });
+
+  test('POST /api/update-email — rejects invalid email', async () => {
+    const res = await request(app).post('/api/update-email').set('Cookie', cookie)
+      .send({ email: 'bad-email' });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/update-email — 401 without auth', async () => {
+    const res = await request(app).post('/api/update-email')
+      .send({ email: 'test@test.com' });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Admin Tests ──────────────────────────────────────────────────────────────
+
+describe('Admin', () => {
+  let adminCookie, userCookie, userId;
+
+  beforeAll(async () => {
+    // First user in a fresh context — make them admin via DB
+    const r1 = await registerUser('adminuser', 'password123', 'admin@test.com');
+    adminCookie = r1.cookie;
+    // Force admin via DB
+    db.prepare("UPDATE users SET is_admin = 1 WHERE username = 'adminuser'").run();
+    // Re-login to get fresh token with is_admin
+    const loginRes = await request(app).post('/api/login')
+      .send({ username: 'adminuser', password: 'password123' });
+    adminCookie = loginRes.headers['set-cookie'];
+
+    const r2 = await registerUser('normaluser', 'password123', 'normal@test.com');
+    userCookie = r2.cookie;
+    const me = await request(app).get('/api/me').set('Cookie', userCookie);
+    userId = me.body.id;
+  });
+
+  test('GET /api/admin/stats — admin can access', async () => {
+    const res = await request(app).get('/api/admin/stats').set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.totalUsers).toBe('number');
+    expect(typeof res.body.totalSessions).toBe('number');
+    expect(typeof res.body.smtpConfigured).toBe('boolean');
+    expect(typeof res.body.vapidPersisted).toBe('boolean');
+  });
+
+  test('GET /api/admin/stats — non-admin gets 403', async () => {
+    const res = await request(app).get('/api/admin/stats').set('Cookie', userCookie);
+    expect(res.status).toBe(403);
+  });
+
+  test('GET /api/admin/stats — unauthenticated gets 401', async () => {
+    const res = await request(app).get('/api/admin/stats');
+    expect(res.status).toBe(401);
+  });
+
+  test('GET /api/admin/users — lists all users', async () => {
+    const res = await request(app).get('/api/admin/users').set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.users)).toBe(true);
+    expect(res.body.users.some(u => u.username === 'adminuser')).toBe(true);
+    expect(res.body.users.some(u => u.username === 'normaluser')).toBe(true);
+  });
+
+  test('POST /api/admin/users/:id/reset-password — resets user password', async () => {
+    const res = await request(app).post(`/api/admin/users/${userId}/reset-password`).set('Cookie', adminCookie)
+      .send({ newPassword: 'resetpass123' });
+    expect(res.status).toBe(200);
+
+    const login = await request(app).post('/api/login')
+      .send({ username: 'normaluser', password: 'resetpass123' });
+    expect(login.status).toBe(200);
+  });
+
+  test('POST /api/admin/users/:id/toggle-admin — promotes user', async () => {
+    const res = await request(app).post(`/api/admin/users/${userId}/toggle-admin`).set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.is_admin).toBe(true);
+
+    // Toggle back
+    const res2 = await request(app).post(`/api/admin/users/${userId}/toggle-admin`).set('Cookie', adminCookie);
+    expect(res2.body.is_admin).toBe(false);
+  });
+
+  test('POST /api/admin/users/:id/toggle-admin — cannot modify self', async () => {
+    const me = await request(app).get('/api/me').set('Cookie', adminCookie);
+    const res = await request(app).post(`/api/admin/users/${me.body.id}/toggle-admin`).set('Cookie', adminCookie);
+    expect(res.status).toBe(400);
+  });
+
+  test('DELETE /api/admin/users/:id — cannot delete self', async () => {
+    const me = await request(app).get('/api/me').set('Cookie', adminCookie);
+    const res = await request(app).delete(`/api/admin/users/${me.body.id}`).set('Cookie', adminCookie);
+    expect(res.status).toBe(400);
+  });
+
+  test('DELETE /api/admin/users/:id — admin can delete user', async () => {
+    const { cookie: delCookie } = await registerUser('admindel', 'password123', 'admindel@test.com');
+    const me = await request(app).get('/api/me').set('Cookie', delCookie);
+    const res = await request(app).delete(`/api/admin/users/${me.body.id}`).set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+
+    const login = await request(app).post('/api/login')
+      .send({ username: 'admindel', password: 'password123' });
+    expect(login.status).toBe(401);
+  });
+
+  test('GET /api/admin/smtp — returns SMTP config', async () => {
+    const res = await request(app).get('/api/admin/smtp').set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.configured).toBe('boolean');
+  });
+
+  test('POST /api/admin/smtp — saves SMTP config', async () => {
+    const res = await request(app).post('/api/admin/smtp').set('Cookie', adminCookie)
+      .send({ host: 'smtp.test.com', port: 587, user: 'test@test.com', password: 'secret', from: 'noreply@test.com', secure: false });
+    expect(res.status).toBe(200);
+
+    const get = await request(app).get('/api/admin/smtp').set('Cookie', adminCookie);
+    expect(get.body.host).toBe('smtp.test.com');
+    expect(get.body.configured).toBe(true);
+  });
+
+  test('GET /api/admin/vapid — returns VAPID info', async () => {
+    const res = await request(app).get('/api/admin/vapid').set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.publicKey).toBe('string');
+    expect(typeof res.body.source).toBe('string');
+  });
+
+  test('POST /api/admin/vapid/generate — generates new keys', async () => {
+    const res = await request(app).post('/api/admin/vapid/generate').set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.publicKey).toBe('string');
+  });
+
+  test('GET /api/admin/settings — returns settings', async () => {
+    const res = await request(app).get('/api/admin/settings').set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.jwtExpiry).toBe('string');
+    expect(typeof res.body.cookieSecure).toBe('boolean');
+  });
+
+  test('POST /api/admin/settings — saves settings', async () => {
+    const res = await request(app).post('/api/admin/settings').set('Cookie', adminCookie)
+      .send({ jwtExpiry: '24h', cookieSecure: false });
+    expect(res.status).toBe(200);
+
+    const get = await request(app).get('/api/admin/settings').set('Cookie', adminCookie);
+    expect(get.body.jwtExpiry).toBe('24h');
+  });
+});
+
+// ── Password Reset Tests ─────────────────────────────────────────────────────
+
+describe('Password Reset', () => {
+  test('POST /api/forgot-password — returns error when SMTP not configured', async () => {
+    // Clear SMTP settings to ensure not configured
+    const { setSetting } = require('../server');
+    setSetting('smtp_host', '');
+    setSetting('smtp_user', '');
+    setSetting('smtp_password', '');
+
+    const res = await request(app).post('/api/forgot-password')
+      .send({ email: 'test@test.com' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/not available/i);
+  });
+
+  test('GET /api/reset-password/:token — invalid token returns false', async () => {
+    const res = await request(app).get('/api/reset-password/invalidtoken123');
+    expect(res.status).toBe(200);
+    expect(res.body.valid).toBe(false);
+  });
+
+  test('POST /api/reset-password — invalid token rejected', async () => {
+    const res = await request(app).post('/api/reset-password')
+      .send({ token: 'invalidtoken123', newPassword: 'newpass123' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid|expired/i);
+  });
+
+  test('POST /api/reset-password — valid token resets password', async () => {
+    const { cookie } = await registerUser('resetuser', 'password123', 'reset@test.com');
+    const me = await request(app).get('/api/me').set('Cookie', cookie);
+
+    // Manually insert a reset token
+    const token = require('crypto').randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+    db.prepare('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)').run(me.body.id, token, expiresAt);
+
+    // Validate token
+    const validate = await request(app).get(`/api/reset-password/${token}`);
+    expect(validate.body.valid).toBe(true);
+    expect(validate.body.username).toBe('resetuser');
+
+    // Reset password
+    const res = await request(app).post('/api/reset-password')
+      .send({ token, newPassword: 'newresetpass' });
+    expect(res.status).toBe(200);
+
+    // Old password fails
+    const loginOld = await request(app).post('/api/login')
+      .send({ username: 'resetuser', password: 'password123' });
+    expect(loginOld.status).toBe(401);
+
+    // New password works
+    const loginNew = await request(app).post('/api/login')
+      .send({ username: 'resetuser', password: 'newresetpass' });
+    expect(loginNew.status).toBe(200);
+
+    // Token is now used
+    const reuse = await request(app).get(`/api/reset-password/${token}`);
+    expect(reuse.body.valid).toBe(false);
   });
 });

@@ -17,6 +17,7 @@
     "jsonwebtoken": "^9.0.0",
     "morgan": "^1.10.0",
     "socket.io": "^4.7.5",
+    "nodemailer": "^6.9.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
