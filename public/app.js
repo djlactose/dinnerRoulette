@@ -95,6 +95,9 @@ function dinnerRoulette() {
     // Account
     accountForm: { currentPassword: '', newPassword: '', confirmNewPassword: '', newEmail: '', deletePassword: '' },
 
+    // Loading states
+    loading: { places: false, friends: false, sessions: false },
+
     // Network
     online: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
@@ -817,6 +820,7 @@ function dinnerRoulette() {
     },
 
     async loadPlaces() {
+      this.loading.places = true;
       try {
         const resp = await this.api('/api/places');
         const data = await resp.json();
@@ -824,6 +828,7 @@ function dinnerRoulette() {
         this.dislikes = data.dislikes || [];
         this.wantToTry = data.want_to_try || [];
       } catch (e) { /* ignore */ }
+      this.loading.places = false;
     },
 
     openMap(place) {
@@ -951,11 +956,13 @@ function dinnerRoulette() {
     },
 
     async loadFriends() {
+      this.loading.friends = true;
       try {
         const resp = await this.api('/api/friends');
         const data = await resp.json();
         this.friends = data.friends || [];
       } catch (e) { /* ignore */ }
+      this.loading.friends = false;
     },
 
     async loadCommonPlaces(friendUsername) {
@@ -1060,11 +1067,13 @@ function dinnerRoulette() {
 
     // ── Sessions ──
     async loadSessions() {
+      this.loading.sessions = true;
       try {
         const resp = await this.api('/api/sessions');
         const data = await resp.json();
         this.sessions = data.sessions || [];
       } catch (e) { /* ignore */ }
+      this.loading.sessions = false;
     },
 
     async createSession() {

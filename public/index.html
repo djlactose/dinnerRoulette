@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=15"></script>
+  <script defer src="app.js?v=16"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -263,7 +263,13 @@
           </div>
 
           <h3>Liked</h3>
-          <ul class="place-list">
+          <!-- Skeleton Loading -->
+          <div x-show="loading.places" class="skeleton-list">
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+          </div>
+          <ul class="place-list" x-show="!loading.places">
             <template x-for="place in filteredLikes" :key="place.name">
               <li @touchstart="onTouchStart($event, place.name)"
                   @touchmove="onTouchMove($event, place.name)"
@@ -297,14 +303,18 @@
               </li>
             </template>
           </ul>
-          <div x-show="likes.length === 0" class="empty-state">
+          <div x-show="likes.length === 0 && !loading.places" class="empty-state">
             <span class="empty-state-icon">&#x1F37D;</span>
             <p>No liked places yet.</p>
             <p class="empty-state-hint">Search above and tap Like to start building your list.</p>
           </div>
 
           <h3>Disliked</h3>
-          <ul class="place-list">
+          <div x-show="loading.places" class="skeleton-list">
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+          </div>
+          <ul class="place-list" x-show="!loading.places">
             <template x-for="place in filteredDislikes" :key="place.name">
               <li @touchstart="onTouchStart($event, place.name)"
                   @touchmove="onTouchMove($event, place.name)"
@@ -323,14 +333,18 @@
               </li>
             </template>
           </ul>
-          <div x-show="dislikes.length === 0" class="empty-state">
+          <div x-show="dislikes.length === 0 && !loading.places" class="empty-state">
             <span class="empty-state-icon">&#x1F44E;</span>
             <p>No disliked places yet.</p>
             <p class="empty-state-hint">Places you dislike will appear here.</p>
           </div>
 
           <h3>⭐ Want to Try</h3>
-          <ul class="place-list">
+          <div x-show="loading.places" class="skeleton-list">
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+            <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+          </div>
+          <ul class="place-list" x-show="!loading.places">
             <template x-for="place in filteredWantToTry" :key="place.name">
               <li @touchstart="onTouchStart($event, place.name)"
                   @touchmove="onTouchMove($event, place.name)"
@@ -354,7 +368,7 @@
               </li>
             </template>
           </ul>
-          <div x-show="wantToTry.length === 0" class="empty-state">
+          <div x-show="wantToTry.length === 0 && !loading.places" class="empty-state">
             <span class="empty-state-icon">⭐</span>
             <p>No places on your bucket list yet.</p>
             <p class="empty-state-hint">Mark places you want to try!</p>
@@ -390,7 +404,13 @@
           <!-- Friends List -->
           <div class="friends-list">
             <h4>Friends</h4>
-            <template x-if="friends.length > 0">
+            <!-- Skeleton Loading -->
+            <div x-show="loading.friends" class="skeleton-list">
+              <div class="skeleton-card skeleton-row"><div class="skeleton-avatar"></div><div class="skeleton-line skeleton-line-md"></div></div>
+              <div class="skeleton-card skeleton-row"><div class="skeleton-avatar"></div><div class="skeleton-line skeleton-line-md"></div></div>
+              <div class="skeleton-card skeleton-row"><div class="skeleton-avatar"></div><div class="skeleton-line skeleton-line-md"></div></div>
+            </div>
+            <template x-if="friends.length > 0 && !loading.friends">
               <ul>
                 <template x-for="f in friends" :key="f.id">
                   <li>
@@ -407,7 +427,7 @@
                 </template>
               </ul>
             </template>
-            <div x-show="friends.length === 0" class="empty-state">
+            <div x-show="friends.length === 0 && !loading.friends" class="empty-state">
               <span class="empty-state-icon">&#x1F465;</span>
               <p>No friends yet.</p>
               <p class="empty-state-hint">Enter a username above and send a friend request.</p>
@@ -549,7 +569,12 @@
                   </li>
                 </template>
               </ul>
-              <div x-show="sessions.length === 0" class="empty-state">
+              <!-- Skeleton Loading -->
+              <div x-show="loading.sessions" class="skeleton-list">
+                <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+                <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
+              </div>
+              <div x-show="sessions.length === 0 && !loading.sessions" class="empty-state">
                 <span class="empty-state-icon">&#x1F46B;</span>
                 <p>No sessions yet.</p>
                 <p class="empty-state-hint">Create a session or join one with an invite code.</p>
