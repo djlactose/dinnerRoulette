@@ -91,6 +91,8 @@ function dinnerRoulette() {
     winner: null,
     userLat: null,
     userLng: null,
+    spinningWheel: false,
+    wheelAngle: 0,
 
     // Account
     accountForm: { currentPassword: '', newPassword: '', confirmNewPassword: '', newEmail: '', deletePassword: '' },
@@ -1396,57 +1398,127 @@ function dinnerRoulette() {
       this.picking = true;
       this.winner = null;
 
-      const names = (this.activeSession.suggestions || []).map(s => s.place);
-      if (names.length === 0) {
+      const suggestions = this.activeSession.suggestions || [];
+      if (suggestions.length === 0) {
         this.showToast('No suggestions to pick from!', 'error');
         this.picking = false;
         return;
       }
 
-      // Enhanced spinning animation
-      const winnerEl = document.getElementById('winner-text');
-      let cycles = 25;
-      let delay = 40;
-      let i = 0;
-
-      await new Promise(resolve => {
-        const spin = () => {
-          this.winner = { place: names[i % names.length] };
-          if (winnerEl) {
-            winnerEl.classList.remove('spin-enhanced');
-            void winnerEl.offsetWidth;
-            winnerEl.classList.add('spin-enhanced');
-          }
-          i++;
-          cycles--;
-          if (cycles > 0) {
-            delay = Math.floor(delay * 1.12);
-            setTimeout(spin, delay);
-          } else {
-            resolve();
-          }
-        };
-        spin();
-      });
-
-      // Fetch actual server-side weighted pick
+      // Fetch actual server-side weighted pick first
+      let serverWinner;
       try {
         const resp = await this.api(`/api/sessions/${this.activeSession.session.id}/pick`, {
           method: 'POST',
           body: JSON.stringify({ mode: 'random' }),
         });
         const data = await resp.json();
-        this.winner = data.winner;
-        if (winnerEl) {
-          winnerEl.classList.remove('spin-enhanced');
-          winnerEl.classList.add('winner-bounce');
-        }
-        this.showToast(`Winner: ${data.winner.place}`);
-        this.createConfetti();
+        serverWinner = data.winner;
       } catch (e) {
         this.showToast('Failed to pick', 'error');
+        this.picking = false;
+        return;
       }
+
+      // Spin the wheel animation
+      await this.spinWheel(suggestions.map(s => s.place), serverWinner.place);
+
+      this.winner = serverWinner;
+      this.showToast(`Winner: ${serverWinner.place}`);
+      this.createConfetti();
       this.picking = false;
+    },
+
+    spinWheel(names, winnerName) {
+      return new Promise(resolve => {
+        this.spinningWheel = true;
+        const canvas = document.getElementById('spin-wheel-canvas');
+        if (!canvas) { this.spinningWheel = false; resolve(); return; }
+        const ctx = canvas.getContext('2d');
+        const size = Math.min(canvas.parentElement.clientWidth - 32, 320);
+        canvas.width = size;
+        canvas.height = size;
+        const cx = size / 2;
+        const cy = size / 2;
+        const r = size / 2 - 8;
+        const segAngle = (Math.PI * 2) / names.length;
+        const colors = ['#E07A5F', '#5B9A6F', '#E8A838', '#8B7E74', '#D64545', '#4A8360', '#C96A52', '#776B62'];
+
+        // Calculate target angle so winner lands at top (pointer)
+        const winnerIdx = names.indexOf(winnerName);
+        const targetSegCenter = winnerIdx * segAngle + segAngle / 2;
+        // We want the pointer at the top (3π/2 or -π/2) to point at the winner segment
+        // totalRotation = multiple full spins + offset to land on winner
+        const totalRotation = Math.PI * 2 * (5 + Math.random() * 3) + (Math.PI * 2 - targetSegCenter + Math.PI / 2);
+
+        let startTime = null;
+        const duration = 3000;
+
+        const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+        const draw = (angle) => {
+          ctx.clearRect(0, 0, size, size);
+          for (let i = 0; i < names.length; i++) {
+            const start = angle + i * segAngle;
+            const end = start + segAngle;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, r, start, end);
+            ctx.closePath();
+            ctx.fillStyle = colors[i % colors.length];
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Label
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(start + segAngle / 2);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${Math.max(10, Math.min(14, r / names.length))}px sans-serif`;
+            const label = names[i].length > 18 ? names[i].slice(0, 16) + '...' : names[i];
+            ctx.fillText(label, r - 12, 4);
+            ctx.restore();
+          }
+          // Pointer
+          ctx.beginPath();
+          ctx.moveTo(cx, 4);
+          ctx.lineTo(cx - 10, -6);
+          ctx.lineTo(cx + 10, -6);
+          ctx.closePath();
+          ctx.fillStyle = 'var(--text-primary)';
+          ctx.fill();
+          // Center circle
+          ctx.beginPath();
+          ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff';
+          ctx.fill();
+          ctx.strokeStyle = '#ccc';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        };
+
+        const animate = (timestamp) => {
+          if (!startTime) startTime = timestamp;
+          const elapsed = timestamp - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          const easedProgress = easeOut(progress);
+          this.wheelAngle = easedProgress * totalRotation;
+          draw(this.wheelAngle);
+          if (progress < 1) {
+            requestAnimationFrame(animate);
+          } else {
+            setTimeout(() => {
+              this.spinningWheel = false;
+              resolve();
+            }, 500);
+          }
+        };
+
+        requestAnimationFrame(animate);
+      });
     },
 
     // ── Closest Pick ──

@@ -814,8 +814,13 @@
                 <button @click="closestPick()" :disabled="picking" aria-label="Pick the closest restaurant">📍 Closest</button>
               </div>
 
+              <!-- Spin Wheel -->
+              <div class="spin-wheel-container" x-show="spinningWheel" x-transition>
+                <canvas id="spin-wheel-canvas"></canvas>
+              </div>
+
               <!-- Winner Display -->
-              <div class="winner-display" x-show="winner" x-transition>
+              <div class="winner-display" x-show="winner && !spinningWheel" x-transition>
                 <h3 x-text="winner?.place" id="winner-text"></h3>
                 <p x-show="winner?.distance != null" x-text="winnerDistanceText"></p>
                 <a :href="winnerMapUrl" target="_blank" rel="noopener"
