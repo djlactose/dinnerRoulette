@@ -949,6 +949,19 @@
                         <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
                            target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                         <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
+                        <span class="overflow-divider"></span>
+                        <button class="save-list-btn save-fav-btn" @click="addSuggestionToList(s, 'favorite')"
+                                :disabled="suggestionInList(s.place) != null"
+                                :title="suggestionInList(s.place) ? 'Already in your ' + suggestionInList(s.place).replace('_', ' ') : 'Add to Favorites'">&#x2605; Fav</button>
+                        <button class="save-list-btn save-like-btn" @click="addSuggestionToList(s, 'like')"
+                                :disabled="suggestionInList(s.place) != null"
+                                :title="suggestionInList(s.place) ? 'Already in your ' + suggestionInList(s.place).replace('_', ' ') : 'Add to Likes'">&#x1F44D; Like</button>
+                        <button class="save-list-btn save-dislike-btn" @click="addSuggestionToList(s, 'dislike')"
+                                :disabled="suggestionInList(s.place) != null"
+                                :title="suggestionInList(s.place) ? 'Already in your ' + suggestionInList(s.place).replace('_', ' ') : 'Add to Dislikes'">&#x1F44E; Dislike</button>
+                        <button class="save-list-btn save-wtt-btn" @click="addSuggestionToList(s, 'want_to_try')"
+                                :disabled="suggestionInList(s.place) != null"
+                                :title="suggestionInList(s.place) ? 'Already in your ' + suggestionInList(s.place).replace('_', ' ') : 'Add to Want to Try'">&#x2B50; Try</button>
                       </div>
                     </div>
                     <div class="voters-list" x-show="s._showVoters && ((s.voters?.length > 0) || (s.downvoters?.length > 0))" x-collapse>
