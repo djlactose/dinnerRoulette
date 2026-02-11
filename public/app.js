@@ -496,6 +496,22 @@ function dinnerRoulette() {
       window.location.hash = tab;
     },
 
+    fabAction() {
+      if (this.activeTab === 'places') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        this.$nextTick(() => this.$refs.placeSearch?.focus());
+      } else if (this.activeTab === 'friends') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        this.$nextTick(() => this.$refs.friendInput?.focus());
+      } else if (this.activeTab === 'sessions') {
+        if (!this.activeSession) {
+          this.createSession();
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+    },
+
     // ── Theme ──
     toggleTheme() {
       const order = ['auto', 'light', 'dark'];
