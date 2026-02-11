@@ -9,6 +9,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - NODE_ENV=production
       - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - TENOR_API_KEY=${TENOR_API_KEY:-}
     volumes:
       - ./public:/usr/src/app/public
       - ./data:/usr/src/app/data

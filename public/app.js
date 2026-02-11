@@ -130,6 +130,12 @@ function dinnerRoulette() {
     chatMessages: [],
     chatInput: '',
     chatVisible: false,
+    emojiPickerVisible: false,
+    gifSearchVisible: false,
+    gifSearchQuery: '',
+    gifResults: [],
+    gifLoading: false,
+    reactionPickerMessageId: null,
 
     // Map
     mapView: false,
@@ -327,11 +333,11 @@ function dinnerRoulette() {
       }
       const sorted = [...suggestions];
       if (this.planSuggestSort === 'votes') {
-        sorted.sort((a, b) => b.vote_count - a.vote_count || a.place.localeCompare(b.place));
+        sorted.sort((a, b) => (b.vote_count - (b.downvote_count || 0)) - (a.vote_count - (a.downvote_count || 0)) || a.place.localeCompare(b.place));
       } else if (this.planSuggestSort === 'name') {
         sorted.sort((a, b) => a.place.localeCompare(b.place));
       } else if (this.planSuggestSort === 'suggester') {
-        sorted.sort((a, b) => (a.suggested_by || '').localeCompare(b.suggested_by || '') || b.vote_count - a.vote_count);
+        sorted.sort((a, b) => (a.suggested_by || '').localeCompare(b.suggested_by || '') || (b.vote_count - (b.downvote_count || 0)) - (a.vote_count - (a.downvote_count || 0)));
       }
       return sorted;
     },
@@ -340,11 +346,13 @@ function dinnerRoulette() {
       if (!this.activePlan || !this.winner) return null;
       const suggestions = this.activePlan.suggestions || [];
       const totalVotes = suggestions.reduce((sum, s) => sum + (s.vote_count || 0), 0);
+      const totalDownvotes = suggestions.reduce((sum, s) => sum + (s.downvote_count || 0), 0);
       const winnerSugg = suggestions.find(s => s.place === this.winner.place);
-      const topPlaces = [...suggestions].sort((a, b) => b.vote_count - a.vote_count).slice(0, 3);
+      const topPlaces = [...suggestions].sort((a, b) => (b.vote_count - (b.downvote_count || 0)) - (a.vote_count - (a.downvote_count || 0))).slice(0, 3);
       return {
         totalSuggestions: suggestions.length,
         totalVotes,
+        totalDownvotes,
         suggestedBy: winnerSugg?.suggested_by || 'Unknown',
         topPlaces,
       };
@@ -450,14 +458,25 @@ function dinnerRoulette() {
         const s = this.activePlan.suggestions.find(s => s.id === data.suggestion_id);
         if (s) {
           s.vote_count = data.vote_count;
+          if (data.downvote_count !== undefined) s.downvote_count = data.downvote_count;
           if (!s.voters) s.voters = [];
-          if (data.action === 'vote' && data.username && !s.voters.includes(data.username)) {
-            s.voters.push(data.username);
-          } else if (data.action === 'unvote' && data.username) {
+          if (!s.downvoters) s.downvoters = [];
+
+          if (data.action === 'vote') {
+            if (data.username && !s.voters.includes(data.username)) s.voters.push(data.username);
+            s.downvoters = s.downvoters.filter(v => v !== data.username);
+          } else if (data.action === 'unvote') {
             s.voters = s.voters.filter(v => v !== data.username);
+          } else if (data.action === 'downvote') {
+            if (data.username && !s.downvoters.includes(data.username)) s.downvoters.push(data.username);
+            s.voters = s.voters.filter(v => v !== data.username);
+          } else if (data.action === 'undownvote') {
+            s.downvoters = s.downvoters.filter(v => v !== data.username);
           }
+
           if (data.user_id === this.userId) {
-            s.user_voted = data.action === 'vote';
+            s.user_voted = (data.action === 'vote');
+            s.user_downvoted = (data.action === 'downvote');
           }
         }
       });
@@ -476,11 +495,18 @@ function dinnerRoulette() {
 
       this.socket.on('plan:message', (data) => {
         if (!this.activePlan) return;
+        if (!data.reactions) data.reactions = [];
         this.chatMessages.push(data);
         this.$nextTick(() => {
           const el = document.getElementById('chat-messages');
           if (el) el.scrollTop = el.scrollHeight;
         });
+      });
+
+      this.socket.on('plan:reaction-updated', (data) => {
+        if (!this.activePlan) return;
+        const msg = this.chatMessages.find(m => m.id === data.message_id);
+        if (msg) msg.reactions = data.reactions;
       });
 
       this.socket.on('plan:closed', () => {
@@ -1289,6 +1315,11 @@ function dinnerRoulette() {
       this.chatMessages = [];
       this.chatInput = '';
       this.chatVisible = false;
+      this.emojiPickerVisible = false;
+      this.gifSearchVisible = false;
+      this.gifSearchQuery = '';
+      this.gifResults = [];
+      this.reactionPickerMessageId = null;
       this.planCuisineFilter = '';
       this.mapView = false;
       if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
@@ -1451,6 +1482,16 @@ function dinnerRoulette() {
     async toggleVote(suggestion) {
       if (!this.activePlan) return;
       const endpoint = suggestion.user_voted ? 'unvote' : 'vote';
+      await this.api(`/api/plans/${this.activePlan.plan.id}/${endpoint}`, {
+        method: 'POST',
+        body: JSON.stringify({ suggestion_id: suggestion.id }),
+      });
+      await this.refreshPlan();
+    },
+
+    async toggleDownvote(suggestion) {
+      if (!this.activePlan) return;
+      const endpoint = suggestion.user_downvoted ? 'undownvote' : 'downvote';
       await this.api(`/api/plans/${this.activePlan.plan.id}/${endpoint}`, {
         method: 'POST',
         body: JSON.stringify({ suggestion_id: suggestion.id }),
@@ -1838,7 +1879,7 @@ function dinnerRoulette() {
       try {
         await this.api(`/api/plans/${this.activePlan.plan.id}/messages`, {
           method: 'POST',
-          body: JSON.stringify({ message: this.chatInput.trim() }),
+          body: JSON.stringify({ message: this.chatInput.trim(), message_type: 'text' }),
         });
         this.chatInput = '';
       } catch (e) {
@@ -1850,6 +1891,132 @@ function dinnerRoulette() {
       if (!dateStr) return '';
       const d = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z'));
       return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    },
+
+    // ── Emoji Picker ──
+    emojiCategories() {
+      return {
+        'Smileys': ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐'],
+        'Gestures': ['👍','👎','👏','🙌','🤝','🙏','💪','✌️','🤞','🤟','🤘','👌','🤙','👋','🤚','✋','👐','🫶'],
+        'Hearts': ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','💕','💞','💓','💗','💖','💝'],
+        'Food': ['🍕','🍔','🍟','🌭','🍿','🥓','🥩','🍗','🍖','🌮','🌯','🥙','🍣','🍱','🍛','🍜','🍝','🍲','🥘','🍳','🥗','🍰','🎂','🍩','🍪','🍫','🧁','🍦'],
+        'Drinks': ['☕','🍵','🥤','🧃','🍺','🍻','🥂','🍷','🥃','🍹','🍸','🧋'],
+        'Celebration': ['🎉','🎊','🎈','🎁','🏆','🥇','🥈','🥉','⭐','🌟','✨','💫','🔥','💯','🎯'],
+        'Misc': ['👀','💬','💭','✅','❌','⚠️','💡','📌','🔔','⏰','🕐','📍','🏠','🚗','😈'],
+      };
+    },
+
+    toggleEmojiPicker() {
+      this.emojiPickerVisible = !this.emojiPickerVisible;
+      this.gifSearchVisible = false;
+    },
+
+    insertEmoji(emoji) {
+      const input = this.$refs.chatInputField;
+      if (input) {
+        const start = input.selectionStart || this.chatInput.length;
+        const end = input.selectionEnd || this.chatInput.length;
+        this.chatInput = this.chatInput.slice(0, start) + emoji + this.chatInput.slice(end);
+        this.$nextTick(() => {
+          input.focus();
+          const pos = start + emoji.length;
+          input.setSelectionRange(pos, pos);
+        });
+      } else {
+        this.chatInput += emoji;
+      }
+    },
+
+    // ── GIF Search ──
+    toggleGifSearch() {
+      this.gifSearchVisible = !this.gifSearchVisible;
+      this.emojiPickerVisible = false;
+      if (this.gifSearchVisible && this.gifResults.length === 0) {
+        this.loadTrendingGifs();
+      }
+    },
+
+    async loadTrendingGifs() {
+      this.gifLoading = true;
+      try {
+        const resp = await this.api('/api/tenor/trending');
+        const data = await resp.json();
+        this.gifResults = (data.results || []).map(r => ({
+          id: r.id,
+          preview: r.media_formats?.tinygif?.url || r.media_formats?.gif?.url,
+          url: r.media_formats?.gif?.url,
+        }));
+      } catch (e) { this.gifResults = []; }
+      this.gifLoading = false;
+    },
+
+    async searchGifs() {
+      if (!this.gifSearchQuery.trim()) { this.loadTrendingGifs(); return; }
+      this.gifLoading = true;
+      try {
+        const resp = await this.api(`/api/tenor/search?q=${encodeURIComponent(this.gifSearchQuery.trim())}`);
+        const data = await resp.json();
+        this.gifResults = (data.results || []).map(r => ({
+          id: r.id,
+          preview: r.media_formats?.tinygif?.url || r.media_formats?.gif?.url,
+          url: r.media_formats?.gif?.url,
+        }));
+      } catch (e) { this.gifResults = []; }
+      this.gifLoading = false;
+    },
+
+    async sendGif(gifUrl) {
+      if (!this.activePlan || !gifUrl) return;
+      try {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ message: gifUrl, message_type: 'gif' }),
+        });
+        this.gifSearchVisible = false;
+        this.gifSearchQuery = '';
+      } catch (e) {
+        this.showToast('Failed to send GIF', 'error');
+      }
+    },
+
+    // ── Reactions ──
+    openReactionPicker(messageId) {
+      this.reactionPickerMessageId = this.reactionPickerMessageId === messageId ? null : messageId;
+    },
+
+    async toggleReaction(messageId, emoji) {
+      if (!this.activePlan) return;
+      const msg = this.chatMessages.find(m => m.id === messageId);
+      if (!msg) return;
+      const existing = (msg.reactions || []).find(r => r.emoji === emoji && r.user_id === this.userId);
+      try {
+        if (existing) {
+          await this.api(`/api/plans/${this.activePlan.plan.id}/messages/${messageId}/react`, {
+            method: 'DELETE',
+            body: JSON.stringify({ emoji }),
+          });
+        } else {
+          await this.api(`/api/plans/${this.activePlan.plan.id}/messages/${messageId}/react`, {
+            method: 'POST',
+            body: JSON.stringify({ emoji }),
+          });
+        }
+      } catch (e) {
+        this.showToast('Failed to react', 'error');
+      }
+      this.reactionPickerMessageId = null;
+    },
+
+    groupedReactions(reactions) {
+      if (!reactions || reactions.length === 0) return [];
+      const map = {};
+      reactions.forEach(r => {
+        if (!map[r.emoji]) map[r.emoji] = { emoji: r.emoji, count: 0, users: [], userReacted: false };
+        map[r.emoji].count++;
+        map[r.emoji].users.push(r.username);
+        if (r.user_id === this.userId) map[r.emoji].userReacted = true;
+      });
+      return Object.values(map);
     },
 
     // ── Map View ──
@@ -1912,7 +2079,7 @@ function dinnerRoulette() {
           label: { text: String(idx + 1), color: 'white', fontWeight: 'bold' },
         });
         const infoWindow = new google.maps.InfoWindow({
-          content: `<strong>${s.place}</strong>${s.restaurant_type ? `<br><small>${s.restaurant_type}</small>` : ''}<br><small>${s.vote_count} vote${s.vote_count !== 1 ? 's' : ''}</small>`,
+          content: `<strong>${s.place}</strong>${s.restaurant_type ? `<br><small>${s.restaurant_type}</small>` : ''}<br><small>+${s.vote_count} / -${s.downvote_count || 0}</small>`,
         });
         marker.addListener('click', () => infoWindow.open(this.mapInstance, marker));
         this.mapMarkers.push(marker);

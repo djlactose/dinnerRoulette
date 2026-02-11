@@ -687,6 +687,96 @@ describe('Plans', () => {
     expect(s.user_voted).toBe(false);
   });
 
+  test('POST /api/plans/:id/downvote — downvote on suggestion', async () => {
+    const detail = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const suggId = detail.body.suggestions[0].id;
+
+    const res = await request(app)
+      .post(`/api/plans/${planId}/downvote`)
+      .set('Cookie', cookie1)
+      .send({ suggestion_id: suggId });
+    expect(res.status).toBe(200);
+
+    const updated = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const s = updated.body.suggestions.find(s => s.id === suggId);
+    expect(s.downvote_count).toBe(1);
+    expect(s.user_downvoted).toBe(true);
+    expect(s.vote_count).toBe(0);
+    expect(s.user_voted).toBe(false);
+  });
+
+  test('POST /api/plans/:id/undownvote — removes downvote', async () => {
+    const detail = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const suggId = detail.body.suggestions[0].id;
+
+    const res = await request(app)
+      .post(`/api/plans/${planId}/undownvote`)
+      .set('Cookie', cookie1)
+      .send({ suggestion_id: suggId });
+    expect(res.status).toBe(200);
+
+    const updated = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const s = updated.body.suggestions.find(s => s.id === suggId);
+    expect(s.downvote_count).toBe(0);
+    expect(s.user_downvoted).toBe(false);
+  });
+
+  test('Mutual exclusivity — upvote then downvote removes upvote', async () => {
+    const detail = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const suggId = detail.body.suggestions[0].id;
+
+    await request(app)
+      .post(`/api/plans/${planId}/vote`)
+      .set('Cookie', cookie1)
+      .send({ suggestion_id: suggId });
+
+    await request(app)
+      .post(`/api/plans/${planId}/downvote`)
+      .set('Cookie', cookie1)
+      .send({ suggestion_id: suggId });
+
+    const updated = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const s = updated.body.suggestions.find(s => s.id === suggId);
+    expect(s.vote_count).toBe(0);
+    expect(s.downvote_count).toBe(1);
+    expect(s.user_voted).toBe(false);
+    expect(s.user_downvoted).toBe(true);
+  });
+
+  test('Mutual exclusivity — downvote then upvote removes downvote', async () => {
+    const detail = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const suggId = detail.body.suggestions[0].id;
+
+    // Already downvoted from previous test, so vote now
+    await request(app)
+      .post(`/api/plans/${planId}/vote`)
+      .set('Cookie', cookie1)
+      .send({ suggestion_id: suggId });
+
+    const updated = await request(app)
+      .get(`/api/plans/${planId}`)
+      .set('Cookie', cookie1);
+    const s = updated.body.suggestions.find(s => s.id === suggId);
+    expect(s.vote_count).toBe(1);
+    expect(s.downvote_count).toBe(0);
+    expect(s.user_voted).toBe(true);
+    expect(s.user_downvoted).toBe(false);
+  });
+
   test('POST /api/plans/:id/pick — random pick returns winner', async () => {
     const res = await request(app)
       .post(`/api/plans/${planId}/pick`)
@@ -1105,6 +1195,128 @@ describe('Plan Chat', () => {
     const r3 = await registerUser('chatoutsider', 'password123');
     const res = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', r3.cookie);
     expect(res.status).toBe(403);
+  });
+});
+
+// ── GIF Messages & Reactions Tests ────────────────────────────────────────
+
+describe('GIF Messages & Reactions', () => {
+  let cookie1, cookie2, cookie3, planId, messageId;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('gifreactor1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('gifreactor2', 'password123');
+    cookie2 = r2.cookie;
+    const r3 = await registerUser('gifreactor3', 'password123');
+    cookie3 = r3.cookie;
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'GIF Plan' });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+    // Send a text message to react to
+    const msgRes = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'React to this!', message_type: 'text' });
+    messageId = msgRes.body.message.id;
+  });
+
+  test('POST /api/plans/:id/messages — GIF message with valid Tenor URL', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'https://media.tenor.com/abc123/test.gif', message_type: 'gif' });
+    expect(res.status).toBe(200);
+    expect(res.body.message.message_type).toBe('gif');
+    expect(res.body.message.message).toBe('https://media.tenor.com/abc123/test.gif');
+  });
+
+  test('POST /api/plans/:id/messages — rejects non-Tenor GIF URL', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'https://evil.com/malware.gif', message_type: 'gif' });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/plans/:id/messages — rejects empty GIF URL', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: '', message_type: 'gif' });
+    expect(res.status).toBe(400);
+  });
+
+  test('GET /api/plans/:id/messages — includes message_type and reactions', async () => {
+    const res = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.messages.length).toBeGreaterThan(0);
+    const textMsg = res.body.messages.find(m => m.message === 'React to this!');
+    expect(textMsg.message_type).toBe('text');
+    expect(textMsg.reactions).toEqual([]);
+    const gifMsg = res.body.messages.find(m => m.message_type === 'gif');
+    expect(gifMsg).toBeDefined();
+  });
+
+  test('POST /api/plans/:id/messages/:messageId/react — adds reaction', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/${messageId}/react`).set('Cookie', cookie1)
+      .send({ emoji: '👍' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('POST /api/plans/:id/messages/:messageId/react — duplicate is idempotent', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/${messageId}/react`).set('Cookie', cookie1)
+      .send({ emoji: '👍' });
+    expect(res.status).toBe(200);
+  });
+
+  test('POST /api/plans/:id/messages/:messageId/react — second user reacts', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/${messageId}/react`).set('Cookie', cookie2)
+      .send({ emoji: '👍' });
+    expect(res.status).toBe(200);
+  });
+
+  test('GET messages — shows reactions from both users', async () => {
+    const res = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', cookie1);
+    const msg = res.body.messages.find(m => m.id === messageId);
+    const thumbsUp = msg.reactions.filter(r => r.emoji === '👍');
+    expect(thumbsUp.length).toBe(2);
+  });
+
+  test('DELETE /api/plans/:id/messages/:messageId/react — removes reaction', async () => {
+    const res = await request(app).delete(`/api/plans/${planId}/messages/${messageId}/react`).set('Cookie', cookie1)
+      .send({ emoji: '👍' });
+    expect(res.status).toBe(200);
+
+    const msgs = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', cookie1);
+    const msg = msgs.body.messages.find(m => m.id === messageId);
+    const thumbsUp = msg.reactions.filter(r => r.emoji === '👍');
+    expect(thumbsUp.length).toBe(1);
+  });
+
+  test('POST react — rejects invalid emoji (too long)', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/${messageId}/react`).set('Cookie', cookie1)
+      .send({ emoji: 'this is way too long to be an emoji' });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST react — non-member gets 403', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/${messageId}/react`).set('Cookie', cookie3)
+      .send({ emoji: '👍' });
+    expect(res.status).toBe(403);
+  });
+
+  test('POST react — message not found returns 404', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/99999/react`).set('Cookie', cookie1)
+      .send({ emoji: '👍' });
+    expect(res.status).toBe(404);
+  });
+
+  test('GET /api/tenor/search — returns 400 without TENOR_API_KEY', async () => {
+    const res = await request(app).get('/api/tenor/search?q=funny').set('Cookie', cookie1);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('not configured');
+  });
+
+  test('GET /api/tenor/trending — returns 400 without TENOR_API_KEY', async () => {
+    const res = await request(app).get('/api/tenor/trending').set('Cookie', cookie1);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('not configured');
   });
 });
 

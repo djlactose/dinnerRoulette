@@ -48,7 +48,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io", "https://maps.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com"],
+      imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://media.tenor.com", "https://www.gstatic.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       upgradeInsecureRequests: null,
@@ -186,9 +186,20 @@ db.exec(`
     session_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
     message TEXT NOT NULL,
+    message_type TEXT DEFAULT 'text',
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS message_reactions (
+    id INTEGER PRIMARY KEY,
+    message_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    emoji TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (message_id) REFERENCES session_messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(message_id, user_id, emoji)
   );
   CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id INTEGER PRIMARY KEY,
@@ -227,6 +238,8 @@ try { db.exec('ALTER TABLE users ADD COLUMN created_at TEXT'); } catch (e) { /* 
 try { db.exec("UPDATE users SET created_at = datetime('now') WHERE created_at IS NULL"); } catch (e) { /* ignore */ }
 try { db.exec('ALTER TABLE likes ADD COLUMN starred INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN starred INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
+try { db.exec("ALTER TABLE session_votes ADD COLUMN vote_type TEXT DEFAULT 'up'"); } catch (e) { /* already exists */ }
+try { db.exec("ALTER TABLE session_messages ADD COLUMN message_type TEXT DEFAULT 'text'"); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -512,6 +525,7 @@ app.post('/api/delete-account', auth, async (req, res) => {
 
   const uid = req.user.id;
   const deleteAll = db.transaction(() => {
+    db.prepare('DELETE FROM message_reactions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM session_votes WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM session_suggestions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM session_members WHERE user_id = ?').run(uid);
@@ -651,6 +665,7 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
   const target = db.prepare('SELECT id FROM users WHERE id = ?').get(targetId);
   if (!target) return res.status(404).json({ error: 'User not found' });
   const deleteAll = db.transaction(() => {
+    db.prepare('DELETE FROM message_reactions WHERE user_id = ?').run(targetId);
     db.prepare('DELETE FROM session_votes WHERE user_id = ?').run(targetId);
     db.prepare('DELETE FROM session_suggestions WHERE user_id = ?').run(targetId);
     db.prepare('DELETE FROM session_members WHERE user_id = ?').run(targetId);
@@ -1131,26 +1146,34 @@ app.get('/api/plans/:id', auth, (req, res) => {
   const suggestions = db.prepare(`
     SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.user_id,
            u.username AS suggested_by,
-           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id) AS vote_count
+           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
+           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count
     FROM session_suggestions ss
     JOIN users u ON u.id = ss.user_id
     WHERE ss.session_id = ?
   `).all(planId);
 
-  const userVotes = db.prepare('SELECT suggestion_id FROM session_votes WHERE session_id = ? AND user_id = ?').all(planId, req.user.id);
-  const votedIds = new Set(userVotes.map(v => v.suggestion_id));
+  const userVotes = db.prepare('SELECT suggestion_id, vote_type FROM session_votes WHERE session_id = ? AND user_id = ?').all(planId, req.user.id);
+  const votedIds = new Set(userVotes.filter(v => v.vote_type === 'up').map(v => v.suggestion_id));
+  const downvotedIds = new Set(userVotes.filter(v => v.vote_type === 'down').map(v => v.suggestion_id));
 
   // Fetch voters for each suggestion
   const allVotes = db.prepare(`
-    SELECT sv.suggestion_id, u.username
+    SELECT sv.suggestion_id, sv.vote_type, u.username
     FROM session_votes sv
     JOIN users u ON u.id = sv.user_id
     WHERE sv.session_id = ?
   `).all(planId);
   const votersMap = {};
+  const downvotersMap = {};
   allVotes.forEach(v => {
-    if (!votersMap[v.suggestion_id]) votersMap[v.suggestion_id] = [];
-    votersMap[v.suggestion_id].push(v.username);
+    if (v.vote_type === 'up') {
+      if (!votersMap[v.suggestion_id]) votersMap[v.suggestion_id] = [];
+      votersMap[v.suggestion_id].push(v.username);
+    } else {
+      if (!downvotersMap[v.suggestion_id]) downvotersMap[v.suggestion_id] = [];
+      downvotersMap[v.suggestion_id].push(v.username);
+    }
   });
 
   // Find which session suggestions are on members' want-to-try lists
@@ -1174,7 +1197,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
   res.json({
     plan,
     members,
-    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id), voters: votersMap[s.id] || [] })),
+    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id), user_downvoted: downvotedIds.has(s.id), voters: votersMap[s.id] || [], downvoters: downvotersMap[s.id] || [] })),
     want_to_try: wantToTryMap,
   });
 });
@@ -1255,9 +1278,11 @@ app.post('/api/plans/:id/vote', auth, (req, res) => {
   const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member' });
 
-  db.prepare('INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id) VALUES (?, ?, ?)').run(planId, req.user.id, suggestion_id);
-  const count = db.prepare('SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ?').get(suggestion_id);
-  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, username: req.user.username, action: 'vote' });
+  db.prepare('DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ?').run(planId, req.user.id, suggestion_id);
+  db.prepare("INSERT INTO session_votes (session_id, user_id, suggestion_id, vote_type) VALUES (?, ?, ?, 'up')").run(planId, req.user.id, suggestion_id);
+  const voteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'up'").get(suggestion_id).c;
+  const downvoteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'down'").get(suggestion_id).c;
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: voteCount, downvote_count: downvoteCount, user_id: req.user.id, username: req.user.username, action: 'vote' });
   res.json({ success: true });
 });
 
@@ -1266,9 +1291,38 @@ app.post('/api/plans/:id/unvote', auth, (req, res) => {
   const { suggestion_id } = req.body;
   if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
 
+  db.prepare("DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ? AND vote_type = 'up'").run(planId, req.user.id, suggestion_id);
+  const voteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'up'").get(suggestion_id).c;
+  const downvoteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'down'").get(suggestion_id).c;
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: voteCount, downvote_count: downvoteCount, user_id: req.user.id, username: req.user.username, action: 'unvote' });
+  res.json({ success: true });
+});
+
+app.post('/api/plans/:id/downvote', auth, (req, res) => {
+  const planId = req.params.id;
+  const { suggestion_id } = req.body;
+  if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
+
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+
   db.prepare('DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ?').run(planId, req.user.id, suggestion_id);
-  const count = db.prepare('SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ?').get(suggestion_id);
-  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, username: req.user.username, action: 'unvote' });
+  db.prepare("INSERT INTO session_votes (session_id, user_id, suggestion_id, vote_type) VALUES (?, ?, ?, 'down')").run(planId, req.user.id, suggestion_id);
+  const voteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'up'").get(suggestion_id).c;
+  const downvoteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'down'").get(suggestion_id).c;
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: voteCount, downvote_count: downvoteCount, user_id: req.user.id, username: req.user.username, action: 'downvote' });
+  res.json({ success: true });
+});
+
+app.post('/api/plans/:id/undownvote', auth, (req, res) => {
+  const planId = req.params.id;
+  const { suggestion_id } = req.body;
+  if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
+
+  db.prepare("DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ? AND vote_type = 'down'").run(planId, req.user.id, suggestion_id);
+  const voteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'up'").get(suggestion_id).c;
+  const downvoteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'down'").get(suggestion_id).c;
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: voteCount, downvote_count: downvoteCount, user_id: req.user.id, username: req.user.username, action: 'undownvote' });
   res.json({ success: true });
 });
 
@@ -1281,7 +1335,8 @@ app.post('/api/plans/:id/pick', auth, (req, res) => {
 
   const suggestions = db.prepare(`
     SELECT ss.id, ss.place, ss.place_id, ss.lat, ss.lng,
-           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id) AS vote_count
+           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
+           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count
     FROM session_suggestions ss
     WHERE ss.session_id = ?
   `).all(planId);
@@ -1311,7 +1366,7 @@ app.post('/api/plans/:id/pick', auth, (req, res) => {
 
     const weighted = [];
     suggestions.forEach(s => {
-      const weight = Math.max(s.vote_count, 1) + (wantToTryCounts[s.place] || 0);
+      const weight = Math.max(s.vote_count - s.downvote_count, 1) + (wantToTryCounts[s.place] || 0);
       for (let i = 0; i < weight; i++) weighted.push(s);
     });
     winner = weighted[Math.floor(Math.random() * weighted.length)];
@@ -1350,6 +1405,7 @@ app.delete('/api/plans/:id', auth, (req, res) => {
   if (plan.status !== 'closed') return res.status(400).json({ error: 'Plan must be closed before deleting' });
 
   const deleteAll = db.transaction(() => {
+    db.prepare('DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM session_messages WHERE session_id = ?)').run(planId);
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(planId);
     db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(planId);
     db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(planId);
@@ -1382,14 +1438,36 @@ app.get('/api/plans/:id/messages', auth, (req, res) => {
   if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
   const messages = db.prepare(`
-    SELECT sm.id, sm.message, sm.created_at, sm.user_id, u.username
+    SELECT sm.id, sm.message, sm.message_type, sm.created_at, sm.user_id, u.username
     FROM session_messages sm
     JOIN users u ON u.id = sm.user_id
     WHERE sm.session_id = ?
     ORDER BY sm.created_at ASC
     LIMIT 100
   `).all(planId);
-  res.json({ messages });
+
+  const messageIds = messages.map(m => m.id);
+  const reactionsMap = {};
+  if (messageIds.length > 0) {
+    const placeholders = messageIds.map(() => '?').join(',');
+    const reactions = db.prepare(`
+      SELECT mr.message_id, mr.emoji, mr.user_id, u.username
+      FROM message_reactions mr
+      JOIN users u ON u.id = mr.user_id
+      WHERE mr.message_id IN (${placeholders})
+    `).all(...messageIds);
+    reactions.forEach(r => {
+      if (!reactionsMap[r.message_id]) reactionsMap[r.message_id] = [];
+      reactionsMap[r.message_id].push({ emoji: r.emoji, user_id: r.user_id, username: r.username });
+    });
+  }
+
+  const enriched = messages.map(m => ({
+    ...m,
+    message_type: m.message_type || 'text',
+    reactions: reactionsMap[m.id] || []
+  }));
+  res.json({ messages: enriched });
 });
 
 app.post('/api/plans/:id/messages', auth, (req, res) => {
@@ -1397,16 +1475,113 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
   const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
-  const { message } = req.body;
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
-  if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
+  const { message, message_type } = req.body;
+  const type = message_type === 'gif' ? 'gif' : 'text';
 
-  const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message) VALUES (?, ?, ?)').run(planId, req.user.id, message.trim());
+  if (type === 'gif') {
+    if (!message || !message.startsWith('https://media.tenor.com/')) return res.status(400).json({ error: 'Invalid GIF URL' });
+    if (message.length > 1000) return res.status(400).json({ error: 'URL too long' });
+  } else {
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+    if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
+  }
+
+  const content = type === 'text' ? message.trim() : message;
+  const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message, message_type) VALUES (?, ?, ?, ?)').run(planId, req.user.id, content, type);
   const username = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id).username;
 
-  const msg = { id: result.lastInsertRowid, message: message.trim(), user_id: req.user.id, username, created_at: new Date().toISOString() };
+  const msg = { id: result.lastInsertRowid, message: content, message_type: type, user_id: req.user.id, username, created_at: new Date().toISOString(), reactions: [] };
   io.to(`plan:${planId}`).emit('plan:message', msg);
   res.json({ message: msg });
+});
+
+// ── Message Reactions ────────────────────────────────────────────────────────
+app.post('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
+  const planId = req.params.id;
+  const messageId = req.params.messageId;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+
+  const { emoji } = req.body;
+  if (!emoji || emoji.length > 8) return res.status(400).json({ error: 'Invalid emoji' });
+
+  const msg = db.prepare('SELECT id FROM session_messages WHERE id = ? AND session_id = ?').get(messageId, planId);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+
+  db.prepare('INSERT OR IGNORE INTO message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)').run(messageId, req.user.id, emoji);
+
+  const reactions = db.prepare(`
+    SELECT mr.emoji, mr.user_id, u.username
+    FROM message_reactions mr JOIN users u ON u.id = mr.user_id
+    WHERE mr.message_id = ?
+  `).all(messageId);
+
+  io.to(`plan:${planId}`).emit('plan:reaction-updated', { message_id: Number(messageId), reactions });
+  res.json({ success: true });
+});
+
+app.delete('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
+  const planId = req.params.id;
+  const messageId = req.params.messageId;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+
+  const { emoji } = req.body;
+  if (!emoji) return res.status(400).json({ error: 'Missing emoji' });
+
+  db.prepare('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(messageId, req.user.id, emoji);
+
+  const reactions = db.prepare(`
+    SELECT mr.emoji, mr.user_id, u.username
+    FROM message_reactions mr JOIN users u ON u.id = mr.user_id
+    WHERE mr.message_id = ?
+  `).all(messageId);
+
+  io.to(`plan:${planId}`).emit('plan:reaction-updated', { message_id: Number(messageId), reactions });
+  res.json({ success: true });
+});
+
+// ── Tenor GIF Proxy ──────────────────────────────────────────────────────────
+const TENOR_API_KEY = process.env.TENOR_API_KEY;
+
+app.get('/api/tenor/search', auth, async (req, res) => {
+  if (!TENOR_API_KEY) return res.status(400).json({ error: 'Tenor API not configured' });
+  const { q, pos } = req.query;
+  if (!q) return res.status(400).json({ error: 'Missing search query' });
+
+  try {
+    const url = new URL('https://tenor.googleapis.com/v2/search');
+    url.searchParams.set('q', q);
+    url.searchParams.set('key', TENOR_API_KEY);
+    url.searchParams.set('client_key', 'dinner_roulette');
+    url.searchParams.set('limit', '20');
+    url.searchParams.set('media_filter', 'tinygif,gif');
+    if (pos) url.searchParams.set('pos', pos);
+
+    const r = await fetch(url);
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: 'Tenor API error' });
+  }
+});
+
+app.get('/api/tenor/trending', auth, async (req, res) => {
+  if (!TENOR_API_KEY) return res.status(400).json({ error: 'Tenor API not configured' });
+
+  try {
+    const url = new URL('https://tenor.googleapis.com/v2/featured');
+    url.searchParams.set('key', TENOR_API_KEY);
+    url.searchParams.set('client_key', 'dinner_roulette');
+    url.searchParams.set('limit', '20');
+    url.searchParams.set('media_filter', 'tinygif,gif');
+
+    const r = await fetch(url);
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: 'Tenor API error' });
+  }
 });
 
 // ── Config Routes ────────────────────────────────────────────────────────────────

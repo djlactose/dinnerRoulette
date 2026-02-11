@@ -775,8 +775,8 @@
                       <span class="suggestion-name" x-text="s.place"></span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
                       <span class="vote-count"
-                            :class="{ 'vote-count-high': s.vote_count >= 3, 'vote-count-med': s.vote_count === 2 }"
-                            x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
+                            :class="{ 'vote-count-high': (s.vote_count - (s.downvote_count || 0)) >= 3, 'vote-count-med': (s.vote_count - (s.downvote_count || 0)) === 2, 'vote-count-negative': (s.downvote_count || 0) > s.vote_count }"
+                            x-text="'+' + s.vote_count + ' / -' + (s.downvote_count || 0)"></span>
                     </li>
                   </template>
                 </ul>
@@ -921,14 +921,18 @@
                     </div>
                     <div class="suggestion-actions">
                       <span class="vote-count vote-count-clickable"
-                            :class="{ 'vote-count-high': s.vote_count >= 3, 'vote-count-med': s.vote_count === 2 }"
+                            :class="{ 'vote-count-high': (s.vote_count - (s.downvote_count || 0)) >= 3, 'vote-count-med': (s.vote_count - (s.downvote_count || 0)) === 2, 'vote-count-negative': (s.downvote_count || 0) > s.vote_count }"
                             @click="s._showVoters = !s._showVoters"
-                            x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"
-                            :title="(s.voters || []).join(', ') || 'No votes yet'"
+                            x-text="'+' + s.vote_count + ' / -' + (s.downvote_count || 0)"
+                            :title="'Up: ' + ((s.voters || []).join(', ') || 'none') + ' | Down: ' + ((s.downvoters || []).join(', ') || 'none')"
                             :aria-label="'Show voters for ' + s.place"></span>
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
                               @click="toggleVote(s)" x-text="s.user_voted ? 'Voted' : 'Vote'"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
+                              x-show="activePlan?.plan?.status === 'open'"></button>
+                      <button class="downvote-btn" :class="{ downvoted: s.user_downvoted }"
+                              @click="toggleDownvote(s)" x-text="s.user_downvoted ? 'Noped' : 'Nope'"
+                              :aria-label="s.user_downvoted ? 'Remove downvote from ' + s.place : 'Downvote ' + s.place"
                               x-show="activePlan?.plan?.status === 'open'"></button>
                       <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
                          target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
@@ -937,11 +941,19 @@
                               x-show="activePlan?.plan?.status === 'open' && s.suggested_by === username"
                               :aria-label="'Remove ' + s.place">✕</button>
                     </div>
-                    <div class="voters-list" x-show="s._showVoters && s.voters?.length > 0" x-collapse>
-                      <template x-for="voter in s.voters" :key="voter">
+                    <div class="voters-list" x-show="s._showVoters && ((s.voters?.length > 0) || (s.downvoters?.length > 0))" x-collapse>
+                      <template x-for="voter in s.voters || []" :key="'up-' + voter">
                         <span class="voter-chip">
                           <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
                           <span x-text="voter"></span>
+                          <span class="vote-type-indicator vote-type-up">+</span>
+                        </span>
+                      </template>
+                      <template x-for="voter in s.downvoters || []" :key="'down-' + voter">
+                        <span class="voter-chip voter-chip-down">
+                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
+                          <span x-text="voter"></span>
+                          <span class="vote-type-indicator vote-type-down">-</span>
                         </span>
                       </template>
                     </div>
@@ -979,8 +991,8 @@
                     <span x-text="planRecap?.totalSuggestions"></span>
                   </div>
                   <div class="recap-stat">
-                    <span class="recap-label">Total Votes</span>
-                    <span x-text="planRecap?.totalVotes"></span>
+                    <span class="recap-label">Votes</span>
+                    <span x-text="'+' + planRecap?.totalVotes + ' / -' + (planRecap?.totalDownvotes || 0)"></span>
                   </div>
                   <div class="recap-stat">
                     <span class="recap-label">Suggested by</span>
@@ -989,7 +1001,7 @@
                   <div x-show="planRecap?.topPlaces?.length > 1">
                     <span class="recap-label">Top Picks</span>
                     <template x-for="tp in planRecap?.topPlaces || []" :key="tp.place">
-                      <span class="recap-place" x-text="tp.place + ' (' + tp.vote_count + 'v)'"></span>
+                      <span class="recap-place" x-text="tp.place + ' (+' + tp.vote_count + '/-' + (tp.downvote_count || 0) + ')'"></span>
                     </template>
                   </div>
                 </div>
@@ -1009,16 +1021,77 @@
                     <template x-for="msg in chatMessages" :key="msg.id">
                       <div class="chat-message" :class="{ own: msg.user_id === userId }">
                         <span class="chat-avatar avatar avatar-xs" :style="{ background: hashColor(msg.username) }" x-text="getInitials(msg.username)"></span>
-                        <div class="chat-bubble">
-                          <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.username"></div>
-                          <div x-text="msg.message"></div>
-                          <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
+                        <div class="chat-bubble-wrapper">
+                          <div class="chat-bubble" :class="{ 'chat-bubble-gif': msg.message_type === 'gif' }">
+                            <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.username"></div>
+                            <div x-show="msg.message_type !== 'gif'" x-text="msg.message"></div>
+                            <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" loading="lazy" />
+                            <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
+                          </div>
+                          <!-- Reactions display -->
+                          <div class="chat-reactions" x-show="msg.reactions && msg.reactions.length > 0">
+                            <template x-for="group in groupedReactions(msg.reactions)" :key="group.emoji">
+                              <button class="reaction-chip" :class="{ 'reaction-mine': group.userReacted }"
+                                      @click="toggleReaction(msg.id, group.emoji)"
+                                      :title="group.users.join(', ')">
+                                <span x-text="group.emoji"></span>
+                                <span class="reaction-count" x-text="group.count" x-show="group.count > 1"></span>
+                              </button>
+                            </template>
+                          </div>
+                          <!-- React trigger -->
+                          <button class="react-trigger" @click.stop="openReactionPicker(msg.id)" title="React">+</button>
+                          <!-- Quick reaction picker -->
+                          <div class="reaction-picker" x-show="reactionPickerMessageId === msg.id"
+                               @click.outside="reactionPickerMessageId = null">
+                            <template x-for="e in ['👍','❤️','😂','😮','😢','🎉','🍕','🔥']" :key="e">
+                              <button class="reaction-picker-btn" @click="toggleReaction(msg.id, e)" x-text="e"></button>
+                            </template>
+                          </div>
                         </div>
                       </div>
                     </template>
                   </div>
+
+                  <!-- Emoji Picker Panel -->
+                  <div class="emoji-picker-panel" x-show="emojiPickerVisible"
+                       @click.outside="emojiPickerVisible = false" x-transition>
+                    <template x-for="(emojis, category) in emojiCategories()" :key="category">
+                      <div>
+                        <div class="emoji-category-label" x-text="category"></div>
+                        <div class="emoji-grid">
+                          <template x-for="e in emojis" :key="e">
+                            <button class="emoji-btn" @click="insertEmoji(e)" x-text="e"></button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- GIF Search Panel -->
+                  <div class="gif-search-panel" x-show="gifSearchVisible"
+                       @click.outside="gifSearchVisible = false" x-transition>
+                    <input type="text" class="gif-search-input" x-model="gifSearchQuery"
+                           @input.debounce.400ms="searchGifs()" placeholder="Search Tenor..."
+                           aria-label="Search GIFs" />
+                    <div class="gif-grid" x-show="!gifLoading">
+                      <template x-for="gif in gifResults" :key="gif.id">
+                        <img :src="gif.preview" @click="sendGif(gif.url)" alt="GIF"
+                             class="gif-thumb" loading="lazy" />
+                      </template>
+                      <div x-show="gifResults.length === 0 && gifSearchQuery" class="chat-empty">No GIFs found</div>
+                    </div>
+                    <div x-show="gifLoading" class="chat-empty">Loading...</div>
+                    <div class="tenor-attribution">Powered by Tenor</div>
+                  </div>
+
+                  <!-- Chat Input Row -->
                   <div class="chat-input-wrapper">
-                    <input x-model="chatInput" placeholder="Type a message..." maxlength="500"
+                    <button class="chat-action-btn" @click="toggleEmojiPicker()" title="Emoji"
+                            :class="{ active: emojiPickerVisible }">😀</button>
+                    <button class="chat-action-btn" @click="toggleGifSearch()" title="GIF"
+                            :class="{ active: gifSearchVisible }">GIF</button>
+                    <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message..." maxlength="500"
                            @keydown.enter="sendChatMessage()" aria-label="Chat message" />
                     <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()">Send</button>
                   </div>
