@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Dinner Roulette</title>
-  <meta name="theme-color" content="#4a90e2" />
+  <meta name="theme-color" content="#E07A5F" />
   <meta name="description" content="Collaboratively pick a restaurant with friends" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=13"></script>
+  <script defer src="app.js?v=14"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -71,15 +71,18 @@
 
       <!-- Authentication -->
       <section x-show="!loggedIn">
-        <button class="toggle-btn" @click="sections.auth = !sections.auth">
-          <span x-text="sections.auth ? '▼' : '▶'"></span> Log in or Register
-        </button>
-        <div x-show="sections.auth" x-collapse>
+        <div class="auth-tabs">
+          <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="authMode = 'login'; authError = ''">Login</button>
+          <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="authMode = 'register'; authError = ''">Register</button>
+        </div>
+
+        <!-- Login Form -->
+        <div x-show="authMode === 'login'">
           <label for="auth-username">Username</label>
           <input id="auth-username" x-model="authForm.username" placeholder="Username"
-                 @keydown.enter="$refs.authPass.focus()" aria-label="Username" />
+                 @keydown.enter="$refs.loginPass.focus()" aria-label="Username" />
           <label for="auth-password">Password</label>
-          <input id="auth-password" x-ref="authPass" x-model="authForm.password" type="password"
+          <input id="auth-password" x-ref="loginPass" x-model="authForm.password" type="password"
                  placeholder="Password" @keydown.enter="login()" aria-label="Password" />
           <div class="remember-wrapper">
             <label for="remember-me">
@@ -88,11 +91,39 @@
             </label>
           </div>
           <div class="buttons">
-            <button @click="register()">Register</button>
             <button @click="login()">Login</button>
           </div>
-          <p class="auth-error" x-show="authError" x-text="authError"></p>
         </div>
+
+        <!-- Register Form -->
+        <div x-show="authMode === 'register'">
+          <label for="reg-username">Username</label>
+          <input id="reg-username" x-model="authForm.username" placeholder="Username"
+                 @keydown.enter="$refs.regEmail.focus()" aria-label="Username" />
+          <label for="reg-email">Email</label>
+          <input id="reg-email" x-ref="regEmail" x-model="authForm.email" type="email" placeholder="Email address"
+                 @keydown.enter="$refs.regPass.focus()" aria-label="Email address" />
+          <label for="reg-password">Password</label>
+          <input id="reg-password" x-ref="regPass" x-model="authForm.password" type="password"
+                 placeholder="Password (min 6 chars)" @keydown.enter="$refs.regConfirm.focus()" aria-label="Password" />
+          <label for="reg-confirm">Confirm Password</label>
+          <input id="reg-confirm" x-ref="regConfirm" x-model="authForm.confirmPassword" type="password"
+                 placeholder="Confirm password" @keydown.enter="register()" aria-label="Confirm password" />
+          <p class="auth-error" x-show="authForm.password && authForm.confirmPassword && authForm.password !== authForm.confirmPassword">
+            Passwords do not match.
+          </p>
+          <div class="remember-wrapper">
+            <label for="reg-remember">
+              <input type="checkbox" id="reg-remember" x-model="authForm.remember" />
+              Remember Me
+            </label>
+          </div>
+          <div class="buttons">
+            <button @click="register()"
+                    :disabled="!authForm.username || !authForm.password || !authForm.email || authForm.password !== authForm.confirmPassword">Register</button>
+          </div>
+        </div>
+        <p class="auth-error" x-show="authError" x-text="authError"></p>
       </section>
 
       <!-- Place Management -->
@@ -747,10 +778,24 @@
               <span x-text="sections.account ? '▼' : '▶'"></span> Account Settings
             </button>
             <div x-show="sections.account" x-collapse>
+              <h4>Update Email</h4>
+              <p style="font-size: 0.9rem; color: var(--text-secondary);">Current: <span x-text="email || 'Not set'"></span></p>
+              <div class="inline-input">
+                <input type="email" x-model="accountForm.newEmail" placeholder="New email address"
+                       @keydown.enter="updateEmail()" aria-label="New email address" />
+                <button @click="updateEmail()">Update</button>
+              </div>
+
               <h4>Change Password</h4>
               <input type="password" x-model="accountForm.currentPassword" placeholder="Current password" aria-label="Current password" />
               <input type="password" x-model="accountForm.newPassword" placeholder="New password (min 6 chars)" aria-label="New password" />
-              <button @click="changePassword()">Change Password</button>
+              <input type="password" x-model="accountForm.confirmNewPassword" placeholder="Confirm new password"
+                     aria-label="Confirm new password" />
+              <p class="auth-error" x-show="accountForm.newPassword && accountForm.confirmNewPassword && accountForm.newPassword !== accountForm.confirmNewPassword">
+                Passwords do not match.
+              </p>
+              <button @click="changePassword()"
+                      :disabled="!accountForm.currentPassword || !accountForm.newPassword || accountForm.newPassword !== accountForm.confirmNewPassword">Change Password</button>
 
               <h4>Notifications</h4>
               <p x-show="!notificationsSupported" class="warning-text">Push notifications are not supported in this browser.</p>

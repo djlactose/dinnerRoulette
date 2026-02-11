@@ -11,7 +11,10 @@ function dinnerRoulette() {
     loggedIn: false,
     username: '',
     userId: null,
-    authForm: { username: '', password: '', remember: false },
+    email: '',
+    isAdmin: false,
+    authMode: 'login',
+    authForm: { username: '', password: '', confirmPassword: '', email: '', remember: false },
     authError: '',
 
     // Theme
@@ -82,7 +85,7 @@ function dinnerRoulette() {
     userLng: null,
 
     // Account
-    accountForm: { currentPassword: '', newPassword: '', deletePassword: '' },
+    accountForm: { currentPassword: '', newPassword: '', confirmNewPassword: '', newEmail: '', deletePassword: '' },
 
     // Network
     online: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -322,6 +325,8 @@ function dinnerRoulette() {
           this.loggedIn = true;
           this.username = data.username;
           this.userId = data.id;
+          this.email = data.email || '';
+          this.isAdmin = !!data.is_admin;
           this.connectSocket();
           await this.loadAppData();
           if (this.notificationsSupported && Notification.permission === 'granted') {
@@ -456,6 +461,14 @@ function dinnerRoulette() {
     // ── Auth ──
     async register() {
       this.authError = '';
+      if (this.authForm.password !== this.authForm.confirmPassword) {
+        this.authError = 'Passwords do not match.';
+        return;
+      }
+      if (!this.authForm.email.trim()) {
+        this.authError = 'Email is required.';
+        return;
+      }
       try {
         const resp = await fetch('/api/register', {
           method: 'POST',
@@ -464,6 +477,7 @@ function dinnerRoulette() {
           body: JSON.stringify({
             username: this.authForm.username,
             password: this.authForm.password,
+            email: this.authForm.email.trim(),
             remember: this.authForm.remember,
           }),
         });
@@ -523,6 +537,8 @@ function dinnerRoulette() {
           const data = await resp.json();
           this.userId = data.id;
           this.username = data.username;
+          this.email = data.email || '';
+          this.isAdmin = !!data.is_admin;
         }
       } catch (e) { /* ignore */ }
     },
@@ -533,6 +549,8 @@ function dinnerRoulette() {
       this.loggedIn = false;
       this.username = '';
       this.userId = null;
+      this.email = '';
+      this.isAdmin = false;
       this.likes = [];
       this.dislikes = [];
       this.suggestions = [];
@@ -1582,6 +1600,10 @@ function dinnerRoulette() {
 
     // ── Account ──
     async changePassword() {
+      if (this.accountForm.newPassword !== this.accountForm.confirmNewPassword) {
+        this.showToast('New passwords do not match', 'error');
+        return;
+      }
       try {
         const resp = await this.api('/api/change-password', {
           method: 'POST',
@@ -1597,9 +1619,34 @@ function dinnerRoulette() {
         }
         this.accountForm.currentPassword = '';
         this.accountForm.newPassword = '';
+        this.accountForm.confirmNewPassword = '';
         this.showToast('Password changed!');
       } catch (e) {
         this.showToast('Failed to change password', 'error');
+      }
+    },
+
+    async updateEmail() {
+      const newEmail = this.accountForm.newEmail.trim();
+      if (!newEmail) {
+        this.showToast('Please enter an email address', 'error');
+        return;
+      }
+      try {
+        const resp = await this.api('/api/update-email', {
+          method: 'POST',
+          body: JSON.stringify({ email: newEmail }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to update email', 'error');
+          return;
+        }
+        this.email = newEmail;
+        this.accountForm.newEmail = '';
+        this.showToast('Email updated!');
+      } catch (e) {
+        this.showToast('Failed to update email', 'error');
       }
     },
 
