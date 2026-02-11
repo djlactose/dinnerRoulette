@@ -38,6 +38,9 @@ function dinnerRoulette() {
     // Confirm modal
     confirmModal: { visible: false, message: '', onConfirm: null, onCancel: null },
 
+    // QR modal
+    qrModal: { visible: false, dataUrl: '' },
+
     // Post-login prompts
     promptModal: { visible: false, type: null },
     promptEmailValue: '',
@@ -437,12 +440,22 @@ function dinnerRoulette() {
         }
       });
 
+      this.socket.on('plan:suggestion-removed', (data) => {
+        if (!this.activePlan) return;
+        this.activePlan.suggestions = this.activePlan.suggestions.filter(s => s.id !== data.suggestion_id);
+      });
+
       this.socket.on('plan:vote-updated', (data) => {
         if (!this.activePlan) return;
         const s = this.activePlan.suggestions.find(s => s.id === data.suggestion_id);
         if (s) {
           s.vote_count = data.vote_count;
-          // Update user_voted for the current user
+          if (!s.voters) s.voters = [];
+          if (data.action === 'vote' && data.username && !s.voters.includes(data.username)) {
+            s.voters.push(data.username);
+          } else if (data.action === 'unvote' && data.username) {
+            s.voters = s.voters.filter(v => v !== data.username);
+          }
           if (data.user_id === this.userId) {
             s.user_voted = data.action === 'vote';
           }
@@ -1129,17 +1142,28 @@ function dinnerRoulette() {
       }
     },
 
-    async addFriendPlace(place) {
+    async addFriendPlace(place, action) {
       try {
+        const type = action === 'dislike' ? 'dislikes' : 'likes';
         const resp = await this.api('/api/places', {
           method: 'POST',
-          body: JSON.stringify({ type: 'likes', place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null }),
+          body: JSON.stringify({ type, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null }),
         });
         if (!resp.ok) {
           this.showToast('Failed to add place', 'error');
           return;
         }
-        this.showToast(`Added "${place.name}" to your likes!`);
+        if (action === 'favorite') {
+          await this.api('/api/places/likes/star', {
+            method: 'POST',
+            body: JSON.stringify({ place: place.name }),
+          });
+          this.showToast(`Added "${place.name}" to your favorites!`);
+        } else if (action === 'dislike') {
+          this.showToast(`Added "${place.name}" to your dislikes.`);
+        } else {
+          this.showToast(`Added "${place.name}" to your likes!`);
+        }
         await this.loadPlaces();
       } catch (e) {
         this.showToast('Failed to add place', 'error');
@@ -1401,6 +1425,25 @@ function dinnerRoulette() {
         await this.refreshPlan();
       } catch (e) {
         this.showToast('Failed to suggest', 'error');
+      }
+    },
+
+    async removeSuggestion(suggestion) {
+      if (!this.activePlan) return;
+      if (!await this.showConfirm(`Remove "${suggestion.place}" from this plan?`)) return;
+      try {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/suggestion/${suggestion.id}`, {
+          method: 'DELETE',
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to remove', 'error');
+          return;
+        }
+        this.showToast('Suggestion removed');
+        await this.refreshPlan();
+      } catch (e) {
+        this.showToast('Failed to remove suggestion', 'error');
       }
     },
 
@@ -1694,6 +1737,26 @@ function dinnerRoulette() {
         await navigator.clipboard.writeText(url);
         this.showToast('Invite link copied!');
       }
+    },
+
+    showQrCode() {
+      if (!this.activePlan) return;
+      const code = this.activePlan.plan.code;
+      const url = `${window.location.origin}/invite/${code}`;
+      const qr = qrcode(0, 'M');
+      qr.addData(url);
+      qr.make();
+      this.qrModal.dataUrl = qr.createDataURL(8, 4);
+      this.qrModal.visible = true;
+    },
+
+    downloadQr() {
+      if (!this.qrModal.dataUrl) return;
+      const code = this.activePlan?.plan?.code || 'invite';
+      const a = document.createElement('a');
+      a.href = this.qrModal.dataUrl;
+      a.download = `dinner-roulette-${code}.png`;
+      a.click();
     },
 
     // ── Deadline ──

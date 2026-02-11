@@ -1140,6 +1140,19 @@ app.get('/api/plans/:id', auth, (req, res) => {
   const userVotes = db.prepare('SELECT suggestion_id FROM session_votes WHERE session_id = ? AND user_id = ?').all(planId, req.user.id);
   const votedIds = new Set(userVotes.map(v => v.suggestion_id));
 
+  // Fetch voters for each suggestion
+  const allVotes = db.prepare(`
+    SELECT sv.suggestion_id, u.username
+    FROM session_votes sv
+    JOIN users u ON u.id = sv.user_id
+    WHERE sv.session_id = ?
+  `).all(planId);
+  const votersMap = {};
+  allVotes.forEach(v => {
+    if (!votersMap[v.suggestion_id]) votersMap[v.suggestion_id] = [];
+    votersMap[v.suggestion_id].push(v.username);
+  });
+
   // Find which session suggestions are on members' want-to-try lists
   const memberIds = members.map(m => m.id);
   const wantToTryMap = {};
@@ -1161,7 +1174,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
   res.json({
     plan,
     members,
-    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id) })),
+    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id), voters: votersMap[s.id] || [] })),
     want_to_try: wantToTryMap,
   });
 });
@@ -1213,6 +1226,27 @@ app.post('/api/plans/:id/suggest', auth, async (req, res) => {
   }
 });
 
+app.delete('/api/plans/:id/suggestion/:suggestionId', auth, (req, res) => {
+  const planId = req.params.id;
+  const suggestionId = req.params.suggestionId;
+
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+
+  const plan = db.prepare("SELECT status FROM sessions WHERE id = ?").get(planId);
+  if (!plan || plan.status !== 'open') return res.status(400).json({ error: 'Plan is closed' });
+
+  const suggestion = db.prepare('SELECT id, user_id FROM session_suggestions WHERE id = ? AND session_id = ?').get(suggestionId, planId);
+  if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+  if (suggestion.user_id !== req.user.id) return res.status(403).json({ error: 'You can only remove your own suggestions' });
+
+  db.prepare('DELETE FROM session_votes WHERE suggestion_id = ?').run(suggestionId);
+  db.prepare('DELETE FROM session_suggestions WHERE id = ?').run(suggestionId);
+
+  io.to(`plan:${planId}`).emit('plan:suggestion-removed', { suggestion_id: Number(suggestionId) });
+  res.json({ success: true });
+});
+
 app.post('/api/plans/:id/vote', auth, (req, res) => {
   const planId = req.params.id;
   const { suggestion_id } = req.body;
@@ -1223,7 +1257,7 @@ app.post('/api/plans/:id/vote', auth, (req, res) => {
 
   db.prepare('INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id) VALUES (?, ?, ?)').run(planId, req.user.id, suggestion_id);
   const count = db.prepare('SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ?').get(suggestion_id);
-  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, action: 'vote' });
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, username: req.user.username, action: 'vote' });
   res.json({ success: true });
 });
 
@@ -1234,7 +1268,7 @@ app.post('/api/plans/:id/unvote', auth, (req, res) => {
 
   db.prepare('DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ?').run(planId, req.user.id, suggestion_id);
   const count = db.prepare('SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ?').get(suggestion_id);
-  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, action: 'unvote' });
+  io.to(`plan:${planId}`).emit('plan:vote-updated', { suggestion_id, vote_count: count.c, user_id: req.user.id, username: req.user.username, action: 'unvote' });
   res.json({ success: true });
 });
 

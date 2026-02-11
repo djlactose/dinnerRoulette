@@ -14,8 +14,9 @@
   <link rel="icon" href="icon-192.png" />
   <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=16"></script>
+  <script defer src="app.js?v=17"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -42,6 +43,23 @@
         <div class="confirm-modal-actions">
           <button class="back-btn" @click="confirmModal.onCancel()">Cancel</button>
           <button class="remove-btn" @click="confirmModal.onConfirm()">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div class="qr-overlay" x-show="qrModal.visible" x-transition.opacity.duration.200ms
+         @click.self="qrModal.visible = false">
+      <div class="qr-modal" x-show="qrModal.visible" x-transition.scale.origin.center>
+        <h3>Scan to Join</h3>
+        <p class="qr-plan-name" x-text="activePlan?.plan?.name"></p>
+        <div class="qr-code-container">
+          <img :src="qrModal.dataUrl" alt="QR code for plan invite" x-show="qrModal.dataUrl" />
+        </div>
+        <p class="qr-code-display" x-text="activePlan?.plan?.code"></p>
+        <div class="qr-modal-actions">
+          <button class="back-btn" @click="downloadQr()">Save Image</button>
+          <button @click="qrModal.visible = false">Close</button>
         </div>
       </div>
     </div>
@@ -573,11 +591,19 @@
                     <span x-text="place.name"></span>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                   </div>
-                  <span class="place-actions">
-                    <button class="suggest-btn"
-                            @click="addFriendPlace(place)"
-                            :disabled="likes.some(l => l.name === place.name)"
-                            x-text="likes.some(l => l.name === place.name) ? 'Already liked' : '+ Add to Likes'"></button>
+                  <span class="place-actions friend-place-actions">
+                    <button class="friend-action-btn friend-fav-btn"
+                            @click="addFriendPlace(place, 'favorite')"
+                            :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
+                            :title="likes.some(l => l.name === place.name) ? 'Already in your likes' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Favorites'">&#x2605;</button>
+                    <button class="friend-action-btn friend-like-btn"
+                            @click="addFriendPlace(place, 'like')"
+                            :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
+                            :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Likes'">&#x1F44D;</button>
+                    <button class="friend-action-btn friend-dislike-btn"
+                            @click="addFriendPlace(place, 'dislike')"
+                            :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
+                            :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Dislikes'">&#x1F44E;</button>
                     <button class="map-btn" @click="openMap(place.name)">Map</button>
                   </span>
                 </li>
@@ -693,6 +719,8 @@
                       title="Click to copy"></span>
                 <button class="share-invite-btn" @click="sharePlanInvite()"
                         x-show="activePlan?.plan?.status === 'open'">Share Invite</button>
+                <button class="share-invite-btn" @click="showQrCode()"
+                        x-show="activePlan?.plan?.status === 'open'" title="Show QR code">QR</button>
                 <button class="back-btn" @click="closeActivePlan()">Back</button>
                 <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'open' && !closingPlan"
                         @click="closePlan()">Close Plan</button>
@@ -892,9 +920,12 @@
                       </span>
                     </div>
                     <div class="suggestion-actions">
-                      <span class="vote-count"
+                      <span class="vote-count vote-count-clickable"
                             :class="{ 'vote-count-high': s.vote_count >= 3, 'vote-count-med': s.vote_count === 2 }"
-                            x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"></span>
+                            @click="s._showVoters = !s._showVoters"
+                            x-text="s.vote_count + ' vote' + (s.vote_count !== 1 ? 's' : '')"
+                            :title="(s.voters || []).join(', ') || 'No votes yet'"
+                            :aria-label="'Show voters for ' + s.place"></span>
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
                               @click="toggleVote(s)" x-text="s.user_voted ? 'Voted' : 'Vote'"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
@@ -902,6 +933,17 @@
                       <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
                          target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                       <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
+                      <button class="remove-btn btn-sm" @click="removeSuggestion(s)"
+                              x-show="activePlan?.plan?.status === 'open' && s.suggested_by === username"
+                              :aria-label="'Remove ' + s.place">✕</button>
+                    </div>
+                    <div class="voters-list" x-show="s._showVoters && s.voters?.length > 0" x-collapse>
+                      <template x-for="voter in s.voters" :key="voter">
+                        <span class="voter-chip">
+                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
+                          <span x-text="voter"></span>
+                        </span>
+                      </template>
                     </div>
                   </li>
                 </template>

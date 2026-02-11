@@ -428,6 +428,30 @@ label {
   padding: 0.3rem 0.5rem;
 }
 
+.friend-place-actions {
+  gap: 0.3rem;
+}
+.friend-action-btn {
+  font-size: 1rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  line-height: 1;
+}
+.friend-action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.friend-fav-btn { color: #f5a623; }
+.friend-fav-btn:hover:not(:disabled) { background: rgba(245, 166, 35, 0.15); }
+.friend-like-btn { color: var(--success); }
+.friend-like-btn:hover:not(:disabled) { background: rgba(76, 175, 80, 0.15); }
+.friend-dislike-btn { color: var(--danger); }
+.friend-dislike-btn:hover:not(:disabled) { background: rgba(244, 67, 54, 0.15); }
+
 .filter-wrapper {
   margin: 0.5rem 0;
 }
@@ -679,9 +703,13 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border-light);
   gap: 0.5rem;
+}
+.plan-suggestion-list li .voters-list {
+  width: 100%;
 }
 
 .suggestion-info {
@@ -728,6 +756,32 @@ a {
 .plan-suggestion-list li:has(.vote-count-high) {
   border-left: 3px solid var(--success);
   padding-left: calc(0.5rem - 3px);
+}
+
+.vote-count-clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+  transition: background 0.15s;
+}
+.vote-count-clickable:hover {
+  background: var(--bg-hover, rgba(0,0,0,0.06));
+}
+.voters-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.3rem 0 0;
+}
+.voter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary, rgba(0,0,0,0.04));
+  padding: 0.15rem 0.4rem;
+  border-radius: 10px;
 }
 
 .vote-hint {
@@ -1593,6 +1647,62 @@ a {
 
 .share-invite-btn:hover {
   background: rgba(255,255,255,0.4);
+}
+
+/* ── QR Code Modal ───────────────────────────────────────────────────────── */
+.qr-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.qr-modal {
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 1.5rem;
+  max-width: 340px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+}
+.qr-modal h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+.qr-plan-name {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.qr-code-container {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  background: white;
+  border-radius: 12px;
+  margin: 0 auto 0.75rem;
+}
+.qr-code-container img {
+  width: 200px;
+  height: 200px;
+  image-rendering: pixelated;
+}
+.qr-code-display {
+  font-family: monospace;
+  font-size: 1.2rem;
+  font-weight: bold;
+  letter-spacing: 0.15em;
+  color: var(--text-primary);
+  margin: 0 0 1rem 0;
+}
+.qr-modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
 }
 
 /* ── Deadline Section ────────────────────────────────────────────────────── */
@@ -2608,6 +2718,9 @@ a {
   .place-actions { flex-direction: column; gap: 0.3rem; margin-left: 0; margin-top: 0.4rem; width: 100%; }
   .place-actions button,
   .place-actions a { min-height: 44px; padding: 0.5rem 0.75rem; font-size: 0.85rem; width: 100%; text-align: center; box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+  .friend-place-actions { flex-direction: row; flex-wrap: wrap; }
+  .friend-place-actions .friend-action-btn { width: auto; flex: 0; min-width: 44px; font-size: 1.1rem; }
+  .friend-place-actions .map-btn { flex: 1; }
 
   /* Place cards mobile */
   .place-card { padding: 0.6rem 0.75rem; }
