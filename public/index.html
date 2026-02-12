@@ -1001,14 +1001,58 @@
               <!-- Members with Avatars -->
               <div class="members-line">
                 <strong>Members:</strong>
-                <div class="member-chips">
-                  <template x-for="m in activePlan?.members || []" :key="m.id">
-                    <span class="member-chip">
-                      <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
-                      <span x-text="m.username"></span>
+
+                <!-- Current user "You" chip -->
+                <template x-if="activePlan?.members?.find(m => m.id === userId)">
+                  <div class="member-chips" style="margin-bottom: 0.15rem;">
+                    <span class="member-chip member-chip-you">
+                      <span class="avatar avatar-xs" :style="{ background: hashColor(username) }" x-text="getInitials(username)"></span>
+                      <span>You</span>
                     </span>
-                  </template>
-                </div>
+                  </div>
+                </template>
+
+                <!-- Friends section -->
+                <template x-if="planFriendMembers().length > 0">
+                  <div class="member-section">
+                    <span class="member-section-label">Friends</span>
+                    <div class="member-chips">
+                      <template x-for="m in planFriendMembers()" :key="m.id">
+                        <span class="member-chip">
+                          <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
+                          <span x-text="m.username"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Not Friends section -->
+                <template x-if="planNonFriendMembers().length > 0">
+                  <div class="member-section">
+                    <span class="member-section-label">Not Friends</span>
+                    <div class="member-chips">
+                      <template x-for="m in planNonFriendMembers()" :key="m.id">
+                        <span class="member-chip member-chip-nonfriend"
+                              :class="{ 'member-chip-pending': hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id) }"
+                              @click="!hasSentRequestTo(m.id) && !hasIncomingRequestFrom(m.id) && sendFriendRequestToMember(m.username)"
+                              :title="hasSentRequestTo(m.id) ? 'Friend request pending' : hasIncomingRequestFrom(m.id) ? 'Check your friend requests!' : 'Click to send friend request'"
+                              :role="hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id) ? undefined : 'button'"
+                              :tabindex="hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id) ? undefined : '0'"
+                              @keydown.enter="!hasSentRequestTo(m.id) && !hasIncomingRequestFrom(m.id) && sendFriendRequestToMember(m.username)">
+                          <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
+                          <span x-text="m.username"></span>
+                          <template x-if="hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id)">
+                            <svg class="icon-xs" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v6l4 4-4 4v6h12v-6l-4-4 4-4V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/></svg>
+                          </template>
+                          <template x-if="!hasSentRequestTo(m.id) && !hasIncomingRequestFrom(m.id)">
+                            <svg class="icon-xs" viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                          </template>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
               </div>
 
               <div class="inline-input plan-invite-input" x-show="activePlan?.plan?.status === 'open'">

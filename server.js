@@ -1375,6 +1375,15 @@ app.post('/api/friend-requests/:id/reject', auth, (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/friend-requests/outgoing', auth, (req, res) => {
+  const requests = db.prepare(`
+    SELECT u.id, u.username FROM friends f
+    JOIN users u ON u.id = f.friend_id
+    WHERE f.user_id = ? AND f.status = 'pending'
+  `).all(req.user.id);
+  res.json({ requests });
+});
+
 app.get('/api/friends', auth, (req, res) => {
   const friends = db.prepare(`
     SELECT u.id, u.username FROM friends f

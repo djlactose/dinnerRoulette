@@ -814,6 +814,10 @@ a {
 .suggestion-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .suggestion-name-block {
@@ -1769,6 +1773,60 @@ a {
   margin-top: 0.25rem;
 }
 
+.member-section {
+  margin-top: 0.35rem;
+}
+
+.member-section-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 0.1rem;
+  display: block;
+}
+
+.member-chip-you {
+  background: var(--accent);
+  color: white;
+}
+
+.member-chip-nonfriend {
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.member-chip-nonfriend:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.member-chip-nonfriend:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.member-chip-nonfriend.member-chip-pending {
+  cursor: default;
+  opacity: 0.65;
+  border-style: dotted;
+}
+
+.member-chip-nonfriend.member-chip-pending:hover {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.icon-xs {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+
 /* ── Winner Bounce Animation ─────────────────────────────────────────────── */
 @keyframes winner-bounce {
   0% { transform: scale(0.3); opacity: 0; }
@@ -1941,9 +1999,9 @@ a {
 }
 
 .share-invite-btn {
-  background: rgba(255,255,255,0.25);
-  color: white;
-  border: 1px solid rgba(255,255,255,0.5);
+  background: var(--border-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   padding: 0.3rem 0.6rem;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
@@ -1951,7 +2009,9 @@ a {
 }
 
 .share-invite-btn:hover {
-  background: rgba(255,255,255,0.4);
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
 }
 
 /* ── QR Code Modal ───────────────────────────────────────────────────────── */
@@ -3326,7 +3386,7 @@ a {
   section { padding: 1rem; }
   .plan-suggestion-list li { flex-direction: column; align-items: flex-start; }
   .suggestion-actions { margin-top: 0.4rem; }
-  .plan-header { flex-direction: column; align-items: flex-start; }
+  .plan-header { gap: 0.4rem; }
   .pick-buttons { flex-direction: column; }
   .header-content { flex-wrap: wrap; justify-content: center; gap: 0.5rem; }
   .header-actions { width: 100%; justify-content: center; }

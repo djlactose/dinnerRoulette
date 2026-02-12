@@ -97,6 +97,7 @@ function dinnerRoulette() {
     friendUsername: '',
     friends: [],
     friendRequests: [],
+    sentFriendRequests: [],
     friendSections: {},
 
     // Friend Groups
@@ -556,6 +557,7 @@ function dinnerRoulette() {
         this.loadPlaces(),
         this.loadFriends(),
         this.loadFriendRequests(),
+        this.loadSentFriendRequests(),
         this.loadPlans(),
         this.loadRecentSuggestions(),
         this.loadFriendGroups(),
@@ -776,7 +778,7 @@ function dinnerRoulette() {
       if (this.activeTab === 'places') {
         await this.loadPlaces();
       } else if (this.activeTab === 'friends') {
-        await Promise.all([this.loadFriends(), this.loadFriendRequests()]);
+        await Promise.all([this.loadFriends(), this.loadFriendRequests(), this.loadSentFriendRequests()]);
       } else if (this.activeTab === 'plans') {
         await this.loadPlans();
         if (this.activePlan) await this.refreshPlan();
@@ -1055,6 +1057,7 @@ function dinnerRoulette() {
       this.dislikes = [];
       this.friends = [];
       this.friendRequests = [];
+      this.sentFriendRequests = [];
       this.friendSections = {};
       this.plans = [];
       this.activePlan = null;
@@ -1623,9 +1626,53 @@ function dinnerRoulette() {
         }
         this.showToast('Friend request sent!');
         this.friendUsername = '';
-        await Promise.all([this.loadFriends(), this.loadFriendRequests()]);
+        await Promise.all([this.loadFriends(), this.loadFriendRequests(), this.loadSentFriendRequests()]);
       } catch (e) {
         this.showToast('Failed to invite friend', 'error');
+      }
+    },
+
+    planFriendMembers() {
+      if (!this.activePlan?.members) return [];
+      const friendIds = new Set(this.friends.map(f => f.id));
+      return this.activePlan.members.filter(m => m.id !== this.userId && friendIds.has(m.id));
+    },
+
+    planNonFriendMembers() {
+      if (!this.activePlan?.members) return [];
+      const friendIds = new Set(this.friends.map(f => f.id));
+      return this.activePlan.members.filter(m => m.id !== this.userId && !friendIds.has(m.id));
+    },
+
+    hasSentRequestTo(userId) {
+      return this.sentFriendRequests.some(r => r.id === userId);
+    },
+
+    hasIncomingRequestFrom(userId) {
+      return this.friendRequests.some(r => r.id === userId);
+    },
+
+    async sendFriendRequestToMember(username) {
+      if (!confirm(`Send a friend request to ${username}?`)) return;
+      try {
+        const resp = await this.api('/api/invite', {
+          method: 'POST',
+          body: JSON.stringify({ friendUsername: username }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to send request', 'error');
+          return;
+        }
+        const data = await resp.json();
+        if (data.autoAccepted) {
+          this.showToast(`You and ${username} are now friends!`);
+        } else {
+          this.showToast(`Friend request sent to ${username}!`);
+        }
+        await Promise.all([this.loadFriends(), this.loadFriendRequests(), this.loadSentFriendRequests()]);
+      } catch (e) {
+        this.showToast('Failed to send friend request', 'error');
       }
     },
 
@@ -1685,6 +1732,14 @@ function dinnerRoulette() {
         const resp = await this.api('/api/friend-requests');
         const data = await resp.json();
         this.friendRequests = data.requests || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadSentFriendRequests() {
+      try {
+        const resp = await this.api('/api/friend-requests/outgoing');
+        const data = await resp.json();
+        this.sentFriendRequests = data.requests || [];
       } catch (e) { /* ignore */ }
     },
 
