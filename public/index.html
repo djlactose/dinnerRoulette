@@ -1204,6 +1204,23 @@
                      @keydown.enter="updateEmail()" aria-label="New email address" />
               <button @click="updateEmail()">Update</button>
             </div>
+
+            <h4 style="margin-top: 1.5rem;">Accent Color</h4>
+            <div class="accent-picker">
+              <template x-for="(palette, key) in accentPalettes" :key="key">
+                <button class="accent-swatch"
+                        :class="{ active: accentColor === key }"
+                        :style="{ '--swatch-color': palette.light.accent, '--swatch-dark': palette.dark.accent }"
+                        @mouseenter="applyAccentColor(key, true)"
+                        @mouseleave="resetAccentPreview()"
+                        @click="applyAccentColor(key)"
+                        :aria-label="palette.name + ' accent color'"
+                        :title="palette.name">
+                  <span class="accent-swatch-color"></span>
+                  <span class="accent-swatch-label" x-text="palette.name"></span>
+                </button>
+              </template>
+            </div>
           </div>
 
           <!-- Security Sub-tab -->

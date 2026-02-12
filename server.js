@@ -237,6 +237,7 @@ try { db.exec('ALTER TABLE likes ADD COLUMN address TEXT'); } catch (e) { /* alr
 try { db.exec('ALTER TABLE dislikes ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE places ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN accent_color TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -526,9 +527,19 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => {
-  const user = db.prepare('SELECT id, username, email, is_admin FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, username, email, is_admin, accent_color FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ id: user.id, username: user.username, email: user.email || null, is_admin: !!user.is_admin });
+  res.json({ id: user.id, username: user.username, email: user.email || null, is_admin: !!user.is_admin, accent_color: user.accent_color || null });
+});
+
+app.post('/api/accent-color', auth, (req, res) => {
+  const { accentColor } = req.body;
+  const allowed = ['coral', 'ocean', 'forest', 'royal', 'amber', 'rose', 'slate', 'lavender'];
+  if (accentColor && !allowed.includes(accentColor)) {
+    return res.status(400).json({ error: 'Invalid accent color' });
+  }
+  db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accentColor || null, req.user.id);
+  res.json({ success: true });
 });
 
 app.post('/api/change-password', auth, async (req, res) => {

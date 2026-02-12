@@ -27,6 +27,20 @@ function dinnerRoulette() {
     // Theme
     theme: 'auto',
 
+    // Accent Color
+    accentColor: 'coral',
+    accentPreview: null,
+    accentPalettes: {
+      coral:    { name: 'Coral',        light: { accent: '#E07A5F', hover: '#C96A52' }, dark: { accent: '#E8896F', hover: '#F09A82' } },
+      ocean:    { name: 'Ocean Blue',   light: { accent: '#4A90D9', hover: '#3A7BC8' }, dark: { accent: '#5DA0E8', hover: '#70B0F0' } },
+      forest:   { name: 'Forest Green', light: { accent: '#5B9A6F', hover: '#4A8360' }, dark: { accent: '#6DAF81', hover: '#7FC093' } },
+      royal:    { name: 'Royal Purple', light: { accent: '#8B6BB5', hover: '#7A5AA4' }, dark: { accent: '#9B7BC5', hover: '#AB8BD5' } },
+      amber:    { name: 'Golden Amber', light: { accent: '#D4952B', hover: '#C08520' }, dark: { accent: '#E0A53B', hover: '#EAB54B' } },
+      rose:     { name: 'Rose Pink',    light: { accent: '#D4648A', hover: '#C45478' }, dark: { accent: '#E4749A', hover: '#F084AA' } },
+      slate:    { name: 'Slate',        light: { accent: '#6B8299', hover: '#5A7188' }, dark: { accent: '#7B92A9', hover: '#8BA2B9' } },
+      lavender: { name: 'Lavender',     light: { accent: '#9B8EC1', hover: '#8A7DB0' }, dark: { accent: '#AB9ED1', hover: '#BBAEE1' } },
+    },
+
     // UI sections
     sections: { auth: true, places: true, plan: true, account: false },
     activeTab: 'places',
@@ -382,6 +396,10 @@ function dinnerRoulette() {
     async init() {
       this.theme = document.cookie.replace(/(?:(?:^|.*;\s*)theme\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'auto';
       document.documentElement.setAttribute('data-theme', this.theme);
+      this.initAccentColor();
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        this.applyAccentColor(this.accentColor);
+      });
       window.addEventListener('online', () => { this.online = true; });
       window.addEventListener('offline', () => { this.online = false; });
       this.touchEnabled = 'ontouchstart' in window;
@@ -421,6 +439,10 @@ function dinnerRoulette() {
           this.userId = data.id;
           this.email = data.email || '';
           this.isAdmin = !!data.is_admin;
+          if (data.accent_color && !localStorage.getItem('accent-color')) {
+            this.accentColor = data.accent_color;
+            this.applyAccentColor(data.accent_color);
+          }
           this.connectSocket();
           await this.loadAppData();
           if (this.notificationsSupported && Notification.permission === 'granted') {
@@ -693,6 +715,48 @@ function dinnerRoulette() {
       this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
       document.documentElement.setAttribute('data-theme', this.theme);
       document.cookie = `theme=${this.theme};path=/;max-age=${365 * 24 * 60 * 60}`;
+      this.applyAccentColor(this.accentColor);
+    },
+
+    applyAccentColor(colorKey, preview = false) {
+      const palette = this.accentPalettes[colorKey];
+      if (!palette) return;
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark' ||
+        (document.documentElement.getAttribute('data-theme') === 'auto' &&
+         window.matchMedia('(prefers-color-scheme: dark)').matches);
+      const colors = isDark ? palette.dark : palette.light;
+      document.documentElement.style.setProperty('--accent', colors.accent);
+      document.documentElement.style.setProperty('--accent-hover', colors.hover);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', colors.accent);
+      if (!preview) {
+        this.accentColor = colorKey;
+        this.accentPreview = null;
+        localStorage.setItem('accent-color', colorKey);
+        if (this.loggedIn) {
+          this.api('/api/accent-color', {
+            method: 'POST',
+            body: JSON.stringify({ accentColor: colorKey }),
+          }).catch(() => {});
+        }
+      } else {
+        this.accentPreview = colorKey;
+      }
+    },
+
+    resetAccentPreview() {
+      if (this.accentPreview) {
+        this.applyAccentColor(this.accentColor);
+        this.accentPreview = null;
+      }
+    },
+
+    initAccentColor() {
+      const stored = localStorage.getItem('accent-color');
+      if (stored && this.accentPalettes[stored]) {
+        this.accentColor = stored;
+        this.applyAccentColor(stored);
+      }
     },
 
     // ── Auth ──
