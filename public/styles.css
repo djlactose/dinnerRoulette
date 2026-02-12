@@ -1721,11 +1721,16 @@ a {
 }
 
 /* ── Cuisine Filter Chips ────────────────────────────────────────────────── */
-.cuisine-filter-chips {
+.cuisine-filter-chips,
+.price-filter-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
   margin-bottom: 0.5rem;
+}
+.price-chip {
+  font-weight: 700;
+  letter-spacing: -0.5px;
 }
 
 .filter-chip {

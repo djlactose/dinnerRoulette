@@ -958,6 +958,16 @@
                 </template>
               </div>
 
+              <!-- Price Filter Chips -->
+              <div class="price-filter-chips" x-show="activePlan?.suggestions?.some(s => s.price_level != null)">
+                <template x-for="level in [1, 2, 3, 4]" :key="level">
+                  <button class="filter-chip price-chip"
+                          :class="{ active: planPriceFilter.includes(level) }"
+                          @click="planPriceFilter.includes(level) ? planPriceFilter = planPriceFilter.filter(l => l !== level) : planPriceFilter = [...planPriceFilter, level]"
+                          x-text="'$'.repeat(level)"></button>
+                </template>
+              </div>
+
               <div class="sort-controls" x-show="activePlan?.suggestions?.length > 1">
                 <button class="sort-btn" :class="{ active: planSuggestSort === 'votes' }" @click="planSuggestSort = 'votes'">By Votes</button>
                 <button class="sort-btn" :class="{ active: planSuggestSort === 'name' }" @click="planSuggestSort = 'name'">By Name</button>

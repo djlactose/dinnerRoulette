@@ -135,6 +135,7 @@ function dinnerRoulette() {
 
     // Cuisine filter (plans)
     planCuisineFilter: '',
+    planPriceFilter: [],
 
     // Recent suggestions
     recentSuggestions: [],
@@ -391,6 +392,9 @@ function dinnerRoulette() {
       let suggestions = this.activePlan?.suggestions || [];
       if (this.planCuisineFilter) {
         suggestions = suggestions.filter(s => s.restaurant_type === this.planCuisineFilter);
+      }
+      if (this.planPriceFilter.length > 0) {
+        suggestions = suggestions.filter(s => s.price_level == null || this.planPriceFilter.includes(s.price_level));
       }
       const sorted = [...suggestions];
       if (this.planSuggestSort === 'votes') {
@@ -1583,6 +1587,7 @@ function dinnerRoulette() {
         this.activePlan = data;
         this.winner = null;
         this.planCuisineFilter = '';
+        this.planPriceFilter = [];
         this.mapView = false;
         if (this.activePlan.plan.winner_place) {
           this.winner = { place: this.activePlan.plan.winner_place };
@@ -1628,6 +1633,7 @@ function dinnerRoulette() {
       this.gifResults = [];
       this.reactionPickerMessageId = null;
       this.planCuisineFilter = '';
+      this.planPriceFilter = [];
       this.mapView = false;
       if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
       this.deadlineCountdown = '';
