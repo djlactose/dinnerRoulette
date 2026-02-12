@@ -110,6 +110,7 @@ function dinnerRoulette() {
     historyFilterTo: '',
     historyFilterMember: '',
     historyVisible: false,
+    planHistoryVisible: false,
 
     // Recurring Plans
     recurringPlans: [],
@@ -181,6 +182,12 @@ function dinnerRoulette() {
     gifLoading: false,
     gifError: '',
     reactionPickerMessageId: null,
+
+    // Mentions
+    mentionDropdownVisible: false,
+    mentionStartPos: null,
+    mentionQuery: '',
+    mentionSelectedIndex: 0,
 
     // Map
     mapView: false,
@@ -638,6 +645,11 @@ function dinnerRoulette() {
       this.socket.on('plan:message', (data) => {
         if (!this.activePlan) return;
         if (!data.reactions) data.reactions = [];
+        if (data.mentions && data.user_id !== this.userId) {
+          if (data.mentions.includes('all') || data.mentions.includes(this.userId)) {
+            this.showToast(`${data.username} mentioned you`, 'info');
+          }
+        }
         this.chatMessages.push(data);
         this.$nextTick(() => {
           const el = document.getElementById('chat-messages');
@@ -1281,6 +1293,8 @@ function dinnerRoulette() {
       if (this.quickPicking || this.likes.length === 0) return;
       this.quickPicking = true;
       this.quickPickResult = null;
+      this.moodPickResult = null;
+      this.moodPickType = '';
 
       let cycles = 15;
       let delay = 60;
@@ -1317,6 +1331,7 @@ function dinnerRoulette() {
       this.moodPicking = true;
       this.moodPickType = cuisineType;
       this.moodPickResult = null;
+      this.quickPickResult = null;
 
       let cycles = 12;
       let delay = 60;
@@ -2521,6 +2536,92 @@ function dinnerRoulette() {
       if (!dateStr) return '';
       const d = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z'));
       return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    },
+
+    // ── Mentions ──
+    formatMessageWithMentions(text) {
+      if (!text) return '';
+      const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+      return escaped.replace(/@(all|[\w_-]+)/g, (match, name) => {
+        const isMine = name === 'all' || name === this.username;
+        return `<span class="mention${isMine ? ' mention-me' : ''}">${match}</span>`;
+      });
+    },
+
+    getMentionOptions() {
+      if (!this.activePlan) return [];
+      const q = this.mentionQuery.toLowerCase();
+      const options = [];
+      if ('all'.startsWith(q)) options.push({ id: 'all', username: 'all', isAll: true });
+      for (const m of this.activePlan.members) {
+        if (m.id !== this.userId && m.username.toLowerCase().startsWith(q)) {
+          options.push(m);
+        }
+      }
+      return options;
+    },
+
+    onChatInput() {
+      const input = this.$refs.chatInputField;
+      if (!input) return;
+      const cursorPos = input.selectionStart;
+      const textBefore = this.chatInput.slice(0, cursorPos);
+      const lastAtPos = textBefore.lastIndexOf('@');
+      if (lastAtPos === -1 || (lastAtPos > 0 && /\S/.test(textBefore[lastAtPos - 1]))) {
+        this.mentionDropdownVisible = false;
+        return;
+      }
+      const afterAt = textBefore.slice(lastAtPos + 1);
+      if (/\s/.test(afterAt)) {
+        this.mentionDropdownVisible = false;
+        return;
+      }
+      this.mentionStartPos = lastAtPos;
+      this.mentionQuery = afterAt;
+      const options = this.getMentionOptions();
+      if (options.length > 0) {
+        this.mentionDropdownVisible = true;
+        this.mentionSelectedIndex = 0;
+      } else {
+        this.mentionDropdownVisible = false;
+      }
+    },
+
+    selectMention(index) {
+      const options = this.getMentionOptions();
+      if (index < 0 || index >= options.length) return;
+      const selected = options[index];
+      const input = this.$refs.chatInputField;
+      if (input && this.mentionStartPos !== null) {
+        const before = this.chatInput.slice(0, this.mentionStartPos);
+        const after = this.chatInput.slice(input.selectionStart);
+        this.chatInput = `${before}@${selected.username} ${after}`;
+        this.$nextTick(() => {
+          const newPos = this.mentionStartPos + selected.username.length + 2;
+          input.focus();
+          input.setSelectionRange(newPos, newPos);
+        });
+      }
+      this.mentionDropdownVisible = false;
+      this.mentionStartPos = null;
+    },
+
+    onMentionKeydown(e) {
+      if (!this.mentionDropdownVisible) return;
+      const options = this.getMentionOptions();
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.mentionSelectedIndex = Math.min(this.mentionSelectedIndex + 1, options.length - 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.mentionSelectedIndex = Math.max(this.mentionSelectedIndex - 1, 0);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        this.selectMention(this.mentionSelectedIndex);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.mentionDropdownVisible = false;
+      }
     },
 
     // ── Emoji Picker ──

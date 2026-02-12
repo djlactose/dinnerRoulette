@@ -182,6 +182,43 @@ section {
   transition: background-color 0.3s;
 }
 
+/* ── Section Headings ─────────────────────────────────────────────────────── */
+section h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin: 0 0 0.75rem 0;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--accent, var(--border));
+}
+section h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 1rem 0 0.5rem 0;
+}
+section h4:first-child {
+  margin-top: 0;
+}
+/* Headings inside special contexts that shouldn't get section-title treatment */
+.winner-display h3,
+.plan-header h4,
+.section-header h3,
+.section-header h4,
+.section-header-inline h4,
+.mood-pick-section h4,
+.close-winner-panel h4,
+.qr-modal h3,
+.modal-content h4,
+.prompt-title {
+  border-bottom: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 /* ── Inputs & Buttons ──────────────────────────────────────────────────────── */
 input, button {
   font-size: 1rem;
@@ -1215,16 +1252,23 @@ a {
   border-radius: var(--radius-lg);
   background: linear-gradient(135deg, var(--bg-card), var(--border-light));
   box-shadow: 0 1px 4px var(--shadow);
-  text-align: center;
+}
+
+.quick-pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
 }
 
 .quick-pick-btn {
   background: linear-gradient(135deg, var(--warning), var(--danger));
   color: white;
-  font-size: 1rem;
-  padding: 0.6rem 1.2rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
 }
 
 .quick-pick-btn:hover {
@@ -2095,6 +2139,7 @@ a {
   gap: 0.4rem;
   padding: 0.5rem;
   border-top: 1px solid var(--border-light);
+  position: relative;
 }
 
 .chat-input-wrapper input {
@@ -2130,6 +2175,82 @@ a {
 .chat-action-btn:hover, .chat-action-btn.active {
   background: var(--border);
   color: var(--text-primary);
+}
+
+/* ── Mention Autocomplete Dropdown ──── */
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 -4px 12px var(--shadow-md);
+  margin-bottom: 4px;
+  z-index: 100;
+}
+.mention-option {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+.mention-option:hover, .mention-option.selected {
+  background: var(--border-light);
+}
+.mention-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mention-option-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}
+.mention-option-all {
+  font-weight: 600;
+  color: var(--accent);
+}
+.mention-option-desc {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* ── Mention Highlights in Messages ──── */
+.mention {
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.mention-me {
+  background: rgba(224, 122, 95, 0.15);
+  font-weight: 700;
+}
+[data-theme="dark"] .mention-me {
+  background: rgba(232, 137, 111, 0.2);
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] .mention-me {
+    background: rgba(232, 137, 111, 0.2);
+  }
 }
 
 /* ── GIF in chat bubble ──── */
@@ -3313,8 +3434,7 @@ button {
 
 /* ── Staggered List Animation ─────────────────────────────────────────────── */
 .stagger-item {
-  opacity: 0;
-  animation: fadeSlideIn 0.25s ease-out forwards;
+  animation: fadeSlideIn 0.25s ease-out;
 }
 
 /* ── List Item Removal Animation ──────────────────────────────────────────── */
@@ -3414,35 +3534,18 @@ button {
 .mini-reservation-link.yelp { background: #d32323; }
 .mini-reservation-link.google { background: #4285f4; }
 
-/* ── Mood Pick ─────────────────────────────────────────────────────────────── */
-.mood-pick-section {
-  background: linear-gradient(135deg, var(--bg-card), var(--accent-soft, var(--bg-primary)));
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-.mood-pick-section h4 {
-  margin: 0 0 0.5rem 0;
-  font-size: var(--text-lg);
-}
+/* ── Mood Pick (integrated into Quick Pick) ───────────────────────────────── */
 .mood-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  margin-bottom: 0.6rem;
+  margin-top: 0.5rem;
   cursor: pointer;
 }
 .mood-toggle input[type="checkbox"] {
   accent-color: var(--accent);
-}
-.mood-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
 }
 .mood-chip {
   padding: 0.35rem 0.75rem;
@@ -3479,25 +3582,11 @@ button {
   transform: scale(1.08);
   box-shadow: 0 3px 10px var(--shadow-md);
 }
-.mood-pick-result {
-  margin-top: 0.5rem;
-}
-.mood-result-card {
-  background: var(--bg-card);
-  border: 2px solid var(--success);
-  border-radius: var(--radius-lg);
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  animation: moodReveal 0.3s ease-out;
-}
-.mood-result-card strong {
-  font-size: var(--text-lg);
-}
 .mood-result-address {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  display: block;
+  margin-top: 0.2rem;
 }
 .mood-result-actions {
   display: flex;
@@ -3540,10 +3629,6 @@ button {
   transition: background 0.15s ease;
 }
 .mood-dismiss-btn:hover { background: var(--secondary-hover); }
-@keyframes moodReveal {
-  from { transform: scale(0.9); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
 
 /* ── Meal Type Tags ────────────────────────────────────────────────────────── */
 .meal-type-filter-chips {
@@ -3939,11 +4024,20 @@ button {
 
 /* ── Recurring Plans ───────────────────────────────────────────────────────── */
 .recurring-form {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   padding: 0.75rem;
   margin-bottom: 0.75rem;
+  min-width: 220px;
+}
+.recurring-form input[type="text"],
+.recurring-form select {
+  width: 100%;
+  box-sizing: border-box;
 }
 .recurring-form-row {
   display: flex;
@@ -3959,6 +4053,15 @@ button {
   align-items: center;
   gap: 0.3rem;
   font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.recurring-form .group-member-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.recurring-form .group-member-option {
+  gap: 0.35rem;
   white-space: nowrap;
 }
 .recurring-form-actions {

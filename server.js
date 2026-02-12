@@ -1994,6 +1994,21 @@ app.post('/api/plans/:id/deadline', auth, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Mention Extraction ───────────────────────────────────────────────────────
+function extractMentions(text, planMembers) {
+  const mentionRegex = /@(all|[\w_-]+)/g;
+  const mentions = new Set();
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    if (match[1] === 'all') mentions.add('all');
+    else {
+      const member = planMembers.find(m => m.username === match[1]);
+      if (member) mentions.add(member.user_id);
+    }
+  }
+  return Array.from(mentions);
+}
+
 // ── Plan Chat ─────────────────────────────────────────────────────────────────
 app.get('/api/plans/:id/messages', auth, (req, res) => {
   const planId = req.params.id;
@@ -2053,7 +2068,26 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
   const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message, message_type) VALUES (?, ?, ?, ?)').run(planId, req.user.id, content, type);
   const username = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id).username;
 
-  const msg = { id: result.lastInsertRowid, message: content, message_type: type, user_id: req.user.id, username, created_at: new Date().toISOString(), reactions: [] };
+  let mentions = [];
+  if (type === 'text') {
+    const members = db.prepare('SELECT sm.user_id, u.username FROM session_members sm JOIN users u ON u.id = sm.user_id WHERE sm.session_id = ?').all(planId);
+    mentions = extractMentions(content, members);
+
+    if (mentions.length > 0) {
+      const plan = db.prepare('SELECT name FROM sessions WHERE id = ?').get(planId);
+      const planName = plan?.name || 'a plan';
+      const pushPayload = { title: 'You were mentioned', body: `${username} mentioned you in ${planName}`, tag: `mention-${planId}` };
+      if (mentions.includes('all')) {
+        sendPushToPlanMembers(planId, pushPayload, req.user.id);
+      } else {
+        for (const uid of mentions) {
+          if (uid !== req.user.id) sendPushToUser(uid, pushPayload);
+        }
+      }
+    }
+  }
+
+  const msg = { id: result.lastInsertRowid, message: content, message_type: type, user_id: req.user.id, username, created_at: new Date().toISOString(), reactions: [], mentions };
   io.to(`plan:${planId}`).emit('plan:message', msg);
   res.json({ message: msg });
 });
@@ -2221,12 +2255,11 @@ function processRecurringPlans() {
     }
   }
 }
-// Check every 15 minutes
-setInterval(processRecurringPlans, 15 * 60 * 1000);
-// Run once on startup to catch any missed
-setTimeout(processRecurringPlans, 5000);
-
 if (require.main === module) {
+  // Check every 15 minutes
+  setInterval(processRecurringPlans, 15 * 60 * 1000);
+  // Run once on startup to catch any missed
+  setTimeout(processRecurringPlans, 5000);
   server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
 }
 
