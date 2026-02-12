@@ -111,6 +111,12 @@ function dinnerRoulette() {
     historyFilterMember: '',
     historyVisible: false,
 
+    // Recurring Plans
+    recurringPlans: [],
+    recurringLoading: false,
+    showRecurringForm: false,
+    recurringForm: { name: '', frequency: 'weekly', members: [], vetoLimit: 1 },
+
     // Plans
     plans: [],
     newPlanName: '',
@@ -535,6 +541,7 @@ function dinnerRoulette() {
         this.loadPlans(),
         this.loadRecentSuggestions(),
         this.loadFriendGroups(),
+        this.loadRecurringPlans(),
       ]);
     },
 
@@ -1421,6 +1428,72 @@ function dinnerRoulette() {
         ...this.likes.filter(p => p.starred).map(p => ({ ...p, _type: 'likes' })),
         ...this.wantToTry.filter(p => p.starred).map(p => ({ ...p, _type: 'want_to_try' })),
       ];
+    },
+
+    // ── Recurring Plans ──
+    async loadRecurringPlans() {
+      this.recurringLoading = true;
+      try {
+        const resp = await this.api('/api/recurring-plans');
+        this.recurringPlans = await resp.json();
+      } catch (e) { /* ignore */ }
+      this.recurringLoading = false;
+    },
+    async createRecurringPlan() {
+      if (!this.recurringForm.name.trim()) {
+        this.showToast('Enter a plan name', 'error');
+        return;
+      }
+      try {
+        await this.api('/api/recurring-plans', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: this.recurringForm.name,
+            frequency: this.recurringForm.frequency,
+            memberIds: this.recurringForm.members,
+            vetoLimit: this.recurringForm.vetoLimit,
+          }),
+        });
+        this.showToast('Recurring plan created');
+        this.showRecurringForm = false;
+        this.recurringForm = { name: '', frequency: 'weekly', members: [], vetoLimit: 1 };
+        await this.loadRecurringPlans();
+      } catch (e) { this.showToast('Failed to create recurring plan', 'error'); }
+    },
+    async pauseRecurring(id, pause) {
+      try {
+        await this.api(`/api/recurring-plans/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ paused: pause }),
+        });
+        this.showToast(pause ? 'Paused' : 'Resumed');
+        await this.loadRecurringPlans();
+      } catch (e) { this.showToast('Failed', 'error'); }
+    },
+    async skipRecurring(id) {
+      try {
+        await this.api(`/api/recurring-plans/${id}/skip`, { method: 'POST' });
+        this.showToast('Skipped next occurrence');
+        await this.loadRecurringPlans();
+      } catch (e) { this.showToast('Failed', 'error'); }
+    },
+    async deleteRecurring(id) {
+      if (!confirm('Delete this recurring plan?')) return;
+      try {
+        await this.api(`/api/recurring-plans/${id}`, { method: 'DELETE' });
+        this.showToast('Recurring plan deleted');
+        await this.loadRecurringPlans();
+      } catch (e) { this.showToast('Failed', 'error'); }
+    },
+    toggleRecurringMember(friendId) {
+      const idx = this.recurringForm.members.indexOf(friendId);
+      if (idx >= 0) this.recurringForm.members.splice(idx, 1);
+      else this.recurringForm.members.push(friendId);
+    },
+    formatNextOccurrence(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     },
 
     // ── History Timeline ──

@@ -219,6 +219,17 @@ db.exec(`
     UNIQUE(group_id, user_id),
     FOREIGN KEY (group_id) REFERENCES friend_groups(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS recurring_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    creator_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    frequency TEXT NOT NULL DEFAULT 'weekly',
+    member_ids TEXT NOT NULL DEFAULT '[]',
+    veto_limit INTEGER DEFAULT 0,
+    next_occurrence TEXT NOT NULL,
+    paused INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -1456,6 +1467,62 @@ app.post('/api/plans/:id/invite-group', auth, (req, res) => {
   res.json({ success: true, added });
 });
 
+// ── Recurring Plans ──────────────────────────────────────────────────────────────
+app.get('/api/recurring-plans', auth, (req, res) => {
+  const plans = db.prepare('SELECT * FROM recurring_plans WHERE creator_id = ? ORDER BY created_at DESC').all(req.user.id);
+  res.json(plans.map(p => ({ ...p, member_ids: JSON.parse(p.member_ids || '[]') })));
+});
+
+app.post('/api/recurring-plans', auth, (req, res) => {
+  const { name, frequency, memberIds, vetoLimit } = req.body;
+  if (!name || !frequency) return res.status(400).json({ error: 'Name and frequency required' });
+  const validFreqs = ['weekly', 'biweekly', 'monthly'];
+  if (!validFreqs.includes(frequency)) return res.status(400).json({ error: 'Invalid frequency' });
+
+  // Calculate next occurrence
+  const now = new Date();
+  let next = new Date(now);
+  if (frequency === 'weekly') next.setDate(next.getDate() + 7);
+  else if (frequency === 'biweekly') next.setDate(next.getDate() + 14);
+  else if (frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+
+  const result = db.prepare(
+    'INSERT INTO recurring_plans (creator_id, name, frequency, member_ids, veto_limit, next_occurrence) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(req.user.id, name.trim(), frequency, JSON.stringify(memberIds || []), vetoLimit || 0, next.toISOString());
+  res.json({ success: true, id: result.lastInsertRowid });
+});
+
+app.patch('/api/recurring-plans/:id', auth, (req, res) => {
+  const rp = db.prepare('SELECT * FROM recurring_plans WHERE id = ? AND creator_id = ?').get(req.params.id, req.user.id);
+  if (!rp) return res.status(404).json({ error: 'Not found' });
+  const { paused, frequency } = req.body;
+  if (paused !== undefined) {
+    db.prepare('UPDATE recurring_plans SET paused = ? WHERE id = ?').run(paused ? 1 : 0, rp.id);
+  }
+  if (frequency) {
+    db.prepare('UPDATE recurring_plans SET frequency = ? WHERE id = ?').run(frequency, rp.id);
+  }
+  res.json({ success: true });
+});
+
+app.delete('/api/recurring-plans/:id', auth, (req, res) => {
+  const rp = db.prepare('SELECT * FROM recurring_plans WHERE id = ? AND creator_id = ?').get(req.params.id, req.user.id);
+  if (!rp) return res.status(404).json({ error: 'Not found' });
+  db.prepare('DELETE FROM recurring_plans WHERE id = ?').run(rp.id);
+  res.json({ success: true });
+});
+
+app.post('/api/recurring-plans/:id/skip', auth, (req, res) => {
+  const rp = db.prepare('SELECT * FROM recurring_plans WHERE id = ? AND creator_id = ?').get(req.params.id, req.user.id);
+  if (!rp) return res.status(404).json({ error: 'Not found' });
+  const next = new Date(rp.next_occurrence);
+  if (rp.frequency === 'weekly') next.setDate(next.getDate() + 7);
+  else if (rp.frequency === 'biweekly') next.setDate(next.getDate() + 14);
+  else if (rp.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+  db.prepare('UPDATE recurring_plans SET next_occurrence = ? WHERE id = ?').run(next.toISOString(), rp.id);
+  res.json({ success: true, next_occurrence: next.toISOString() });
+});
+
 // ── Plan Routes ──────────────────────────────────────────────────────────────
 app.post('/api/plans', auth, (req, res) => {
   const { name, veto_limit } = req.body;
@@ -2126,6 +2193,38 @@ io.on('connection', (socket) => {
     socket.leave(`plan:${planId}`);
   });
 });
+
+// ── Recurring Plan Scheduler ──────────────────────────────────────────────────
+function processRecurringPlans() {
+  const now = new Date().toISOString();
+  const due = db.prepare('SELECT * FROM recurring_plans WHERE paused = 0 AND next_occurrence <= ?').all(now);
+  for (const rp of due) {
+    try {
+      const code = generatePlanCode();
+      const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit) VALUES (?, ?, ?, ?)').run(code, rp.creator_id, rp.name, rp.veto_limit || 0);
+      const planId = result.lastInsertRowid;
+      db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, rp.creator_id);
+      const memberIds = JSON.parse(rp.member_ids || '[]');
+      const ins = db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)');
+      for (const mid of memberIds) ins.run(planId, mid);
+      // Advance next_occurrence
+      const next = new Date(rp.next_occurrence);
+      if (rp.frequency === 'weekly') next.setDate(next.getDate() + 7);
+      else if (rp.frequency === 'biweekly') next.setDate(next.getDate() + 14);
+      else if (rp.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+      db.prepare('UPDATE recurring_plans SET next_occurrence = ? WHERE id = ?').run(next.toISOString(), rp.id);
+      // Send push notifications
+      sendPushToPlanMembers(planId, { title: 'Recurring Plan', body: `"${rp.name}" — a new plan has been created`, tag: `plan-${planId}` }, rp.creator_id);
+      console.log(`Recurring plan "${rp.name}" created plan #${planId}`);
+    } catch (e) {
+      console.error(`Failed to process recurring plan ${rp.id}:`, e.message);
+    }
+  }
+}
+// Check every 15 minutes
+setInterval(processRecurringPlans, 15 * 60 * 1000);
+// Run once on startup to catch any missed
+setTimeout(processRecurringPlans, 5000);
 
 if (require.main === module) {
   server.listen(PORT, () => console.log(`Server listening on ${PORT}`));

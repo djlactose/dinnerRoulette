@@ -790,6 +790,61 @@
                 <button @click="joinPlan()">Join Plan</button>
               </div>
 
+              <!-- Recurring Plans -->
+              <div class="section-header" @click="showRecurringForm = !showRecurringForm" x-show="friends.length > 0">
+                <h4>
+                  <span class="section-collapse-icon" :class="{ open: showRecurringForm || recurringPlans.length > 0 }">&#x25B6;</span>
+                  Recurring Plans
+                  <span class="section-count" x-text="recurringPlans.length" x-show="recurringPlans.length > 0"></span>
+                </h4>
+              </div>
+              <div x-show="showRecurringForm || recurringPlans.length > 0" x-collapse>
+                <!-- Recurring form -->
+                <div x-show="showRecurringForm" class="recurring-form">
+                  <input type="text" x-model="recurringForm.name" placeholder="Plan name" aria-label="Recurring plan name" />
+                  <div class="recurring-form-row">
+                    <select x-model="recurringForm.frequency" aria-label="Frequency">
+                      <option value="weekly">Weekly</option>
+                      <option value="biweekly">Biweekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                    <label>Vetoes: <input type="number" min="0" max="10" x-model.number="recurringForm.vetoLimit" style="width: 3rem;" /></label>
+                  </div>
+                  <p style="font-size: var(--text-sm); color: var(--text-secondary); margin: 0.3rem 0;">Members:</p>
+                  <div class="group-member-select">
+                    <template x-for="f in friends" :key="f.id">
+                      <label class="group-member-option" @click="toggleRecurringMember(f.id)">
+                        <input type="checkbox" :checked="recurringForm.members.includes(f.id)" />
+                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
+                        <span x-text="f.username"></span>
+                      </label>
+                    </template>
+                  </div>
+                  <div class="recurring-form-actions">
+                    <button class="suggest-btn" @click="createRecurringPlan()">Create</button>
+                    <button class="back-btn" @click="showRecurringForm = false">Cancel</button>
+                  </div>
+                </div>
+                <!-- Recurring plan list -->
+                <template x-for="rp in recurringPlans" :key="rp.id">
+                  <div class="recurring-plan-card">
+                    <div class="recurring-plan-info">
+                      <strong x-text="rp.name"></strong>
+                      <div class="recurring-plan-meta">
+                        <span class="frequency-badge" x-text="rp.frequency"></span>
+                        <span x-show="rp.paused" class="frequency-badge paused">Paused</span>
+                        <span class="recurring-next" x-text="'Next: ' + formatNextOccurrence(rp.next_occurrence)"></span>
+                      </div>
+                    </div>
+                    <div class="recurring-controls">
+                      <button class="filter-chip" @click="pauseRecurring(rp.id, !rp.paused)" x-text="rp.paused ? 'Resume' : 'Pause'"></button>
+                      <button class="filter-chip" @click="skipRecurring(rp.id)">Skip</button>
+                      <button class="remove-btn" @click="deleteRecurring(rp.id)">Delete</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
               <!-- Active Plans -->
               <h4 x-show="activePlans.length > 0">Active Plans</h4>
               <ul class="plan-list">

@@ -3936,3 +3936,76 @@ button {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
+
+/* ── Recurring Plans ───────────────────────────────────────────────────────── */
+.recurring-form {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.recurring-form-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.recurring-form-row select {
+  flex: 1;
+}
+.recurring-form-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.recurring-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.recurring-plan-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.4rem;
+}
+.recurring-plan-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.recurring-plan-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.frequency-badge {
+  font-size: var(--text-xs);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.frequency-badge.paused {
+  background: var(--warning);
+}
+.recurring-next {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.recurring-controls {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  flex-shrink: 0;
+}
