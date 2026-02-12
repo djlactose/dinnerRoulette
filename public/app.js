@@ -188,6 +188,8 @@ function dinnerRoulette() {
 
     // Account
     accountTab: 'profile',
+    userStats: null,
+    statsLoading: false,
 
     // Admin
     adminTab: 'dashboard',
@@ -2606,6 +2608,17 @@ function dinnerRoulette() {
       } catch (e) {
         this.showToast('Failed to disable notifications', 'error');
       }
+    },
+
+    // ── Stats ──
+    async loadStats() {
+      if (this.statsLoading) return;
+      this.statsLoading = true;
+      try {
+        const resp = await this.api('/api/stats');
+        this.userStats = await resp.json();
+      } catch (e) { /* ignore */ }
+      this.statsLoading = false;
     },
 
     // ── Account ──

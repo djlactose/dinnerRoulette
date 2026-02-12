@@ -1284,6 +1284,7 @@
           <!-- Account Sub-tabs -->
           <div class="admin-sub-tabs">
             <button class="admin-sub-tab" :class="{ active: accountTab === 'profile' }" @click="accountTab = 'profile'">Profile</button>
+            <button class="admin-sub-tab" :class="{ active: accountTab === 'stats' }" @click="accountTab = 'stats'; loadStats()">Stats</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'security' }" @click="accountTab = 'security'">Security</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'notifications' }" @click="accountTab = 'notifications'">Notifications</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'danger' }" @click="accountTab = 'danger'">Danger Zone</button>
@@ -1314,6 +1315,84 @@
                   <span class="accent-swatch-label" x-text="palette.name"></span>
                 </button>
               </template>
+            </div>
+          </div>
+
+          <!-- Stats Sub-tab -->
+          <div x-show="accountTab === 'stats'">
+            <div x-show="statsLoading" class="loading-spinner">Loading stats...</div>
+            <div x-show="userStats && !statsLoading">
+              <!-- Stat Cards Grid -->
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <span class="stat-value" x-text="userStats?.restaurantsVisited || 0"></span>
+                  <span class="stat-label">Restaurants Visited</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-value" x-text="userStats?.plansJoined || 0"></span>
+                  <span class="stat-label">Plans Joined</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-value" x-text="(userStats?.winRate || 0) + '%'"></span>
+                  <span class="stat-label">Win Rate</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-value" x-text="userStats?.totalSuggested || 0"></span>
+                  <span class="stat-label">Places Suggested</span>
+                </div>
+              </div>
+
+              <!-- Voting Patterns -->
+              <h4>Voting Patterns</h4>
+              <div class="stat-bar-container">
+                <div class="stat-bar">
+                  <div class="stat-bar-fill stat-bar-up" :style="{ width: ((userStats?.upvotes || 0) / Math.max((userStats?.upvotes || 0) + (userStats?.downvotes || 0), 1) * 100) + '%' }"></div>
+                </div>
+                <div class="stat-bar-legend">
+                  <span class="stat-bar-legend-item up">Upvotes: <strong x-text="userStats?.upvotes || 0"></strong></span>
+                  <span class="stat-bar-legend-item down">Downvotes: <strong x-text="userStats?.downvotes || 0"></strong></span>
+                  <span class="stat-bar-legend-item veto">Vetoes: <strong x-text="userStats?.vetoes || 0"></strong></span>
+                </div>
+              </div>
+
+              <!-- Favorite Cuisines -->
+              <h4 x-show="userStats?.topCuisines?.length > 0">Favorite Cuisines</h4>
+              <div class="stat-h-bars" x-show="userStats?.topCuisines?.length > 0">
+                <template x-for="c in (userStats?.topCuisines || [])" :key="c.type">
+                  <div class="stat-h-bar-row">
+                    <span class="stat-h-bar-label" x-text="c.type"></span>
+                    <div class="stat-h-bar">
+                      <div class="stat-h-bar-fill" :style="{ width: (c.count / (userStats.topCuisines[0]?.count || 1) * 100) + '%' }"></div>
+                    </div>
+                    <span class="stat-h-bar-count" x-text="c.count"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Top Companions -->
+              <h4 x-show="userStats?.topCompanions?.length > 0">Top Dining Companions</h4>
+              <div class="stat-companions" x-show="userStats?.topCompanions?.length > 0">
+                <template x-for="comp in (userStats?.topCompanions || [])" :key="comp.username">
+                  <div class="stat-companion">
+                    <span class="avatar avatar-sm" :style="{ background: hashColor(comp.username) }" x-text="getInitials(comp.username)"></span>
+                    <span x-text="comp.username"></span>
+                    <span class="stat-companion-count" x-text="comp.count + ' plans'"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Places Pie Chart -->
+              <h4>Your Places</h4>
+              <div class="stat-pie-container">
+                <div class="stat-pie" :style="{
+                  background: 'conic-gradient(var(--success) 0% ' + (userStats?.likesCount / Math.max((userStats?.likesCount || 0) + (userStats?.dislikesCount || 0) + (userStats?.wantToTryCount || 0), 1) * 100) + '%, var(--danger) ' + (userStats?.likesCount / Math.max((userStats?.likesCount || 0) + (userStats?.dislikesCount || 0) + (userStats?.wantToTryCount || 0), 1) * 100) + '% ' + ((userStats?.likesCount + userStats?.dislikesCount) / Math.max((userStats?.likesCount || 0) + (userStats?.dislikesCount || 0) + (userStats?.wantToTryCount || 0), 1) * 100) + '%, var(--warning) ' + ((userStats?.likesCount + userStats?.dislikesCount) / Math.max((userStats?.likesCount || 0) + (userStats?.dislikesCount || 0) + (userStats?.wantToTryCount || 0), 1) * 100) + '% 100%)'
+                }"></div>
+                <div class="stat-pie-legend">
+                  <span class="stat-pie-legend-item"><span class="stat-pie-dot" style="background: var(--success);"></span> Likes: <strong x-text="userStats?.likesCount || 0"></strong></span>
+                  <span class="stat-pie-legend-item"><span class="stat-pie-dot" style="background: var(--danger);"></span> Dislikes: <strong x-text="userStats?.dislikesCount || 0"></strong></span>
+                  <span class="stat-pie-legend-item"><span class="stat-pie-dot" style="background: var(--warning);"></span> Want to Try: <strong x-text="userStats?.wantToTryCount || 0"></strong></span>
+                </div>
+              </div>
             </div>
           </div>
 

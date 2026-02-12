@@ -549,6 +549,76 @@ app.post('/api/accent-color', auth, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Stats ────────────────────────────────────────────────────────────────────────
+app.get('/api/stats', auth, (req, res) => {
+  const uid = req.user.id;
+
+  // Total unique restaurants visited (winners from closed plans the user was in)
+  const restaurantsVisited = db.prepare(`
+    SELECT COUNT(DISTINCT s.winner_place) AS c FROM sessions s
+    JOIN session_members sm ON sm.session_id = s.id
+    WHERE sm.user_id = ? AND s.status = 'closed' AND s.winner_place IS NOT NULL
+  `).get(uid).c;
+
+  // Plans joined
+  const plansJoined = db.prepare('SELECT COUNT(*) AS c FROM session_members WHERE user_id = ?').get(uid).c;
+
+  // Plans created
+  const plansCreated = db.prepare('SELECT COUNT(*) AS c FROM sessions WHERE creator_id = ?').get(uid).c;
+
+  // Suggestion win rate
+  const totalSuggested = db.prepare(`
+    SELECT COUNT(*) AS c FROM session_suggestions WHERE user_id = ?
+  `).get(uid).c;
+  const suggestionsWon = db.prepare(`
+    SELECT COUNT(*) AS c FROM session_suggestions ss
+    JOIN sessions s ON s.id = ss.session_id
+    WHERE ss.user_id = ? AND s.status = 'closed' AND s.winner_place = ss.place
+  `).get(uid).c;
+  const winRate = totalSuggested > 0 ? Math.round((suggestionsWon / totalSuggested) * 100) : 0;
+
+  // Top 5 cuisine types
+  const topCuisines = db.prepare(`
+    SELECT restaurant_type AS type, COUNT(*) AS count FROM (
+      SELECT restaurant_type FROM likes WHERE user_id = ? AND restaurant_type IS NOT NULL
+      UNION ALL
+      SELECT winner_place AS restaurant_type FROM (
+        SELECT ss.restaurant_type AS winner_place FROM sessions s
+        JOIN session_suggestions ss ON ss.session_id = s.id AND ss.place = s.winner_place
+        JOIN session_members sm ON sm.session_id = s.id
+        WHERE sm.user_id = ? AND s.status = 'closed' AND ss.restaurant_type IS NOT NULL
+      )
+    ) GROUP BY restaurant_type ORDER BY count DESC LIMIT 5
+  `).all(uid, uid);
+
+  // Top 5 dining companions
+  const topCompanions = db.prepare(`
+    SELECT u.username, COUNT(DISTINCT sm2.session_id) AS count
+    FROM session_members sm1
+    JOIN session_members sm2 ON sm2.session_id = sm1.session_id AND sm2.user_id != sm1.user_id
+    JOIN users u ON u.id = sm2.user_id
+    WHERE sm1.user_id = ?
+    GROUP BY sm2.user_id ORDER BY count DESC LIMIT 5
+  `).all(uid);
+
+  // Voting patterns
+  const upvotes = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE user_id = ? AND vote_type = 'up'").get(uid).c;
+  const downvotes = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE user_id = ? AND vote_type = 'down'").get(uid).c;
+  const vetoes = db.prepare('SELECT COUNT(*) AS c FROM session_vetoes WHERE user_id = ?').get(uid).c;
+
+  // Places counts
+  const likesCount = db.prepare('SELECT COUNT(*) AS c FROM likes WHERE user_id = ?').get(uid).c;
+  const dislikesCount = db.prepare('SELECT COUNT(*) AS c FROM dislikes WHERE user_id = ?').get(uid).c;
+  const wantToTryCount = db.prepare('SELECT COUNT(*) AS c FROM want_to_try WHERE user_id = ?').get(uid).c;
+
+  res.json({
+    restaurantsVisited, plansJoined, plansCreated, totalSuggested, suggestionsWon, winRate,
+    topCuisines, topCompanions,
+    upvotes, downvotes, vetoes,
+    likesCount, dislikesCount, wantToTryCount,
+  });
+});
+
 app.post('/api/change-password', auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
