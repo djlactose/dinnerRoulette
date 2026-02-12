@@ -3271,3 +3271,59 @@ a {
     background: var(--swatch-dark);
   }
 }
+
+/* ── Tab Slide Transitions ────────────────────────────────────────────────── */
+.tab-transition-enter {
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+.tab-transition-enter-from {
+  opacity: 0;
+  transform: translateX(var(--tab-slide-from, 0));
+}
+.tab-transition-enter-to {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ── Ripple Effect ────────────────────────────────────────────────────────── */
+button {
+  position: relative;
+  overflow: hidden;
+}
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(0);
+  animation: ripple-expand 0.5s ease-out forwards;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes ripple-expand {
+  to {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* ── Staggered List Animation ─────────────────────────────────────────────── */
+.stagger-item {
+  opacity: 0;
+  animation: fadeSlideIn 0.25s ease-out forwards;
+}
+
+/* ── List Item Removal Animation ──────────────────────────────────────────── */
+.list-item-removing {
+  animation: fadeSlideOut 0.2s ease-in forwards;
+  overflow: hidden;
+}
+@keyframes fadeSlideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-20px) scale(0.95);
+  }
+}

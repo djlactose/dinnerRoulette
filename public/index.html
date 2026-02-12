@@ -273,7 +273,7 @@
         </div>
 
         <!-- ═══ PLACES TAB ═══ -->
-        <section x-show="activeTab === 'places'" x-transition:enter.opacity.duration.200ms>
+        <section x-show="activeTab === 'places'" x-transition:enter="tab-transition-enter" x-transition:enter-start="tab-transition-enter-from" x-transition:enter-end="tab-transition-enter-to">
           <!-- Search Area -->
           <div class="search-area">
             <div class="autocomplete-container">
@@ -539,7 +539,7 @@
         </section>
 
         <!-- ═══ FRIENDS TAB ═══ -->
-        <section x-show="activeTab === 'friends'" x-transition:enter.opacity.duration.200ms>
+        <section x-show="activeTab === 'friends'" x-transition:enter="tab-transition-enter" x-transition:enter-start="tab-transition-enter-from" x-transition:enter-end="tab-transition-enter-to">
           <label for="friend-input">Add a friend</label>
           <div class="inline-input">
             <input id="friend-input" x-ref="friendInput" x-model="friendUsername" placeholder="Friend's username"
@@ -662,7 +662,7 @@
         </section>
 
         <!-- ═══ PLANS TAB ═══ -->
-        <section x-show="activeTab === 'plans'" x-transition:enter.opacity.duration.200ms>
+        <section x-show="activeTab === 'plans'" x-transition:enter="tab-transition-enter" x-transition:enter-start="tab-transition-enter-from" x-transition:enter-end="tab-transition-enter-to">
           <!-- Plan Management -->
           <div class="plan-subsection">
             <h3>Dinner Plans</h3>
@@ -686,8 +686,8 @@
               <!-- Active Plans -->
               <h4 x-show="activePlans.length > 0">Active Plans</h4>
               <ul class="plan-list">
-                <template x-for="s in activePlans" :key="s.id">
-                  <li @click="openPlan(s.id)">
+                <template x-for="(s, pIdx) in activePlans" :key="s.id">
+                  <li @click="openPlan(s.id)" class="stagger-item" :style="{ animationDelay: (pIdx * 40) + 'ms' }">
                     <div>
                       <strong x-text="s.name"></strong>
                       <span class="plan-code" x-text="s.code"></span>
@@ -950,8 +950,9 @@
 
               <!-- List View -->
               <ul class="plan-suggestion-list" x-show="!mapView">
-                <template x-for="s in sortedPlanSuggestions" :key="s.id">
-                  <li :class="{ 'suggestion-vetoed': (s.veto_count || 0) > 0 }">
+                <template x-for="(s, sIdx) in sortedPlanSuggestions" :key="s.id">
+                  <li :class="{ 'suggestion-vetoed': (s.veto_count || 0) > 0, 'list-item-removing': s._removing }"
+                      class="stagger-item" :style="{ animationDelay: (sIdx * 40) + 'ms' }">
                     <div class="suggestion-info">
                       <span class="suggestion-name-block">
                         <span class="suggestion-name" x-text="displayName(s)"></span>
@@ -1192,7 +1193,7 @@
         </section>
 
         <!-- ═══ ACCOUNT TAB ═══ -->
-        <section x-show="activeTab === 'account'" x-transition:enter.opacity.duration.200ms>
+        <section x-show="activeTab === 'account'" x-transition:enter="tab-transition-enter" x-transition:enter-start="tab-transition-enter-from" x-transition:enter-end="tab-transition-enter-to">
           <h3>Account Settings</h3>
 
           <!-- Account Sub-tabs -->
@@ -1267,7 +1268,7 @@
         </section>
 
         <!-- ═══ ADMIN TAB ═══ -->
-        <section x-show="activeTab === 'admin' && isAdmin" x-transition:enter.opacity.duration.200ms
+        <section x-show="activeTab === 'admin' && isAdmin" x-transition:enter="tab-transition-enter" x-transition:enter-start="tab-transition-enter-from" x-transition:enter-end="tab-transition-enter-to"
                  x-init="$watch('activeTab', val => { if (val === 'admin') switchAdminTab(adminTab); })">
           <h3>Admin Panel</h3>
 

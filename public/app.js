@@ -405,6 +405,12 @@ function dinnerRoulette() {
       this.touchEnabled = 'ontouchstart' in window;
       this.notificationsSupported = 'Notification' in window && 'PushManager' in window;
 
+      // Global ripple effect on buttons
+      document.addEventListener('click', (e) => {
+        const btn = e.target.closest('button:not(.tab-btn):not(.theme-toggle):not([disabled]):not(.accent-swatch)');
+        if (btn) this.createRipple(e);
+      });
+
       // Detect invite URL (/invite/CODE)
       const inviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9]{6})$/);
       if (inviteMatch) {
@@ -625,6 +631,11 @@ function dinnerRoulette() {
 
     // ── Tabs ──
     switchTab(tab) {
+      const tabs = ['places', 'friends', 'plans', 'account', 'admin'];
+      const oldIdx = tabs.indexOf(this.activeTab);
+      const newIdx = tabs.indexOf(tab);
+      const direction = newIdx > oldIdx ? '20px' : newIdx < oldIdx ? '-20px' : '0';
+      document.documentElement.style.setProperty('--tab-slide-from', direction);
       this.activeTab = tab;
       window.location.hash = tab;
     },
@@ -757,6 +768,22 @@ function dinnerRoulette() {
         this.accentColor = stored;
         this.applyAccentColor(stored);
       }
+    },
+
+    createRipple(event) {
+      const button = event.currentTarget || event.target.closest('button');
+      if (!button || button.disabled) return;
+      const rect = button.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height);
+      const x = event.clientX - rect.left - size / 2;
+      const y = event.clientY - rect.top - size / 2;
+      const ripple = document.createElement('span');
+      ripple.className = 'ripple';
+      ripple.style.width = ripple.style.height = size + 'px';
+      ripple.style.left = x + 'px';
+      ripple.style.top = y + 'px';
+      button.appendChild(ripple);
+      ripple.addEventListener('animationend', () => ripple.remove());
     },
 
     // ── Auth ──
@@ -1670,11 +1697,14 @@ function dinnerRoulette() {
     async removeSuggestion(suggestion) {
       if (!this.activePlan) return;
       if (!await this.showConfirm(`Remove "${suggestion.place}" from this plan?`)) return;
+      suggestion._removing = true;
+      await new Promise(r => setTimeout(r, 200));
       try {
         const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/suggestion/${suggestion.id}`, {
           method: 'DELETE',
         });
         if (!resp.ok) {
+          suggestion._removing = false;
           const err = await resp.json();
           this.showToast(err.error || 'Failed to remove', 'error');
           return;
@@ -1682,6 +1712,7 @@ function dinnerRoulette() {
         this.showToast('Suggestion removed');
         await this.refreshPlan();
       } catch (e) {
+        suggestion._removing = false;
         this.showToast('Failed to remove suggestion', 'error');
       }
     },
