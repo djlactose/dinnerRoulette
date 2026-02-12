@@ -1339,6 +1339,8 @@ a {
   padding: 0.3rem 0.6rem;
 }
 
+.icon { display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em; fill: currentColor; }
+
 .move-btn {
   background-color: var(--accent);
   color: white;
