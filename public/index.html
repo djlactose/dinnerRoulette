@@ -607,6 +607,53 @@
             <button @click="inviteFriend()">Send Request</button>
           </div>
 
+          <!-- Group Presets -->
+          <div x-show="friends.length > 0" class="group-presets-section">
+            <div class="section-header-inline">
+              <h4>Group Presets</h4>
+              <button class="suggest-btn" @click="openCreateGroup()">+ New Group</button>
+            </div>
+            <div x-show="friendGroups.length === 0" class="empty-state-mini">No groups yet</div>
+            <template x-for="group in friendGroups" :key="group.id">
+              <div class="group-preset-card">
+                <div class="group-preset-info">
+                  <strong x-text="group.name"></strong>
+                  <div class="group-member-chips">
+                    <template x-for="m in group.members" :key="m.user_id">
+                      <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(m.username) }" :title="m.username" x-text="getInitials(m.username)"></span>
+                    </template>
+                  </div>
+                </div>
+                <div class="group-preset-actions">
+                  <button class="edit-btn" @click="openEditGroup(group)">Edit</button>
+                  <button class="remove-btn" @click="deleteGroup(group.id)">Delete</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Group Modal -->
+          <div class="modal-overlay" x-show="groupModal.visible" x-transition.opacity @click.self="groupModal.visible = false">
+            <div class="modal-content">
+              <h4 x-text="groupModal.editingId ? 'Edit Group' : 'Create Group'"></h4>
+              <input type="text" x-model="groupModal.name" placeholder="Group name" aria-label="Group name" />
+              <p style="font-size: var(--text-sm); color: var(--text-secondary); margin: 0.5rem 0 0.3rem;">Select members:</p>
+              <div class="group-member-select">
+                <template x-for="f in friends" :key="f.id">
+                  <label class="group-member-option" @click="toggleGroupMember(f.id)">
+                    <input type="checkbox" :checked="groupModal.selectedMembers.includes(f.id)" />
+                    <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
+                    <span x-text="f.username"></span>
+                  </label>
+                </template>
+              </div>
+              <div class="modal-actions">
+                <button class="suggest-btn" @click="saveGroup()">Save</button>
+                <button class="back-btn" @click="groupModal.visible = false">Cancel</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Pending Friend Requests -->
           <div x-show="friendRequests.length > 0" class="friends-list">
             <h4>Friend Requests</h4>
@@ -838,6 +885,12 @@
                 <input x-model="planInviteUsername" placeholder="Invite by username..."
                        @keydown.enter="inviteToPlan()" aria-label="Invite user to plan" />
                 <button @click="inviteToPlan()">Invite</button>
+              </div>
+              <div class="group-invite-chips" x-show="activePlan?.plan?.status === 'open' && friendGroups.length > 0">
+                <span class="group-invite-label">Invite group:</span>
+                <template x-for="g in friendGroups" :key="g.id">
+                  <button class="filter-chip" @click="inviteGroupToPlan(g.id)" x-text="g.name"></button>
+                </template>
               </div>
               <p x-show="activePlan?.plan?.status === 'closed'" class="closed-badge">This plan is closed.</p>
 

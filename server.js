@@ -207,6 +207,18 @@ db.exec(`
     suggestion_id INTEGER NOT NULL,
     UNIQUE(session_id, user_id, suggestion_id)
   );
+  CREATE TABLE IF NOT EXISTS friend_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    creator_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS friend_group_members (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    UNIQUE(group_id, user_id),
+    FOREIGN KEY (group_id) REFERENCES friend_groups(id) ON DELETE CASCADE
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -1324,6 +1336,83 @@ app.get('/api/suggestions/recent', auth, (req, res) => {
     LIMIT 5
   `).all(req.user.id);
   res.json({ recent: rows.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
+});
+
+// ── Friend Groups ────────────────────────────────────────────────────────────────
+app.get('/api/friend-groups', auth, (req, res) => {
+  const groups = db.prepare('SELECT * FROM friend_groups WHERE creator_id = ?').all(req.user.id);
+  const result = groups.map(g => {
+    const members = db.prepare(`
+      SELECT fgm.user_id, u.username FROM friend_group_members fgm
+      JOIN users u ON u.id = fgm.user_id
+      WHERE fgm.group_id = ?
+    `).all(g.id);
+    return { ...g, members };
+  });
+  res.json(result);
+});
+
+app.post('/api/friend-groups', auth, (req, res) => {
+  const { name, memberIds } = req.body;
+  if (!name || !Array.isArray(memberIds) || memberIds.length === 0) {
+    return res.status(400).json({ error: 'Name and at least one member required' });
+  }
+  // Validate all are friends
+  for (const mid of memberIds) {
+    const isFriend = db.prepare(`
+      SELECT 1 FROM friends WHERE ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)) AND status = 'accepted'
+    `).get(req.user.id, mid, mid, req.user.id);
+    if (!isFriend) return res.status(400).json({ error: 'All members must be friends' });
+  }
+  const result = db.prepare('INSERT INTO friend_groups (creator_id, name) VALUES (?, ?)').run(req.user.id, name.trim());
+  const groupId = result.lastInsertRowid;
+  const ins = db.prepare('INSERT OR IGNORE INTO friend_group_members (group_id, user_id) VALUES (?, ?)');
+  for (const mid of memberIds) ins.run(groupId, mid);
+  res.json({ success: true, id: groupId });
+});
+
+app.put('/api/friend-groups/:id', auth, (req, res) => {
+  const groupId = req.params.id;
+  const group = db.prepare('SELECT * FROM friend_groups WHERE id = ? AND creator_id = ?').get(groupId, req.user.id);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const { name, memberIds } = req.body;
+  if (name) db.prepare('UPDATE friend_groups SET name = ? WHERE id = ?').run(name.trim(), groupId);
+  if (Array.isArray(memberIds)) {
+    db.prepare('DELETE FROM friend_group_members WHERE group_id = ?').run(groupId);
+    const ins = db.prepare('INSERT OR IGNORE INTO friend_group_members (group_id, user_id) VALUES (?, ?)');
+    for (const mid of memberIds) ins.run(groupId, mid);
+  }
+  res.json({ success: true });
+});
+
+app.delete('/api/friend-groups/:id', auth, (req, res) => {
+  const group = db.prepare('SELECT * FROM friend_groups WHERE id = ? AND creator_id = ?').get(req.params.id, req.user.id);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  db.prepare('DELETE FROM friend_groups WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+app.post('/api/plans/:id/invite-group', auth, (req, res) => {
+  const planId = req.params.id;
+  const { groupId } = req.body;
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+  const group = db.prepare('SELECT * FROM friend_groups WHERE id = ? AND creator_id = ?').get(groupId, req.user.id);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const members = db.prepare('SELECT user_id FROM friend_group_members WHERE group_id = ?').all(groupId);
+  const ins = db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)');
+  let added = 0;
+  for (const m of members) {
+    const result = ins.run(planId, m.user_id);
+    if (result.changes > 0) added++;
+  }
+  if (added > 0) {
+    sendPushToPlanMembers(planId, { title: 'Group Invited', body: `${req.user.username} invited group "${group.name}" to ${plan.name}`, tag: `plan-${planId}` }, req.user.id);
+    io.to(`plan:${planId}`).emit('plan:updated');
+  }
+  res.json({ success: true, added });
 });
 
 // ── Plan Routes ──────────────────────────────────────────────────────────────

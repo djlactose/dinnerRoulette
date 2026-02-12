@@ -99,6 +99,10 @@ function dinnerRoulette() {
     friendRequests: [],
     friendSections: {},
 
+    // Friend Groups
+    friendGroups: [],
+    groupModal: { visible: false, editingId: null, name: '', selectedMembers: [] },
+
     // Plans
     plans: [],
     newPlanName: '',
@@ -522,6 +526,7 @@ function dinnerRoulette() {
         this.loadFriendRequests(),
         this.loadPlans(),
         this.loadRecentSuggestions(),
+        this.loadFriendGroups(),
       ]);
     },
 
@@ -1408,6 +1413,68 @@ function dinnerRoulette() {
         ...this.likes.filter(p => p.starred).map(p => ({ ...p, _type: 'likes' })),
         ...this.wantToTry.filter(p => p.starred).map(p => ({ ...p, _type: 'want_to_try' })),
       ];
+    },
+
+    // ── Friend Groups ──
+    async loadFriendGroups() {
+      try {
+        const resp = await this.api('/api/friend-groups');
+        this.friendGroups = await resp.json();
+      } catch (e) { /* ignore */ }
+    },
+    openCreateGroup() {
+      this.groupModal = { visible: true, editingId: null, name: '', selectedMembers: [] };
+    },
+    openEditGroup(group) {
+      this.groupModal = { visible: true, editingId: group.id, name: group.name, selectedMembers: group.members.map(m => m.user_id) };
+    },
+    toggleGroupMember(friendId) {
+      const idx = this.groupModal.selectedMembers.indexOf(friendId);
+      if (idx >= 0) this.groupModal.selectedMembers.splice(idx, 1);
+      else this.groupModal.selectedMembers.push(friendId);
+    },
+    async saveGroup() {
+      if (!this.groupModal.name.trim() || this.groupModal.selectedMembers.length === 0) {
+        this.showToast('Enter a name and select at least one member', 'error');
+        return;
+      }
+      try {
+        if (this.groupModal.editingId) {
+          await this.api(`/api/friend-groups/${this.groupModal.editingId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name: this.groupModal.name, memberIds: this.groupModal.selectedMembers }),
+          });
+          this.showToast('Group updated');
+        } else {
+          await this.api('/api/friend-groups', {
+            method: 'POST',
+            body: JSON.stringify({ name: this.groupModal.name, memberIds: this.groupModal.selectedMembers }),
+          });
+          this.showToast('Group created');
+        }
+        this.groupModal.visible = false;
+        await this.loadFriendGroups();
+      } catch (e) { this.showToast('Failed to save group', 'error'); }
+    },
+    async deleteGroup(groupId) {
+      if (!confirm('Delete this group?')) return;
+      try {
+        await this.api(`/api/friend-groups/${groupId}`, { method: 'DELETE' });
+        this.showToast('Group deleted');
+        await this.loadFriendGroups();
+      } catch (e) { this.showToast('Failed to delete group', 'error'); }
+    },
+    async inviteGroupToPlan(groupId) {
+      if (!this.activePlan) return;
+      try {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/invite-group`, {
+          method: 'POST',
+          body: JSON.stringify({ groupId }),
+        });
+        const data = await resp.json();
+        this.showToast(`Invited group — ${data.added} new member(s) added`);
+        await this.openPlan(this.activePlan.plan.id);
+      } catch (e) { this.showToast('Failed to invite group', 'error'); }
     },
 
     // ── Friends ──
