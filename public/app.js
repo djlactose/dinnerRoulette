@@ -13,6 +13,10 @@ function dinnerRoulette() {
     userId: null,
     email: '',
     isAdmin: false,
+    profileName: '',
+    profilePic: null,
+    profileForm: { displayName: '', profilePicPreview: null, profilePicData: undefined },
+    profileSaving: false,
     authMode: 'login',
     authForm: { username: '', password: '', confirmPassword: '', email: '', remember: false },
     authError: '',
@@ -179,7 +183,8 @@ function dinnerRoulette() {
     // Chat
     chatMessages: [],
     chatInput: '',
-    chatVisible: false,
+    chatDrawerOpen: false,
+    unreadChatCount: 0,
     emojiPickerVisible: false,
     gifSearchVisible: false,
     gifSearchQuery: '',
@@ -255,6 +260,84 @@ function dinnerRoulette() {
       }
       const hue = Math.abs(hash) % 360;
       return `hsl(${hue}, 55%, 45%)`;
+    },
+
+    avatarStyle(user) {
+      if (user && user.profile_pic) return { backgroundImage: `url(${user.profile_pic})` };
+      const name = user ? (user.display_name || user.username) : '';
+      return { background: this.hashColor(name || '') };
+    },
+
+    memberLookup(username) {
+      if (!this.activePlan?.members) return null;
+      return this.activePlan.members.find(m => m.username === username);
+    },
+
+    async handleProfilePicUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        this.showToast('Please select an image file', 'error');
+        return;
+      }
+      try {
+        const dataUri = await this.resizeImage(file, 128);
+        this.profileForm.profilePicPreview = dataUri;
+        this.profileForm.profilePicData = dataUri;
+      } catch (e) {
+        this.showToast('Failed to process image', 'error');
+      }
+      event.target.value = '';
+    },
+
+    resizeImage(file, size) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          const min = Math.min(img.width, img.height);
+          const sx = (img.width - min) / 2;
+          const sy = (img.height - min) / 2;
+          ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+    },
+
+    async updateProfile() {
+      this.profileSaving = true;
+      try {
+        const body = { displayName: this.profileForm.displayName || null };
+        if (this.profileForm.profilePicData !== undefined) {
+          body.profilePic = this.profileForm.profilePicData;
+        }
+        const resp = await fetch('/api/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) { const d = await resp.json(); throw new Error(d.error); }
+        const data = await resp.json();
+        this.profileName = data.display_name || '';
+        this.profilePic = data.profile_pic || null;
+        this.profileForm.profilePicPreview = null;
+        this.profileForm.profilePicData = undefined;
+        this.showToast('Profile updated!', 'success');
+      } catch (e) {
+        this.showToast(e.message || 'Failed to update profile', 'error');
+      }
+      this.profileSaving = false;
+    },
+
+    removeProfilePic() {
+      this.profileForm.profilePicPreview = null;
+      this.profileForm.profilePicData = null;
     },
 
     createConfetti() {
@@ -527,6 +610,8 @@ function dinnerRoulette() {
           this.userId = data.id;
           this.email = data.email || '';
           this.isAdmin = !!data.is_admin;
+          this.profileName = data.display_name || '';
+          this.profilePic = data.profile_pic || null;
           if (data.accent_color && !localStorage.getItem('accent-color')) {
             this.accentColor = data.accent_color;
             this.applyAccentColor(data.accent_color);
@@ -574,8 +659,8 @@ function dinnerRoulette() {
         if (!this.activePlan) return;
         const already = this.activePlan.members.some(m => m.id === data.userId);
         if (!already) {
-          this.activePlan.members.push({ id: data.userId, username: data.username });
-          this.showToast(`${data.username} joined the plan`);
+          this.activePlan.members.push({ id: data.userId, username: data.username, display_name: data.display_name || null, profile_pic: data.profile_pic || null });
+          this.showToast(`${data.display_name || data.username} joined the plan`);
         }
       });
 
@@ -665,10 +750,11 @@ function dinnerRoulette() {
         if (!data.reactions) data.reactions = [];
         if (data.mentions && data.user_id !== this.userId) {
           if (data.mentions.includes('all') || data.mentions.includes(this.userId)) {
-            this.showToast(`${data.username} mentioned you`, 'info');
+            this.showToast(`${data.display_name || data.username} mentioned you`, 'info');
           }
         }
         this.chatMessages.push(data);
+        if (!this.chatDrawerOpen) this.unreadChatCount++;
         this.$nextTick(() => {
           const el = document.getElementById('chat-messages');
           if (el) el.scrollTop = el.scrollHeight;
@@ -812,6 +898,14 @@ function dinnerRoulette() {
         } else {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+      }
+    },
+
+    goToActivePlan() {
+      const plans = this.plans.filter(s => s.status === 'open');
+      this.switchTab('plans');
+      if (plans.length === 1) {
+        this.openPlan(plans[0].id);
       }
     },
 
@@ -1041,6 +1135,8 @@ function dinnerRoulette() {
           this.username = data.username;
           this.email = data.email || '';
           this.isAdmin = !!data.is_admin;
+          this.profileName = data.display_name || '';
+          this.profilePic = data.profile_pic || null;
         }
       } catch (e) { /* ignore */ }
     },
@@ -1053,6 +1149,8 @@ function dinnerRoulette() {
       this.userId = null;
       this.email = '';
       this.isAdmin = false;
+      this.profileName = '';
+      this.profilePic = null;
       this.likes = [];
       this.dislikes = [];
       this.friends = [];
@@ -1919,7 +2017,8 @@ function dinnerRoulette() {
       this.planPredictions = [];
       this.chatMessages = [];
       this.chatInput = '';
-      this.chatVisible = false;
+      this.chatDrawerOpen = false;
+      this.unreadChatCount = 0;
       this.emojiPickerVisible = false;
       this.gifSearchVisible = false;
       this.gifSearchQuery = '';
@@ -2186,10 +2285,12 @@ function dinnerRoulette() {
         return;
       }
 
-      // Spin the wheel animation (only non-vetoed suggestions)
-      const eligible = suggestions.filter(s => !(s.veto_count > 0));
+      // Spin the wheel with only top-voted suggestions (tiebreaker)
+      const nonVetoed = suggestions.filter(s => !(s.veto_count > 0));
+      const maxVotes = Math.max(...nonVetoed.map(s => (s.vote_count || 0) - (s.downvote_count || 0)));
+      const eligible = nonVetoed.filter(s => (s.vote_count || 0) - (s.downvote_count || 0) === maxVotes);
       if (eligible.length <= 1) {
-        // Skip wheel for single option
+        // Skip wheel for single top-voted option
         this.winner = serverWinner;
         this.showToast(`Winner: ${serverWinner.place}`);
         this.createConfetti();
@@ -2235,9 +2336,15 @@ function dinnerRoulette() {
         const pointerColor = cs.getPropertyValue('--text-primary').trim() || '#2D2A26';
 
         // Calculate target angle so winner lands at top (pointer)
+        // Uses the same segIdx formula in reverse:
+        //   segIdx = floor((1.5π − finalAngle + 2π) mod 2π / segAngle)
+        // Solving for finalAngle when segIdx = winnerIdx (center of segment):
         const winnerIdx = names.indexOf(winnerName);
-        const targetSegCenter = winnerIdx * segAngle + segAngle / 2;
-        const totalRotation = Math.PI * 2 * (5 + Math.random() * 3) + (Math.PI * 2 - targetSegCenter + Math.PI / 2);
+        const finalAngle = ((Math.PI * 1.5 - winnerIdx * segAngle - segAngle / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+        const extraSpins = 5 + Math.floor(Math.random() * 4);
+        const totalRotation = Math.PI * 2 * extraSpins + finalAngle;
+        console.log('Wheel debug:', { winnerName, winnerIdx, names, finalAngle, totalRotation,
+          segIdxAtEnd: Math.floor(((Math.PI * 1.5 - finalAngle + Math.PI * 2) % (Math.PI * 2)) / segAngle) });
 
         let startTime = null;
         const duration = 4000;
@@ -2594,6 +2701,21 @@ function dinnerRoulette() {
     },
 
     // ── Chat ──
+    toggleChatDrawer() {
+      this.chatDrawerOpen = !this.chatDrawerOpen;
+      if (this.chatDrawerOpen) {
+        this.unreadChatCount = 0;
+        this.$nextTick(() => {
+          const el = document.getElementById('chat-messages');
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      } else {
+        this.emojiPickerVisible = false;
+        this.gifSearchVisible = false;
+        this.reactionPickerMessageId = null;
+      }
+    },
+
     async loadChatMessages() {
       if (!this.activePlan) return;
       try {
@@ -2638,7 +2760,7 @@ function dinnerRoulette() {
       const options = [];
       if ('all'.startsWith(q)) options.push({ id: 'all', username: 'all', isAll: true });
       for (const m of this.activePlan.members) {
-        if (m.id !== this.userId && m.username.toLowerCase().startsWith(q)) {
+        if (m.id !== this.userId && (m.username.toLowerCase().startsWith(q) || (m.display_name && m.display_name.toLowerCase().startsWith(q)))) {
           options.push(m);
         }
       }

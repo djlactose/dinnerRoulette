@@ -34,7 +34,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io", "https://maps.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://*.giphy.com", "https://media.giphy.com", "https://media0.giphy.com", "https://media1.giphy.com", "https://media2.giphy.com", "https://media3.giphy.com", "https://media4.giphy.com", "https://i.giphy.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://*.giphy.com", "https://media.giphy.com", "https://media0.giphy.com", "https://media1.giphy.com", "https://media2.giphy.com", "https://media3.giphy.com", "https://media4.giphy.com", "https://i.giphy.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com", "https://places.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       upgradeInsecureRequests: null,
@@ -270,6 +270,8 @@ try { db.exec('ALTER TABLE places ADD COLUMN photo_ref TEXT'); } catch (e) { /* 
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN meal_type TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN display_name TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN profile_pic TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -559,9 +561,9 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => {
-  const user = db.prepare('SELECT id, username, email, is_admin, accent_color FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, username, email, is_admin, accent_color, display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ id: user.id, username: user.username, email: user.email || null, is_admin: !!user.is_admin, accent_color: user.accent_color || null });
+  res.json({ id: user.id, username: user.username, email: user.email || null, is_admin: !!user.is_admin, accent_color: user.accent_color || null, display_name: user.display_name || null, profile_pic: user.profile_pic || null });
 });
 
 app.post('/api/accent-color', auth, (req, res) => {
@@ -572,6 +574,24 @@ app.post('/api/accent-color', auth, (req, res) => {
   }
   db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accentColor || null, req.user.id);
   res.json({ success: true });
+});
+
+app.post('/api/profile', auth, express.json({ limit: '500kb' }), (req, res) => {
+  const { displayName, profilePic } = req.body;
+  if (displayName !== undefined) {
+    if (typeof displayName === 'string' && displayName.trim().length > 50) {
+      return res.status(400).json({ error: 'Display name must be 50 characters or less' });
+    }
+    db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(displayName ? displayName.trim() : null, req.user.id);
+  }
+  if (profilePic !== undefined) {
+    if (profilePic !== null && (typeof profilePic !== 'string' || !profilePic.startsWith('data:image/'))) {
+      return res.status(400).json({ error: 'Invalid profile picture format' });
+    }
+    db.prepare('UPDATE users SET profile_pic = ? WHERE id = ?').run(profilePic || null, req.user.id);
+  }
+  const user = db.prepare('SELECT display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
+  res.json({ success: true, display_name: user.display_name || null, profile_pic: user.profile_pic || null });
 });
 
 // ── Stats ────────────────────────────────────────────────────────────────────────
@@ -618,7 +638,7 @@ app.get('/api/stats', auth, (req, res) => {
 
   // Top 5 dining companions
   const topCompanions = db.prepare(`
-    SELECT u.username, COUNT(DISTINCT sm2.session_id) AS count
+    SELECT u.username, u.display_name, u.profile_pic, COUNT(DISTINCT sm2.session_id) AS count
     FROM session_members sm1
     JOIN session_members sm2 ON sm2.session_id = sm1.session_id AND sm2.user_id != sm1.user_id
     JOIN users u ON u.id = sm2.user_id
@@ -873,7 +893,7 @@ app.get('/api/admin/stats', adminAuth, (req, res) => {
 });
 
 app.get('/api/admin/users', adminAuth, (req, res) => {
-  const users = db.prepare('SELECT id, username, email, is_admin, created_at FROM users ORDER BY id ASC').all();
+  const users = db.prepare('SELECT id, username, email, is_admin, created_at, display_name, profile_pic FROM users ORDER BY id ASC').all();
   res.json({ users });
 });
 
@@ -1118,7 +1138,7 @@ app.post('/api/admin/settings', adminAuth, (req, res) => {
 app.get('/api/admin/plans', adminAuth, (req, res) => {
   const plans = db.prepare(`
     SELECT s.id, s.name, s.code, s.status, s.created_at, s.winner_place, s.picked_at,
-           u.username as creator_name,
+           u.username as creator_name, u.display_name as creator_display_name,
            (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) as member_count,
            (SELECT COUNT(*) FROM session_suggestions WHERE session_id = s.id) as suggestion_count
     FROM sessions s
@@ -1163,7 +1183,7 @@ app.get('/api/autocomplete', auth, async (req, res) => {
     const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': API_KEY },
-      body: JSON.stringify({ input, includedPrimaryTypes: ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway', 'meal_delivery'] }),
+      body: JSON.stringify({ input, includedPrimaryTypes: ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway'] }),
     });
     const data = await r.json();
     if (data.error) {
@@ -1348,7 +1368,7 @@ app.post('/api/invite', auth, (req, res) => {
 
 app.get('/api/friend-requests', auth, (req, res) => {
   const requests = db.prepare(`
-    SELECT u.id, u.username FROM friends f
+    SELECT u.id, u.username, u.display_name, u.profile_pic FROM friends f
     JOIN users u ON u.id = f.user_id
     WHERE f.friend_id = ? AND f.status = 'pending'
   `).all(req.user.id);
@@ -1377,7 +1397,7 @@ app.post('/api/friend-requests/:id/reject', auth, (req, res) => {
 
 app.get('/api/friend-requests/outgoing', auth, (req, res) => {
   const requests = db.prepare(`
-    SELECT u.id, u.username FROM friends f
+    SELECT u.id, u.username, u.display_name, u.profile_pic FROM friends f
     JOIN users u ON u.id = f.friend_id
     WHERE f.user_id = ? AND f.status = 'pending'
   `).all(req.user.id);
@@ -1386,7 +1406,7 @@ app.get('/api/friend-requests/outgoing', auth, (req, res) => {
 
 app.get('/api/friends', auth, (req, res) => {
   const friends = db.prepare(`
-    SELECT u.id, u.username FROM friends f
+    SELECT u.id, u.username, u.display_name, u.profile_pic FROM friends f
     JOIN users u ON u.id = f.friend_id
     WHERE f.user_id = ? AND f.status = 'accepted'
   `).all(req.user.id);
@@ -1511,7 +1531,7 @@ app.get('/api/friend-groups', auth, (req, res) => {
   const groups = db.prepare('SELECT * FROM friend_groups WHERE creator_id = ?').all(req.user.id);
   const result = groups.map(g => {
     const members = db.prepare(`
-      SELECT fgm.user_id, u.username FROM friend_group_members fgm
+      SELECT fgm.user_id, u.username, u.display_name, u.profile_pic FROM friend_group_members fgm
       JOIN users u ON u.id = fgm.user_id
       WHERE fgm.group_id = ?
     `).all(g.id);
@@ -1660,7 +1680,8 @@ app.post('/api/plans/join', auth, (req, res) => {
   const plan = db.prepare("SELECT * FROM sessions WHERE code = ? AND status = 'open'").get(code.toUpperCase());
   if (!plan) return res.status(404).json({ error: 'Plan not found or closed' });
   db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(plan.id, req.user.id);
-  io.to(`plan:${plan.id}`).emit('plan:member-joined', { username: req.user.username, userId: req.user.id });
+  const joiner = db.prepare('SELECT display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
+  io.to(`plan:${plan.id}`).emit('plan:member-joined', { username: req.user.username, userId: req.user.id, display_name: joiner?.display_name || null, profile_pic: joiner?.profile_pic || null });
   sendPushToPlanMembers(plan.id, { title: 'Member Joined', body: `${req.user.username} joined ${plan.name}`, tag: `plan-${plan.id}` }, req.user.id);
   res.json({ id: plan.id, code: plan.code, name: plan.name });
 });
@@ -1673,12 +1694,12 @@ app.post('/api/plans/:id/invite', auth, (req, res) => {
   if (!plan) return res.status(404).json({ error: 'Plan not found or closed' });
   const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
   if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
-  const target = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username.trim());
+  const target = db.prepare('SELECT id, username, display_name, profile_pic FROM users WHERE LOWER(username) = LOWER(?)').get(username.trim());
   if (!target) return res.status(404).json({ error: 'User not found' });
   const alreadyMember = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, target.id);
   if (alreadyMember) return res.json({ success: true, alreadyMember: true });
   db.prepare('INSERT OR IGNORE INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, target.id);
-  io.to(`plan:${planId}`).emit('plan:member-joined', { username: target.username, userId: target.id });
+  io.to(`plan:${planId}`).emit('plan:member-joined', { username: target.username, userId: target.id, display_name: target.display_name || null, profile_pic: target.profile_pic || null });
   sendPushToUser(target.id, { title: 'Plan Invite', body: `You've been invited to ${plan.name}`, tag: `plan-invite-${planId}` });
   res.json({ success: true });
 });
@@ -1698,7 +1719,7 @@ app.get('/api/plans/:id/dislikes', auth, (req, res) => {
 app.get('/api/plans', auth, (req, res) => {
   const plans = db.prepare(`
     SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id, s.voting_deadline, s.meal_type,
-           u.username AS creator_username,
+           u.username AS creator_username, u.display_name AS creator_display_name, u.profile_pic AS creator_profile_pic,
            (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) AS member_count,
            (SELECT COUNT(*) FROM session_suggestions WHERE session_id = s.id) AS suggestion_count
     FROM sessions s
@@ -1719,14 +1740,14 @@ app.get('/api/plans/:id', auth, (req, res) => {
   if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
   const members = db.prepare(`
-    SELECT u.id, u.username FROM session_members sm
+    SELECT u.id, u.username, u.display_name, u.profile_pic FROM session_members sm
     JOIN users u ON u.id = sm.user_id
     WHERE sm.session_id = ?
   `).all(planId);
 
   const suggestions = db.prepare(`
     SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.photo_ref, ss.meal_types, ss.user_id,
-           u.username AS suggested_by,
+           u.username AS suggested_by, u.display_name AS suggested_by_display_name, u.profile_pic AS suggested_by_profile_pic,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count,
            (SELECT COUNT(*) FROM session_vetoes svt WHERE svt.suggestion_id = ss.id) AS veto_count
@@ -1783,7 +1804,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
   if (memberIds.length > 0 && suggestions.length > 0) {
     const placeholders = memberIds.map(() => '?').join(',');
     const wantToTryRows = db.prepare(`
-      SELECT wt.place, wt.user_id, u.username
+      SELECT wt.place, wt.user_id, u.username, u.display_name, u.profile_pic
       FROM want_to_try wt
       JOIN users u ON u.id = wt.user_id
       WHERE wt.user_id IN (${placeholders})
@@ -1791,7 +1812,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
     `).all(...memberIds, planId);
     wantToTryRows.forEach(row => {
       if (!wantToTryMap[row.place]) wantToTryMap[row.place] = [];
-      wantToTryMap[row.place].push({ user_id: row.user_id, username: row.username });
+      wantToTryMap[row.place].push({ user_id: row.user_id, username: row.username, display_name: row.display_name, profile_pic: row.profile_pic });
     });
   }
 
@@ -2050,23 +2071,10 @@ app.post('/api/plans/:id/pick', auth, (req, res) => {
     withCoords.sort((a, b) => a.distance - b.distance);
     winner = withCoords[0];
   } else {
-    // Get want-to-try counts for weight boost (+1 per member who wants to try)
-    const wantToTryCounts = {};
-    const wttRows = db.prepare(`
-      SELECT ss.place, COUNT(*) as cnt FROM want_to_try wt
-      JOIN session_suggestions ss ON ss.place = wt.place AND ss.session_id = ?
-      JOIN session_members sm ON sm.user_id = wt.user_id AND sm.session_id = ?
-      WHERE ss.session_id = ?
-      GROUP BY ss.place
-    `).all(planId, planId, planId);
-    wttRows.forEach(r => { wantToTryCounts[r.place] = r.cnt; });
-
-    const weighted = [];
-    eligible.forEach(s => {
-      const weight = Math.max(s.vote_count - s.downvote_count, 1) + (wantToTryCounts[s.place] || 0);
-      for (let i = 0; i < weight; i++) weighted.push(s);
-    });
-    winner = weighted[Math.floor(Math.random() * weighted.length)];
+    // Pick from top net-voted suggestions only (wheel acts as tiebreaker)
+    const maxNetVotes = Math.max(...eligible.map(s => s.vote_count - s.downvote_count));
+    const topVoted = eligible.filter(s => s.vote_count - s.downvote_count === maxNetVotes);
+    winner = topVoted[Math.floor(Math.random() * topVoted.length)];
   }
 
   db.prepare('UPDATE sessions SET winner_place = ?, picked_at = datetime(?) WHERE id = ?').run(winner.place, 'now', planId);
@@ -2151,7 +2159,7 @@ app.get('/api/plans/:id/messages', auth, (req, res) => {
   if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
   const messages = db.prepare(`
-    SELECT sm.id, sm.message, sm.message_type, sm.created_at, sm.user_id, u.username
+    SELECT sm.id, sm.message, sm.message_type, sm.created_at, sm.user_id, u.username, u.display_name, u.profile_pic
     FROM session_messages sm
     JOIN users u ON u.id = sm.user_id
     WHERE sm.session_id = ?
@@ -2201,7 +2209,8 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
 
   const content = type === 'text' ? message.trim() : message;
   const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message, message_type) VALUES (?, ?, ?, ?)').run(planId, req.user.id, content, type);
-  const username = db.prepare('SELECT username FROM users WHERE id = ?').get(req.user.id).username;
+  const sender = db.prepare('SELECT username, display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
+  const username = sender.username;
 
   let mentions = [];
   if (type === 'text') {
@@ -2222,7 +2231,7 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
     }
   }
 
-  const msg = { id: result.lastInsertRowid, message: content, message_type: type, user_id: req.user.id, username, created_at: new Date().toISOString(), reactions: [], mentions };
+  const msg = { id: result.lastInsertRowid, message: content, message_type: type, user_id: req.user.id, username, display_name: sender.display_name || null, profile_pic: sender.profile_pic || null, created_at: new Date().toISOString(), reactions: [], mentions };
   io.to(`plan:${planId}`).emit('plan:message', msg);
   res.json({ message: msg });
 });

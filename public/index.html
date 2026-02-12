@@ -16,7 +16,7 @@
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="/app.js?v=17"></script>
+  <script defer src="/app.js?v=18"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -113,8 +113,8 @@
           <button class="theme-toggle" @click="toggleTheme()" :aria-label="theme === 'auto' ? 'Switch to light mode' : theme === 'light' ? 'Switch to dark mode' : 'Switch to auto mode'">
             <span x-text="theme === 'auto' ? '💻' : theme === 'light' ? '☀️' : '🌙'"></span>
           </button>
-          <span class="avatar avatar-sm" :style="{ background: hashColor(username) }" x-text="getInitials(username)"></span>
-          <span class="username-badge" x-text="username"></span>
+          <span class="avatar avatar-sm" :class="{ 'avatar-pic': profilePic }" :style="avatarStyle({ username, profile_pic: profilePic, display_name: profileName })" x-text="profilePic ? '' : getInitials(profileName || username)"></span>
+          <span class="username-badge" x-text="profileName || username"></span>
           <button class="logout-btn" @click="logout()">Logout</button>
         </div>
       </div>
@@ -613,7 +613,7 @@
                   <strong x-text="group.name"></strong>
                   <div class="group-member-chips">
                     <template x-for="m in group.members" :key="m.user_id">
-                      <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(m.username) }" :title="m.username" x-text="getInitials(m.username)"></span>
+                      <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': m.profile_pic }" :style="avatarStyle(m)" :title="m.display_name || m.username" x-text="m.profile_pic ? '' : getInitials(m.display_name || m.username)"></span>
                     </template>
                   </div>
                 </div>
@@ -635,8 +635,8 @@
                 <template x-for="f in friends" :key="f.id">
                   <label class="group-member-option" @click="toggleGroupMember(f.id)">
                     <input type="checkbox" :checked="groupModal.selectedMembers.includes(f.id)" />
-                    <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
-                    <span x-text="f.username"></span>
+                    <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': f.profile_pic }" :style="avatarStyle(f)" x-text="f.profile_pic ? '' : getInitials(f.display_name || f.username)"></span>
+                    <span x-text="f.display_name || f.username"></span>
                   </label>
                 </template>
               </div>
@@ -653,8 +653,9 @@
             <ul>
               <template x-for="r in friendRequests" :key="r.id">
                 <li>
-                  <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(r.username) }" x-text="getInitials(r.username)"></span>
-                  <span x-text="r.username"></span>
+                  <span class="avatar avatar-sm avatar-inline" :class="{ 'avatar-pic': r.profile_pic }" :style="avatarStyle(r)" x-text="r.profile_pic ? '' : getInitials(r.display_name || r.username)"></span>
+                  <span x-text="r.display_name || r.username"></span>
+                  <span class="username-secondary" x-show="r.display_name" x-text="'@' + r.username"></span>
                   <span class="place-actions">
                     <button class="suggest-btn" @click="acceptFriend(r.id)" aria-label="Accept">✓</button>
                     <button class="remove-btn" @click="rejectFriend(r.id)" aria-label="Reject">✕</button>
@@ -678,8 +679,8 @@
                 <template x-for="f in friends" :key="f.id">
                   <li class="friend-item">
                     <div class="friend-header">
-                      <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
-                      <span x-text="f.username"></span>
+                      <span class="avatar avatar-sm avatar-inline" :class="{ 'avatar-pic': f.profile_pic }" :style="avatarStyle(f)" x-text="f.profile_pic ? '' : getInitials(f.display_name || f.username)"></span>
+                      <span x-text="f.display_name || f.username"></span>
                       <span class="place-actions">
                         <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
                                 @click="quickInviteFriend(f.username)"
@@ -819,8 +820,8 @@
                     <template x-for="f in friends" :key="f.id">
                       <label class="group-member-option" @click="toggleRecurringMember(f.id)">
                         <input type="checkbox" :checked="recurringForm.members.includes(f.id)" />
-                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
-                        <span x-text="f.username"></span>
+                        <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': f.profile_pic }" :style="avatarStyle(f)" x-text="f.profile_pic ? '' : getInitials(f.display_name || f.username)"></span>
+                        <span x-text="f.display_name || f.username"></span>
                       </label>
                     </template>
                   </div>
@@ -869,8 +870,8 @@
                       <span class="plan-code" x-text="s.code"></span>
                       <span class="type-badge" x-show="s.meal_type" x-text="s.meal_type"></span>
                       <span class="plan-creator">
-                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
-                        <span x-text="s.creator_username"></span>
+                        <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': s.creator_profile_pic }" :style="avatarStyle({ username: s.creator_username, profile_pic: s.creator_profile_pic, display_name: s.creator_display_name })" x-text="s.creator_profile_pic ? '' : getInitials(s.creator_display_name || s.creator_username)"></span>
+                        <span x-text="s.creator_display_name || s.creator_username"></span>
                       </span>
                     </div>
                     <div>
@@ -896,8 +897,8 @@
                       <div>
                         <strong x-text="s.name"></strong>
                         <span class="plan-creator">
-                          <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
-                          <span x-text="s.creator_username"></span>
+                          <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': s.creator_profile_pic }" :style="avatarStyle({ username: s.creator_username, profile_pic: s.creator_profile_pic, display_name: s.creator_display_name })" x-text="s.creator_profile_pic ? '' : getInitials(s.creator_display_name || s.creator_username)"></span>
+                          <span x-text="s.creator_display_name || s.creator_username"></span>
                         </span>
                         <span class="plan-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
                       </div>
@@ -1006,7 +1007,7 @@
                 <template x-if="activePlan?.members?.find(m => m.id === userId)">
                   <div class="member-chips" style="margin-bottom: 0.15rem;">
                     <span class="member-chip member-chip-you">
-                      <span class="avatar avatar-xs" :style="{ background: hashColor(username) }" x-text="getInitials(username)"></span>
+                      <span class="avatar avatar-xs" :class="{ 'avatar-pic': profilePic }" :style="avatarStyle({ username, profile_pic: profilePic, display_name: profileName })" x-text="profilePic ? '' : getInitials(profileName || username)"></span>
                       <span>You</span>
                     </span>
                   </div>
@@ -1019,8 +1020,8 @@
                     <div class="member-chips">
                       <template x-for="m in planFriendMembers()" :key="m.id">
                         <span class="member-chip">
-                          <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
-                          <span x-text="m.username"></span>
+                          <span class="avatar avatar-xs" :class="{ 'avatar-pic': m.profile_pic }" :style="avatarStyle(m)" x-text="m.profile_pic ? '' : getInitials(m.display_name || m.username)"></span>
+                          <span x-text="m.display_name || m.username"></span>
                         </span>
                       </template>
                     </div>
@@ -1040,8 +1041,8 @@
                               :role="hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id) ? undefined : 'button'"
                               :tabindex="hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id) ? undefined : '0'"
                               @keydown.enter="!hasSentRequestTo(m.id) && !hasIncomingRequestFrom(m.id) && sendFriendRequestToMember(m.username)">
-                          <span class="avatar avatar-xs" :style="{ background: hashColor(m.username) }" x-text="getInitials(m.username)"></span>
-                          <span x-text="m.username"></span>
+                          <span class="avatar avatar-xs" :class="{ 'avatar-pic': m.profile_pic }" :style="avatarStyle(m)" x-text="m.profile_pic ? '' : getInitials(m.display_name || m.username)"></span>
+                          <span x-text="m.display_name || m.username"></span>
                           <template x-if="hasSentRequestTo(m.id) || hasIncomingRequestFrom(m.id)">
                             <svg class="icon-xs" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2v6l4 4-4 4v6h12v-6l-4-4 4-4V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/></svg>
                           </template>
@@ -1281,17 +1282,17 @@
                         <span class="suggestion-address" x-show="displayAddress(s)" x-text="displayAddress(s)"></span>
                       </span>
                       <span class="want-to-try-badge" x-show="isWantToTry(s.place)"
-                            :title="getWantToTryUsers(s.place).map(u => u.username).join(', ') + ' want' + (getWantToTryUsers(s.place).length === 1 ? 's' : '') + ' to try this'">
+                            :title="getWantToTryUsers(s.place).map(u => u.display_name || u.username).join(', ') + ' want' + (getWantToTryUsers(s.place).length === 1 ? 's' : '') + ' to try this'">
                         ⭐
                         <template x-for="u in getWantToTryUsers(s.place).slice(0, 3)" :key="u.user_id">
-                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(u.username) }" x-text="getInitials(u.username)"></span>
+                          <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': u.profile_pic }" :style="avatarStyle(u)" x-text="u.profile_pic ? '' : getInitials(u.display_name || u.username)"></span>
                         </template>
                       </span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
                       <span class="price-badge" x-show="s.price_level" x-text="priceDisplay(s.price_level)"></span>
                       <span class="suggestion-by">
-                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.suggested_by) }" x-text="getInitials(s.suggested_by)"></span>
-                        <span x-text="s.suggested_by"></span>
+                        <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': s.suggested_by_profile_pic }" :style="avatarStyle({ username: s.suggested_by, profile_pic: s.suggested_by_profile_pic, display_name: s.suggested_by_display_name })" x-text="s.suggested_by_profile_pic ? '' : getInitials(s.suggested_by_display_name || s.suggested_by)"></span>
+                        <span x-text="s.suggested_by_display_name || s.suggested_by"></span>
                       </span>
                     </div>
                     <div class="suggestion-actions">
@@ -1299,7 +1300,7 @@
                             :class="{ 'vote-count-high': (s.vote_count - (s.downvote_count || 0)) >= 3, 'vote-count-med': (s.vote_count - (s.downvote_count || 0)) === 2, 'vote-count-negative': (s.downvote_count || 0) > s.vote_count }"
                             @click="s._showVoters = !s._showVoters"
                             x-text="'+' + s.vote_count + ' / -' + (s.downvote_count || 0)"
-                            :title="'Up: ' + ((s.voters || []).join(', ') || 'none') + ' | Down: ' + ((s.downvoters || []).join(', ') || 'none')"
+                            :title="'Up: ' + ((s.voters || []).map(v => memberLookup(v)?.display_name || v).join(', ') || 'none') + ' | Down: ' + ((s.downvoters || []).map(v => memberLookup(v)?.display_name || v).join(', ') || 'none')"
                             :aria-label="'Show voters for ' + s.place"></span>
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
                               @click="toggleVote(s)"
@@ -1341,22 +1342,22 @@
                     <div class="voters-list" x-show="s._showVoters && ((s.voters?.length > 0) || (s.downvoters?.length > 0) || (s.vetoers?.length > 0))" x-collapse>
                       <template x-for="voter in s.voters || []" :key="'up-' + voter">
                         <span class="voter-chip">
-                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
-                          <span x-text="voter"></span>
+                          <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': memberLookup(voter)?.profile_pic }" :style="avatarStyle(memberLookup(voter) || { username: voter })" x-text="memberLookup(voter)?.profile_pic ? '' : getInitials(memberLookup(voter)?.display_name || voter)"></span>
+                          <span x-text="memberLookup(voter)?.display_name || voter"></span>
                           <span class="vote-type-indicator vote-type-up">+</span>
                         </span>
                       </template>
                       <template x-for="voter in s.downvoters || []" :key="'down-' + voter">
                         <span class="voter-chip voter-chip-down">
-                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
-                          <span x-text="voter"></span>
+                          <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': memberLookup(voter)?.profile_pic }" :style="avatarStyle(memberLookup(voter) || { username: voter })" x-text="memberLookup(voter)?.profile_pic ? '' : getInitials(memberLookup(voter)?.display_name || voter)"></span>
+                          <span x-text="memberLookup(voter)?.display_name || voter"></span>
                           <span class="vote-type-indicator vote-type-down">-</span>
                         </span>
                       </template>
                       <template x-for="vetoer in s.vetoers || []" :key="'veto-' + vetoer">
                         <span class="voter-chip voter-chip-veto">
-                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(vetoer) }" x-text="getInitials(vetoer)"></span>
-                          <span x-text="vetoer"></span>
+                          <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': memberLookup(vetoer)?.profile_pic }" :style="avatarStyle(memberLookup(vetoer) || { username: vetoer })" x-text="memberLookup(vetoer)?.profile_pic ? '' : getInitials(memberLookup(vetoer)?.display_name || vetoer)"></span>
+                          <span x-text="memberLookup(vetoer)?.display_name || vetoer"></span>
                           <span class="vote-type-indicator vote-type-veto"><svg class="icon icon-xxs" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg></span>
                         </span>
                       </template>
@@ -1428,122 +1429,6 @@
                 </div>
               </div>
 
-              <!-- Plan Chat -->
-              <div class="chat-section">
-                <button class="chat-toggle" @click="chatVisible = !chatVisible">
-                  <span x-text="chatVisible ? '▼ Chat' : '▶ Chat'"></span>
-                  <span class="chat-badge" x-show="chatMessages.length > 0" x-text="chatMessages.length"></span>
-                </button>
-                <div x-show="chatVisible" x-collapse>
-                  <div id="chat-messages" class="chat-messages">
-                    <div x-show="chatMessages.length === 0" class="chat-empty">
-                      No messages yet. Start the conversation!
-                    </div>
-                    <template x-for="msg in chatMessages" :key="msg.id">
-                      <div class="chat-message" :class="{ own: msg.user_id === userId }">
-                        <span class="chat-avatar avatar avatar-xs" :style="{ background: hashColor(msg.username) }" x-text="getInitials(msg.username)"></span>
-                        <div class="chat-bubble-wrapper">
-                          <div class="chat-bubble" :class="{ 'chat-bubble-gif': msg.message_type === 'gif' }">
-                            <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.username"></div>
-                            <div x-show="msg.message_type !== 'gif'" x-html="formatMessageWithMentions(msg.message)"></div>
-                            <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" referrerpolicy="no-referrer" />
-                            <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
-                          </div>
-                          <!-- Reactions display -->
-                          <div class="chat-reactions" x-show="msg.reactions && msg.reactions.length > 0">
-                            <template x-for="group in groupedReactions(msg.reactions)" :key="group.emoji">
-                              <button class="reaction-chip" :class="{ 'reaction-mine': group.userReacted }"
-                                      @click="toggleReaction(msg.id, group.emoji)"
-                                      :title="group.users.join(', ')">
-                                <span x-text="group.emoji"></span>
-                                <span class="reaction-count" x-text="group.count" x-show="group.count > 1"></span>
-                              </button>
-                            </template>
-                          </div>
-                          <!-- React trigger -->
-                          <button class="react-trigger" @click.stop="openReactionPicker(msg.id)" title="React">+</button>
-                          <!-- Quick reaction picker -->
-                          <div class="reaction-picker" x-show="reactionPickerMessageId === msg.id"
-                               @click.outside="reactionPickerMessageId = null">
-                            <template x-for="e in ['👍','❤️','😂','😮','😢','🎉','🍕','🔥']" :key="e">
-                              <button class="reaction-picker-btn" @click="toggleReaction(msg.id, e)" x-text="e"></button>
-                            </template>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-
-                  <!-- Emoji Picker Panel -->
-                  <div class="emoji-picker-panel" x-show="emojiPickerVisible"
-                       @click.outside="emojiPickerVisible = false" x-transition>
-                    <template x-for="(emojis, category) in emojiCategories()" :key="category">
-                      <div>
-                        <div class="emoji-category-label" x-text="category"></div>
-                        <div class="emoji-grid">
-                          <template x-for="e in emojis" :key="e">
-                            <button class="emoji-btn" @click="insertEmoji(e)" x-text="e"></button>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-
-                  <!-- GIF Search Panel -->
-                  <div class="gif-search-panel" x-show="gifSearchVisible"
-                       @click.outside="gifSearchVisible = false" x-transition>
-                    <input type="text" class="gif-search-input" x-model="gifSearchQuery"
-                           @input.debounce.400ms="searchGifs()" placeholder="Search GIPHY..."
-                           aria-label="Search GIFs" />
-                    <div x-show="gifError" class="chat-empty" x-text="gifError" style="color: var(--danger)"></div>
-                    <div class="gif-grid" x-show="!gifLoading && !gifError">
-                      <template x-for="gif in gifResults" :key="gif.id">
-                        <img :src="gif.preview" @click="sendGif(gif.url)" alt="GIF"
-                             class="gif-thumb" referrerpolicy="no-referrer" />
-                      </template>
-                      <div x-show="gifResults.length === 0 && gifSearchQuery" class="chat-empty">No GIFs found</div>
-                    </div>
-                    <div x-show="gifLoading" class="chat-empty">Loading...</div>
-                    <div class="giphy-attribution">Powered by GIPHY</div>
-                  </div>
-
-                  <!-- Chat Input Row -->
-                  <div class="chat-input-wrapper">
-                    <!-- Mention Autocomplete Dropdown -->
-                    <div class="mention-dropdown" x-show="mentionDropdownVisible"
-                         @click.outside="mentionDropdownVisible = false" x-transition>
-                      <template x-for="(member, idx) in getMentionOptions()" :key="member.id">
-                        <button class="mention-option" :class="{ selected: idx === mentionSelectedIndex }"
-                                @click="selectMention(idx)">
-                          <template x-if="member.isAll">
-                            <span class="mention-option-row">
-                              <span class="mention-option-all">@all</span>
-                              <span class="mention-option-desc">Mention everyone</span>
-                            </span>
-                          </template>
-                          <template x-if="!member.isAll">
-                            <span class="mention-option-row">
-                              <span class="mention-option-avatar avatar-xs"
-                                    :style="{ background: hashColor(member.username) }"
-                                    x-text="getInitials(member.username)"></span>
-                              <span x-text="member.username"></span>
-                            </span>
-                          </template>
-                        </button>
-                      </template>
-                    </div>
-                    <button class="chat-action-btn" @click="toggleEmojiPicker()" title="Emoji"
-                            :class="{ active: emojiPickerVisible }">😀</button>
-                    <button class="chat-action-btn" @click="toggleGifSearch()" title="GIF"
-                            :class="{ active: gifSearchVisible }">GIF</button>
-                    <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message... (@mention)"
-                           maxlength="500" @input="onChatInput()" @keydown="onMentionKeydown($event)"
-                           @keydown.enter="if (!mentionDropdownVisible) sendChatMessage()"
-                           aria-label="Chat message" />
-                    <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()" aria-label="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -1563,7 +1448,42 @@
           </div>
 
           <!-- Profile Sub-tab -->
-          <div x-show="accountTab === 'profile'">
+          <div x-show="accountTab === 'profile'" x-effect="if (accountTab === 'profile') { profileForm.displayName = profileName; profileForm.profilePicPreview = null; profileForm.profilePicData = undefined; }">
+            <div class="profile-edit-section">
+              <h4>Profile Picture</h4>
+              <div class="profile-pic-area">
+                <div class="profile-pic-preview">
+                  <template x-if="profileForm.profilePicPreview || profilePic">
+                    <img class="avatar avatar-lg avatar-pic" :src="profileForm.profilePicPreview || profilePic" alt="Profile picture" />
+                  </template>
+                  <template x-if="!profileForm.profilePicPreview && !profilePic">
+                    <span class="avatar avatar-lg" :style="{ background: hashColor(profileForm.displayName || profileName || username) }"
+                          x-text="getInitials(profileForm.displayName || profileName || username)"></span>
+                  </template>
+                </div>
+                <div class="profile-pic-actions">
+                  <label class="suggest-btn profile-upload-btn">
+                    Upload Photo
+                    <input type="file" accept="image/*" @change="handleProfilePicUpload($event)" hidden />
+                  </label>
+                  <button class="back-btn" x-show="profilePic || profileForm.profilePicPreview"
+                          @click="removeProfilePic()">Remove</button>
+                </div>
+              </div>
+
+              <h4>Display Name</h4>
+              <p style="font-size: 0.9rem; color: var(--text-secondary);">
+                Shown as your primary name. Your username (<strong>@<span x-text="username"></span></strong>) is still used for login and @mentions.
+              </p>
+              <div class="inline-input">
+                <input type="text" x-model="profileForm.displayName" placeholder="Display name (optional)"
+                       maxlength="50" @keydown.enter="updateProfile()" aria-label="Display name" />
+              </div>
+              <button class="suggest-btn" style="margin-top: 0.5rem;" @click="updateProfile()" :disabled="profileSaving">
+                <span x-text="profileSaving ? 'Saving...' : 'Save Profile'"></span>
+              </button>
+            </div>
+
             <h4>Update Email</h4>
             <p style="font-size: 0.9rem; color: var(--text-secondary);">Current: <span x-text="email || 'Not set'"></span></p>
             <div class="inline-input">
@@ -1646,8 +1566,8 @@
               <div class="stat-companions" x-show="userStats?.topCompanions?.length > 0">
                 <template x-for="comp in (userStats?.topCompanions || [])" :key="comp.username">
                   <div class="stat-companion">
-                    <span class="avatar avatar-sm" :style="{ background: hashColor(comp.username) }" x-text="getInitials(comp.username)"></span>
-                    <span x-text="comp.username"></span>
+                    <span class="avatar avatar-sm" :class="{ 'avatar-pic': comp.profile_pic }" :style="avatarStyle(comp)" x-text="comp.profile_pic ? '' : getInitials(comp.display_name || comp.username)"></span>
+                    <span x-text="comp.display_name || comp.username"></span>
                     <span class="stat-companion-count" x-text="comp.count + ' plans'"></span>
                   </div>
                 </template>
@@ -1797,9 +1717,10 @@
               <template x-for="u in adminUsers" :key="u.id">
                 <div class="admin-user-row">
                   <div class="admin-user-info">
-                    <span class="avatar avatar-sm" :style="{ background: hashColor(u.username) }" x-text="getInitials(u.username)"></span>
+                    <span class="avatar avatar-sm" :class="{ 'avatar-pic': u.profile_pic }" :style="avatarStyle(u)" x-text="u.profile_pic ? '' : getInitials(u.display_name || u.username)"></span>
                     <div class="admin-user-details">
-                      <strong x-text="u.username"></strong>
+                      <strong x-text="u.display_name || u.username"></strong>
+                      <span class="username-secondary" x-show="u.display_name" x-text="'@' + u.username"></span>
                       <span class="admin-user-email" x-text="u.email || 'No email'"></span>
                       <span class="admin-user-meta">
                         <span class="type-badge" x-show="u.is_admin">Admin</span>
@@ -1979,6 +1900,139 @@
 
       </div>
     </main>
+
+    <!-- Plan FAB (visible when there are active plans and user isn't on plans tab) -->
+    <button class="plan-fab" :class="{ 'plan-fab-shifted': activePlan }"
+            x-show="plans.some(p => p.status === 'open') && activeTab !== 'plans'" x-transition
+            @click="goToActivePlan()" aria-label="Go to active plan">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="white"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+      <span class="plan-fab-name" x-text="(() => { const open = plans.filter(p => p.status === 'open'); return open.length === 1 ? open[0].name : open.length + ' Active Plans'; })()"></span>
+    </button>
+
+    <!-- Chat FAB -->
+    <button class="chat-fab" x-show="activePlan" x-transition @click="toggleChatDrawer()" aria-label="Open chat">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/><path d="M7 9h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>
+      <span class="chat-fab-badge" x-show="unreadChatCount > 0" x-text="unreadChatCount" x-transition></span>
+    </button>
+
+    <!-- Chat Drawer Backdrop -->
+    <div class="chat-drawer-backdrop" x-show="chatDrawerOpen" x-transition.opacity.duration.200ms
+         @click="toggleChatDrawer()"></div>
+
+    <!-- Chat Drawer -->
+    <div class="chat-drawer" :class="{ open: chatDrawerOpen }">
+      <div class="chat-drawer-header">
+        <h3 x-text="activePlan?.plan?.name || 'Chat'"></h3>
+        <button class="chat-drawer-close" @click="toggleChatDrawer()" aria-label="Close chat">&times;</button>
+      </div>
+
+      <div id="chat-messages" class="chat-messages">
+        <div x-show="chatMessages.length === 0" class="chat-empty">
+          No messages yet. Start the conversation!
+        </div>
+        <template x-for="msg in chatMessages" :key="msg.id">
+          <div class="chat-message" :class="{ own: msg.user_id === userId }">
+            <span class="chat-avatar avatar avatar-xs" :class="{ 'avatar-pic': msg.profile_pic }" :style="avatarStyle(msg)" x-text="msg.profile_pic ? '' : getInitials(msg.display_name || msg.username)"></span>
+            <div class="chat-bubble-wrapper">
+              <div class="chat-bubble" :class="{ 'chat-bubble-gif': msg.message_type === 'gif' }">
+                <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.display_name || msg.username"></div>
+                <div x-show="msg.message_type !== 'gif'" x-html="formatMessageWithMentions(msg.message)"></div>
+                <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" referrerpolicy="no-referrer" />
+                <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
+              </div>
+              <div class="chat-reactions" x-show="msg.reactions && msg.reactions.length > 0">
+                <template x-for="group in groupedReactions(msg.reactions)" :key="group.emoji">
+                  <button class="reaction-chip" :class="{ 'reaction-mine': group.userReacted }"
+                          @click="toggleReaction(msg.id, group.emoji)"
+                          :title="group.users.join(', ')">
+                    <span x-text="group.emoji"></span>
+                    <span class="reaction-count" x-text="group.count" x-show="group.count > 1"></span>
+                  </button>
+                </template>
+              </div>
+              <button class="react-trigger" @click.stop="openReactionPicker(msg.id)" title="React">+</button>
+              <div class="reaction-picker" x-show="reactionPickerMessageId === msg.id"
+                   @click.outside="reactionPickerMessageId = null">
+                <template x-for="e in ['👍','❤️','😂','😮','😢','🎉','🍕','🔥']" :key="e">
+                  <button class="reaction-picker-btn" @click="toggleReaction(msg.id, e)" x-text="e"></button>
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Emoji Picker Panel -->
+      <div class="emoji-picker-panel" x-show="emojiPickerVisible"
+           @click.outside="emojiPickerVisible = false" x-transition>
+        <template x-for="(emojis, category) in emojiCategories()" :key="category">
+          <div>
+            <div class="emoji-category-label" x-text="category"></div>
+            <div class="emoji-grid">
+              <template x-for="e in emojis" :key="e">
+                <button class="emoji-btn" @click="insertEmoji(e)" x-text="e"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- GIF Search Panel -->
+      <div class="gif-search-panel" x-show="gifSearchVisible"
+           @click.outside="gifSearchVisible = false" x-transition>
+        <input type="text" class="gif-search-input" x-model="gifSearchQuery"
+               @input.debounce.400ms="searchGifs()" placeholder="Search GIPHY..."
+               aria-label="Search GIFs" />
+        <div x-show="gifError" class="chat-empty" x-text="gifError" style="color: var(--danger)"></div>
+        <div class="gif-grid" x-show="!gifLoading && !gifError">
+          <template x-for="gif in gifResults" :key="gif.id">
+            <img :src="gif.preview" @click="sendGif(gif.url)" alt="GIF"
+                 class="gif-thumb" referrerpolicy="no-referrer" />
+          </template>
+          <div x-show="gifResults.length === 0 && gifSearchQuery" class="chat-empty">No GIFs found</div>
+        </div>
+        <div x-show="gifLoading" class="chat-empty">Loading...</div>
+        <div class="giphy-attribution">Powered by GIPHY</div>
+      </div>
+
+      <!-- Chat Input Row -->
+      <div class="chat-input-wrapper">
+        <div class="mention-dropdown" x-show="mentionDropdownVisible"
+             @click.outside="mentionDropdownVisible = false" x-transition>
+          <template x-for="(member, idx) in getMentionOptions()" :key="member.id">
+            <button class="mention-option" :class="{ selected: idx === mentionSelectedIndex }"
+                    @click="selectMention(idx)">
+              <template x-if="member.isAll">
+                <span class="mention-option-row">
+                  <span class="mention-option-all">@all</span>
+                  <span class="mention-option-desc">Mention everyone</span>
+                </span>
+              </template>
+              <template x-if="!member.isAll">
+                <span class="mention-option-row">
+                  <span class="mention-option-avatar avatar-xs"
+                        :class="{ 'avatar-pic': member.profile_pic }"
+                        :style="avatarStyle(member)"
+                        x-text="member.profile_pic ? '' : getInitials(member.display_name || member.username)"></span>
+                  <span x-text="member.display_name || member.username"></span>
+                  <span class="username-secondary" x-show="member.display_name" x-text="'@' + member.username"></span>
+                </span>
+              </template>
+            </button>
+          </template>
+        </div>
+        <button class="chat-action-btn" @click="toggleEmojiPicker()" title="Emoji"
+                :class="{ active: emojiPickerVisible }">😀</button>
+        <button class="chat-action-btn" @click="toggleGifSearch()" title="GIF"
+                :class="{ active: gifSearchVisible }">GIF</button>
+        <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message... (@mention)"
+               maxlength="500" @input="onChatInput()" @keydown="onMentionKeydown($event)"
+               @keydown.enter="if (!mentionDropdownVisible) sendChatMessage()"
+               aria-label="Chat message" />
+        <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()" aria-label="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+      </div>
+    </div>
+
   </div>
   <script>
     if ('serviceWorker' in navigator) {
