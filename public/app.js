@@ -409,7 +409,13 @@ function dinnerRoulette() {
           this.connectSocket();
           await this.loadAppData();
           if (this.notificationsSupported && Notification.permission === 'granted') {
-            this.notificationsEnabled = true;
+            try {
+              const reg = await navigator.serviceWorker.ready;
+              const sub = await reg.pushManager.getSubscription();
+              this.notificationsEnabled = !!sub;
+            } catch (e) {
+              this.notificationsEnabled = false;
+            }
           }
           if (this.pendingInviteCode) {
             await this.autoJoinInvite();
