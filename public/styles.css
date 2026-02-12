@@ -2513,19 +2513,33 @@ img.avatar-pic {
 .mention {
   color: var(--accent);
   font-weight: 600;
-  padding: 0 2px;
+  padding: 1px 4px;
   border-radius: 3px;
+  background: rgba(224, 122, 95, 0.1);
 }
 .mention-me {
-  background: rgba(224, 122, 95, 0.15);
+  background: rgba(224, 122, 95, 0.2);
   font-weight: 700;
 }
+.chat-message.own .mention {
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+}
+.chat-message.own .mention-me {
+  background: rgba(255, 255, 255, 0.3);
+}
+[data-theme="dark"] .mention {
+  background: rgba(232, 137, 111, 0.15);
+}
 [data-theme="dark"] .mention-me {
-  background: rgba(232, 137, 111, 0.2);
+  background: rgba(232, 137, 111, 0.25);
 }
 @media (prefers-color-scheme: dark) {
+  [data-theme="auto"] .mention {
+    background: rgba(232, 137, 111, 0.15);
+  }
   [data-theme="auto"] .mention-me {
-    background: rgba(232, 137, 111, 0.2);
+    background: rgba(232, 137, 111, 0.25);
   }
 }
 
