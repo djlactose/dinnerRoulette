@@ -1019,6 +1019,27 @@ function dinnerRoulette() {
       });
     },
 
+    async movePlace(fromType, toType, place) {
+      const fromList = fromType === 'likes' ? 'likes' : fromType === 'want_to_try' ? 'wantToTry' : 'dislikes';
+      const toList = toType === 'likes' ? 'likes' : toType === 'want_to_try' ? 'wantToTry' : 'dislikes';
+      const labels = { likes: 'likes', wantToTry: 'want to try', dislikes: 'dislikes' };
+      this[fromList] = this[fromList].filter(p => p.name !== place.name);
+      this[toList].push({ ...place, starred: false });
+      this[toList].sort((a, b) => a.name.localeCompare(b.name));
+      try {
+        await this.api('/api/places', {
+          method: 'POST',
+          body: JSON.stringify({ type: toType, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type }),
+        });
+        this.showToast(`Moved "${place.name}" to ${labels[toList]}`);
+      } catch (e) {
+        this[toList] = this[toList].filter(p => p.name !== place.name);
+        this[fromList].push(place);
+        this[fromList].sort((a, b) => a.name.localeCompare(b.name));
+        this.showToast('Failed to move place', 'error');
+      }
+    },
+
     async loadPlaces() {
       this.loading.places = true;
       try {
@@ -1831,7 +1852,7 @@ function dinnerRoulette() {
       if (!this.activePlan) return;
       const code = this.activePlan.plan.code;
       const url = `${window.location.origin}/invite/${code}`;
-      const text = `Join my Dinner Roulette plan! Use code ${code} or click: ${url}`;
+      const text = `Join my Dinner Roulette plan! Use code ${code}`;
       if (navigator.share) {
         try { await navigator.share({ title: 'Dinner Roulette Invite', text, url }); } catch (e) { /* cancelled */ }
       } else if (navigator.clipboard) {

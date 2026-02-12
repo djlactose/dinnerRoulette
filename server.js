@@ -908,33 +908,22 @@ app.post('/api/places/notes', auth, (req, res) => {
 
 app.post('/api/places', auth, (req, res) => {
   const { type, place, place_id, remove, restaurant_type } = req.body;
+  const validTypes = ['likes', 'want_to_try', 'dislikes'];
   if (!place) return res.status(400).json({ error: 'Missing place' });
+  if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
   const uid = req.user.id;
   let movedFrom = null;
 
   if (remove) {
-    if (type === 'likes') {
-      db.prepare('DELETE FROM likes WHERE user_id = ? AND place = ?').run(uid, place);
-    } else if (type === 'want_to_try') {
-      db.prepare('DELETE FROM want_to_try WHERE user_id = ? AND place = ?').run(uid, place);
-    } else {
-      db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
-    }
+    db.prepare(`DELETE FROM ${type} WHERE user_id = ? AND place = ?`).run(uid, place);
   } else {
     db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
-    if (type === 'likes') {
-      const del = db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
-      if (del.changes > 0) movedFrom = 'dislikes';
-      db.prepare('INSERT OR IGNORE INTO likes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
-    } else if (type === 'want_to_try') {
-      const del = db.prepare('DELETE FROM dislikes WHERE user_id = ? AND place = ?').run(uid, place);
-      if (del.changes > 0) movedFrom = 'dislikes';
-      db.prepare('INSERT OR IGNORE INTO want_to_try (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
-    } else {
-      const del = db.prepare('DELETE FROM likes WHERE user_id = ? AND place = ?').run(uid, place);
-      if (del.changes > 0) movedFrom = 'likes';
-      db.prepare('INSERT OR IGNORE INTO dislikes (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
+    const others = { likes: ['dislikes', 'want_to_try'], want_to_try: ['likes', 'dislikes'], dislikes: ['likes', 'want_to_try'] };
+    for (const tbl of others[type]) {
+      const del = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, place);
+      if (del.changes > 0 && !movedFrom) movedFrom = tbl;
     }
+    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)`).run(uid, place, place_id || null, restaurant_type || null);
   }
   res.json({ success: true, movedFrom });
 });

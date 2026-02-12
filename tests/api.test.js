@@ -209,7 +209,7 @@ describe('Want to Try', () => {
     expect(res.body.want_to_try.some(p => p.name === 'Fancy Sushi')).toBe(true);
   });
 
-  test('POST /api/places — want_to_try is independent from likes', async () => {
+  test('POST /api/places — adding to likes moves from want_to_try', async () => {
     await request(app)
       .post('/api/places')
       .set('Cookie', cookie)
@@ -218,7 +218,7 @@ describe('Want to Try', () => {
       .get('/api/places')
       .set('Cookie', cookie);
     expect(res.body.likes.some(p => p.name === 'Fancy Sushi')).toBe(true);
-    expect(res.body.want_to_try.some(p => p.name === 'Fancy Sushi')).toBe(true);
+    expect(res.body.want_to_try.some(p => p.name === 'Fancy Sushi')).toBe(false);
   });
 
   test('POST /api/places — want_to_try removes dislikes', async () => {
@@ -1014,6 +1014,32 @@ describe('Duplicate Prevention', () => {
     const places = await request(app).get('/api/places').set('Cookie', cookie);
     expect(places.body.dislikes.some(p => p.name === 'CrossPlace')).toBe(true);
     expect(places.body.likes.some(p => p.name === 'CrossPlace')).toBe(false);
+  });
+
+  test('POST /api/places — liking a want_to_try place removes it from want_to_try', async () => {
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'MovePlace', place_id: 'mp001', restaurant_type: 'Thai' });
+    const res = await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'likes', place: 'MovePlace', place_id: 'mp001', restaurant_type: 'Thai' });
+    expect(res.body.movedFrom).toBe('want_to_try');
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    expect(places.body.likes.some(p => p.name === 'MovePlace')).toBe(true);
+    expect(places.body.want_to_try.some(p => p.name === 'MovePlace')).toBe(false);
+  });
+
+  test('POST /api/places — adding to want_to_try removes from likes', async () => {
+    const res = await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'want_to_try', place: 'MovePlace', place_id: 'mp001', restaurant_type: 'Thai' });
+    expect(res.body.movedFrom).toBe('likes');
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    expect(places.body.want_to_try.some(p => p.name === 'MovePlace')).toBe(true);
+    expect(places.body.likes.some(p => p.name === 'MovePlace')).toBe(false);
+  });
+
+  test('POST /api/places — invalid type returns 400', async () => {
+    const res = await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'invalid', place: 'BadPlace' });
+    expect(res.status).toBe(400);
   });
 });
 

@@ -1339,6 +1339,14 @@ a {
   padding: 0.3rem 0.6rem;
 }
 
+.move-btn {
+  background-color: var(--accent);
+  color: white;
+}
+.move-btn:hover {
+  background-color: var(--accent-hover);
+}
+
 .note-add-btn {
   background: none;
   border: 1px dashed var(--border);

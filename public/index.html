@@ -304,7 +304,7 @@
               <div class="search-action-btns">
                 <button class="action-like" @click="likePlace()" aria-label="Like this place">👍</button>
                 <button class="action-dislike" @click="dislikePlace()" aria-label="Dislike this place">👎</button>
-                <button class="action-wtt" @click="wantToTryPlace()" aria-label="Add to want to try list">⭐</button>
+                <button class="action-wtt" @click="wantToTryPlace()" aria-label="Add to want to try list">📌</button>
               </div>
             </div>
           </div>
@@ -375,6 +375,7 @@
                       <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
                       <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
                               @click="startEditNote(place)">+ Note</button>
+                      <button class="move-btn" x-show="place._type === 'want_to_try'" @click="movePlace('want_to_try', 'likes', place)" aria-label="Move to likes">👍</button>
                     </div>
                   </div>
                 </template>
@@ -467,6 +468,8 @@
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                        target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                     <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                    <button class="move-btn" @click="movePlace('dislikes', 'likes', place)" aria-label="Move to likes">👍</button>
+                    <button class="move-btn" @click="movePlace('dislikes', 'want_to_try', place)" aria-label="Move to want to try">→ Try</button>
                   </div>
                 </div>
               </template>
@@ -510,6 +513,7 @@
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
                        target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
                     <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                    <button class="move-btn" @click="movePlace('want_to_try', 'likes', place)" aria-label="Move to likes">👍</button>
                   </div>
                 </div>
               </template>
@@ -826,8 +830,8 @@
                   <div class="starred-suggest-grid">
                     <template x-for="place in starredPlaces" :key="place.name">
                       <button class="starred-suggest-btn"
-                              @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                               :disabled="isAlreadySuggestedToPlan(place.name)"
+                              @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                               :aria-label="'Suggest ' + place.name">
                         <span class="starred-icon">&#x2605;</span>
                         <span x-text="place.name"></span>
@@ -841,7 +845,8 @@
                   <span class="grid-label">Recently suggested:</span>
                   <div class="recent-suggest-grid">
                     <template x-for="rs in recentSuggestions" :key="rs.name">
-                      <button class="recent-suggest-btn" @click="suggestToPlan(rs.name, rs.place_id, rs.restaurant_type)"
+                      <button class="recent-suggest-btn" :disabled="isAlreadySuggestedToPlan(rs.name)"
+                              @click="suggestToPlan(rs.name, rs.place_id, rs.restaurant_type)"
                               :aria-label="'Suggest ' + rs.name" x-text="'+ ' + rs.name"></button>
                     </template>
                   </div>
@@ -850,7 +855,8 @@
                 <div x-show="likes.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">Quick suggest from likes:</span>
                   <template x-for="place in likes" :key="place.name">
-                    <button class="suggest-btn" @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
+                    <button class="suggest-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
+                            @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
                       <span x-text="'+ ' + place.name"></span>
                       <span class="dislike-warn-badge" x-show="isPlanDisliked(place.name)">!</span>
@@ -861,7 +867,8 @@
                 <div x-show="wantToTry.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">From your bucket list:</span>
                   <template x-for="place in wantToTry" :key="place.name">
-                    <button class="want-to-try-quick-btn" @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
+                    <button class="want-to-try-quick-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
+                            @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
                       <span x-text="'⭐ ' + place.name"></span>
                     </button>
