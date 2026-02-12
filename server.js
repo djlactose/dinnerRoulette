@@ -1013,6 +1013,79 @@ app.post('/api/admin/google-api-key', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// One-time migration: repull place data from new Places API
+app.post('/api/admin/repull-places', adminAuth, async (req, res) => {
+  if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
+  const tables = ['likes', 'dislikes', 'want_to_try', 'places', 'session_suggestions'];
+  let updated = 0, failed = 0, total = 0;
+  const seen = new Set();
+
+  for (const table of tables) {
+    const rows = db.prepare(`SELECT DISTINCT place_id FROM ${table} WHERE place_id IS NOT NULL AND place_id != ''`).all();
+    for (const row of rows) {
+      if (seen.has(row.place_id)) continue;
+      seen.add(row.place_id);
+      total++;
+      try {
+        const r = await fetch(`https://places.googleapis.com/v1/places/${row.place_id}`, {
+          headers: {
+            'X-Goog-Api-Key': API_KEY,
+            'X-Goog-FieldMask': 'id,displayName,formattedAddress,types,photos',
+          },
+        });
+        const data = await r.json();
+        if (data.error) { failed++; continue; }
+        const photoRef = data.photos?.[0]?.name || null;
+        const address = data.formattedAddress || null;
+        const types = (data.types || []).map(t => t.toLowerCase());
+        const restaurantType = formatPlaceTypes(types);
+        // Update all tables that have this place_id
+        for (const t of tables) {
+          db.prepare(`UPDATE ${t} SET photo_ref = ? WHERE place_id = ?`).run(photoRef, row.place_id);
+          if (['likes', 'dislikes', 'want_to_try', 'places'].includes(t)) {
+            db.prepare(`UPDATE ${t} SET address = ? WHERE place_id = ? AND (address IS NULL OR address = '')`).run(address, row.place_id);
+            db.prepare(`UPDATE ${t} SET restaurant_type = ? WHERE place_id = ?`).run(restaurantType, row.place_id);
+          }
+        }
+        updated++;
+        // Rate limit: ~5 req/sec to stay well within quota
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error(`Repull failed for ${row.place_id}:`, e.message);
+        failed++;
+      }
+    }
+  }
+  console.log(`Repull complete: ${updated}/${total} updated, ${failed} failed`);
+  res.json({ success: true, total, updated, failed });
+});
+
+// Helper for repull: format place types to human-readable
+function formatPlaceTypes(types) {
+  const typeMap = {
+    'restaurant': 'Restaurant', 'cafe': 'Cafe', 'bar': 'Bar', 'bakery': 'Bakery',
+    'meal_takeaway': 'Takeaway', 'meal_delivery': 'Delivery', 'night_club': 'Night Club',
+    'food': 'Food', 'pizza_restaurant': 'Pizza', 'sushi_restaurant': 'Sushi',
+    'chinese_restaurant': 'Chinese', 'japanese_restaurant': 'Japanese',
+    'mexican_restaurant': 'Mexican', 'italian_restaurant': 'Italian',
+    'thai_restaurant': 'Thai', 'indian_restaurant': 'Indian',
+    'korean_restaurant': 'Korean', 'vietnamese_restaurant': 'Vietnamese',
+    'american_restaurant': 'American', 'seafood_restaurant': 'Seafood',
+    'steak_house': 'Steakhouse', 'hamburger_restaurant': 'Burgers',
+    'ice_cream_shop': 'Ice Cream', 'coffee_shop': 'Coffee Shop',
+    'brunch_restaurant': 'Brunch', 'breakfast_restaurant': 'Breakfast',
+    'sandwich_shop': 'Sandwich Shop', 'fast_food_restaurant': 'Fast Food',
+    'vegetarian_restaurant': 'Vegetarian', 'vegan_restaurant': 'Vegan',
+  };
+  for (const t of types) {
+    if (typeMap[t] && t !== 'restaurant' && t !== 'food') return typeMap[t];
+  }
+  for (const t of types) {
+    if (typeMap[t]) return typeMap[t];
+  }
+  return null;
+}
+
 app.get('/api/admin/giphy-api-key', adminAuth, (req, res) => {
   const key = GIPHY_API_KEY || '';
   const masked = key.length > 7 ? key.slice(0, 4) + '...' + key.slice(-3) : '(not set)';
