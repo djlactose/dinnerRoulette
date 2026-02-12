@@ -156,10 +156,10 @@ header {
   background-color: var(--danger);
   color: white;
   border: none;
-  padding: 0.5rem 0.75rem;
+  padding: 0.3rem 0.6rem;
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 .logout-btn:hover {
@@ -447,7 +447,7 @@ label {
 }
 .friend-action-btn {
   font-size: 1rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -928,7 +928,7 @@ a {
 .pick-buttons button {
   flex: 1;
   font-size: 1rem;
-  padding: 0.75rem;
+  padding: 0.6rem;
 }
 
 /* ── Winner Display ────────────────────────────────────────────────────────── */
@@ -1328,7 +1328,7 @@ a {
   border: 1px dashed var(--border);
   color: var(--text-muted);
   font-size: var(--text-sm);
-  padding: 0.2rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   margin-top: 0.25rem;
   width: 100%;
   cursor: pointer;
@@ -1353,11 +1353,11 @@ a {
 }
 
 .plan-invite-input input {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 .plan-invite-input button {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 /* ── Dislike Warning ─────────────────────────────────────────────────────── */
@@ -2504,7 +2504,6 @@ a {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
   cursor: pointer;
-  min-height: 34px;
   white-space: nowrap;
   background: var(--bg-card);
   color: var(--text-primary);
@@ -2928,7 +2927,6 @@ a {
 }
 .overflow-menu button,
 .overflow-menu a {
-  min-height: 40px;
   padding: 0.3rem 0.6rem;
   font-size: var(--text-sm);
   border-radius: var(--radius-md);
