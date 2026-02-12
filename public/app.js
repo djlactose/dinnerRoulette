@@ -73,9 +73,7 @@ function dinnerRoulette() {
     friendUsername: '',
     friends: [],
     friendRequests: [],
-    viewingFriendLikes: null,
-    commonPlaces: [],
-    commonFriend: '',
+    friendSections: {},
 
     // Plans
     plans: [],
@@ -773,8 +771,8 @@ function dinnerRoulette() {
         this.authError = 'Passwords do not match.';
         return;
       }
-      if (this.resetNewPassword.length < 6) {
-        this.authError = 'Password must be at least 6 characters.';
+      if (this.resetNewPassword.length < 8) {
+        this.authError = 'Password must be at least 8 characters.';
         return;
       }
       try {
@@ -826,7 +824,7 @@ function dinnerRoulette() {
       this.dislikes = [];
       this.friends = [];
       this.friendRequests = [];
-      this.viewingFriendLikes = null;
+      this.friendSections = {};
       this.plans = [];
       this.activePlan = null;
       this.winner = null;
@@ -1156,14 +1154,44 @@ function dinnerRoulette() {
       this.loading.friends = false;
     },
 
-    async loadCommonPlaces(friendUsername) {
-      this.commonFriend = friendUsername;
-      try {
-        const resp = await this.api(`/api/common-places?friendUsername=${encodeURIComponent(friendUsername)}`);
-        const data = await resp.json();
-        this.commonPlaces = data.common || [];
-      } catch (e) {
-        this.commonPlaces = [];
+    getFriendSection(friendId) {
+      if (!this.friendSections[friendId]) {
+        this.friendSections[friendId] = { likesOpen: false, commonOpen: false, likes: null, commonPlaces: null };
+      }
+      return this.friendSections[friendId];
+    },
+
+    async toggleFriendLikes(friendId) {
+      const sec = this.getFriendSection(friendId);
+      sec.likesOpen = !sec.likesOpen;
+      if (sec.likesOpen && sec.likes === null) {
+        try {
+          const resp = await this.api(`/api/friends/${friendId}/likes`);
+          if (!resp.ok) {
+            this.showToast('Failed to load likes', 'error');
+            sec.likesOpen = false;
+            return;
+          }
+          const data = await resp.json();
+          sec.likes = data.likes || [];
+        } catch (e) {
+          this.showToast('Failed to load friend\'s likes', 'error');
+          sec.likesOpen = false;
+        }
+      }
+    },
+
+    async toggleFriendCommon(friendId, friendUsername) {
+      const sec = this.getFriendSection(friendId);
+      sec.commonOpen = !sec.commonOpen;
+      if (sec.commonOpen && sec.commonPlaces === null) {
+        try {
+          const resp = await this.api(`/api/common-places?friendUsername=${encodeURIComponent(friendUsername)}`);
+          const data = await resp.json();
+          sec.commonPlaces = data.common || [];
+        } catch (e) {
+          sec.commonPlaces = [];
+        }
       }
     },
 
@@ -1200,20 +1228,6 @@ function dinnerRoulette() {
       }
     },
 
-    async viewFriendLikes(friendId, friendUsername) {
-      try {
-        const resp = await this.api(`/api/friends/${friendId}/likes`);
-        if (!resp.ok) {
-          const err = await resp.json();
-          this.showToast(err.error || 'Failed to load likes', 'error');
-          return;
-        }
-        const data = await resp.json();
-        this.viewingFriendLikes = { username: friendUsername, likes: data.likes || [] };
-      } catch (e) {
-        this.showToast('Failed to load friend\'s likes', 'error');
-      }
-    },
 
     async addFriendPlace(place, action) {
       try {
@@ -1253,8 +1267,7 @@ function dinnerRoulette() {
           return;
         }
         this.showToast('Friend removed.');
-        this.viewingFriendLikes = null;
-        this.commonPlaces = [];
+        delete this.friendSections[friendId];
         await this.loadFriends();
       } catch (e) {
         this.showToast('Failed to remove friend', 'error');

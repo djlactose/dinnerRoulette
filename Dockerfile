@@ -11,7 +11,9 @@ COPY server.js ./
 COPY public ./public
 
 # ensure the data directory exists
-RUN mkdir -p ./data
+RUN mkdir -p ./data && chown -R node:node /usr/src/app
+
+USER node
 
 EXPOSE 8080
 

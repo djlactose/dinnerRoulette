@@ -44,9 +44,9 @@ describe('Auth', () => {
   test('POST /api/register — short password rejected', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ username: 'testuser', password: '12345', email: 'testuser@test.com' });
+      .send({ username: 'testuser', password: '1234567', email: 'testuser@test.com' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/6 characters/);
+    expect(res.body.error).toMatch(/8 characters/);
   });
 
   test('POST /api/register — email required', async () => {

@@ -57,7 +57,7 @@ app.use(helmet({
 }));
 app.use(compression());
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
-app.use(express.json());
+app.use(express.json({ limit: '50kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res) => {
@@ -421,7 +421,7 @@ async function sendPushToPlanMembers(planId, payload, excludeUserId = null) {
 function generatePlanCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 6; i++) code += chars[crypto.randomInt(chars.length)];
   return code;
 }
 
@@ -452,7 +452,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   const trimmedUser = username.trim();
   const trimmedEmail = email ? email.trim().toLowerCase() : null;
   if (trimmedUser.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   if (!trimmedEmail) return res.status(400).json({ error: 'Email is required' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return res.status(400).json({ error: 'Invalid email format' });
 
@@ -500,7 +500,7 @@ app.get('/api/me', auth, (req, res) => {
 app.post('/api/change-password', auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
-  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -651,7 +651,7 @@ app.post('/api/admin/users/:id/edit', adminAuth, (req, res) => {
 
 app.post('/api/admin/users/:id/reset-password', adminAuth, async (req, res) => {
   const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const target = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found' });
   const hash = await bcrypt.hash(newPassword, 10);
@@ -889,10 +889,11 @@ app.post('/api/places/:type/star', auth, (req, res) => {
   const type = req.params.type;
   if (!place) return res.status(400).json({ error: 'Missing place' });
   if (type !== 'likes' && type !== 'want_to_try') return res.status(400).json({ error: 'Invalid type' });
-  const row = db.prepare(`SELECT starred FROM ${type} WHERE user_id = ? AND place = ?`).get(req.user.id, place);
+  const table = type === 'likes' ? 'likes' : 'want_to_try';
+  const row = db.prepare(`SELECT starred FROM ${table} WHERE user_id = ? AND place = ?`).get(req.user.id, place);
   if (!row) return res.status(404).json({ error: 'Place not found in your list' });
   const newVal = row.starred ? 0 : 1;
-  db.prepare(`UPDATE ${type} SET starred = ? WHERE user_id = ? AND place = ?`).run(newVal, req.user.id, place);
+  db.prepare(`UPDATE ${table} SET starred = ? WHERE user_id = ? AND place = ?`).run(newVal, req.user.id, place);
   res.json({ success: true, starred: !!newVal });
 });
 
@@ -1305,6 +1306,9 @@ app.post('/api/plans/:id/unvote', auth, (req, res) => {
   const { suggestion_id } = req.body;
   if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
 
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+
   db.prepare("DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ? AND vote_type = 'up'").run(planId, req.user.id, suggestion_id);
   const voteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'up'").get(suggestion_id).c;
   const downvoteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'down'").get(suggestion_id).c;
@@ -1332,6 +1336,9 @@ app.post('/api/plans/:id/undownvote', auth, (req, res) => {
   const planId = req.params.id;
   const { suggestion_id } = req.body;
   if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
+
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
 
   db.prepare("DELETE FROM session_votes WHERE session_id = ? AND user_id = ? AND suggestion_id = ? AND vote_type = 'down'").run(planId, req.user.id, suggestion_id);
   const voteCount = db.prepare("SELECT COUNT(*) AS c FROM session_votes WHERE suggestion_id = ? AND vote_type = 'up'").get(suggestion_id).c;

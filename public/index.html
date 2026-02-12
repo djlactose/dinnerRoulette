@@ -560,16 +560,75 @@
             <template x-if="friends.length > 0 && !loading.friends">
               <ul>
                 <template x-for="f in friends" :key="f.id">
-                  <li>
-                    <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
-                    <span x-text="f.username"></span>
-                    <span class="place-actions">
-                      <button class="map-btn" @click="viewFriendLikes(f.id, f.username)">View Likes</button>
-                      <button class="map-btn" @click="loadCommonPlaces(f.username)">Common Places</button>
-                      <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
-                              @click="quickInviteFriend(f.username)" aria-label="Invite to plan">Invite</button>
-                      <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
-                    </span>
+                  <li class="friend-item">
+                    <div class="friend-header">
+                      <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(f.username) }" x-text="getInitials(f.username)"></span>
+                      <span x-text="f.username"></span>
+                      <span class="place-actions">
+                        <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
+                                @click="quickInviteFriend(f.username)" aria-label="Invite to plan">Invite</button>
+                        <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
+                      </span>
+                    </div>
+
+                    <!-- Liked Places (collapsible) -->
+                    <div class="friend-section-toggle" @click="toggleFriendLikes(f.id)">
+                      <span class="section-collapse-icon" :class="{ open: getFriendSection(f.id).likesOpen }">&#x25B6;</span>
+                      Liked Places
+                      <span class="section-count" x-show="getFriendSection(f.id).likes"
+                            x-text="getFriendSection(f.id).likes?.length || 0"></span>
+                    </div>
+                    <div x-show="getFriendSection(f.id).likesOpen" x-collapse>
+                      <ul class="place-list friend-inline-list">
+                        <template x-for="(place, idx) in getFriendSection(f.id).likes || []" :key="'fl-' + idx">
+                          <li>
+                            <div class="place-info">
+                              <span x-text="place.name"></span>
+                              <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                            </div>
+                            <span class="place-actions friend-place-actions">
+                              <button class="friend-action-btn friend-fav-btn"
+                                      @click="addFriendPlace(place, 'favorite')"
+                                      :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
+                                      :title="likes.some(l => l.name === place.name) ? 'Already in your likes' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Favorites'">&#x2605;</button>
+                              <button class="friend-action-btn friend-like-btn"
+                                      @click="addFriendPlace(place, 'like')"
+                                      :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
+                                      :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Likes'">&#x1F44D;</button>
+                              <button class="friend-action-btn friend-dislike-btn"
+                                      @click="addFriendPlace(place, 'dislike')"
+                                      :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
+                                      :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Dislikes'">&#x1F44E;</button>
+                              <button class="map-btn" @click="openMap(place.name)">Map</button>
+                            </span>
+                          </li>
+                        </template>
+                      </ul>
+                      <div x-show="getFriendSection(f.id).likes?.length === 0" class="empty-state">
+                        <p>No liked places yet.</p>
+                      </div>
+                    </div>
+
+                    <!-- Common Places (collapsible) -->
+                    <div class="friend-section-toggle" @click="toggleFriendCommon(f.id, f.username)">
+                      <span class="section-collapse-icon" :class="{ open: getFriendSection(f.id).commonOpen }">&#x25B6;</span>
+                      Common Places
+                      <span class="section-count" x-show="getFriendSection(f.id).commonPlaces"
+                            x-text="getFriendSection(f.id).commonPlaces?.length || 0"></span>
+                    </div>
+                    <div x-show="getFriendSection(f.id).commonOpen" x-collapse>
+                      <ul class="place-list friend-inline-list">
+                        <template x-for="(place, idx) in getFriendSection(f.id).commonPlaces || []" :key="'fc-' + idx">
+                          <li>
+                            <span x-text="place"></span>
+                            <button class="map-btn" @click="openMap(place)">Map</button>
+                          </li>
+                        </template>
+                      </ul>
+                      <div x-show="getFriendSection(f.id).commonPlaces?.length === 0" class="empty-state">
+                        <p>No common places yet.</p>
+                      </div>
+                    </div>
                   </li>
                 </template>
               </ul>
@@ -578,63 +637,6 @@
               <span class="empty-state-icon">&#x1F465;</span>
               <p>No friends yet.</p>
               <p class="empty-state-hint">Enter a username above and send a friend request.</p>
-            </div>
-          </div>
-
-          <!-- Friend's Likes View -->
-          <div x-show="viewingFriendLikes" class="friends-list">
-            <h4 x-text="(viewingFriendLikes?.username || '') + String.fromCharCode(39) + 's Liked Places'"></h4>
-            <ul class="place-list">
-              <template x-for="(place, idx) in viewingFriendLikes?.likes || []" :key="idx">
-                <li>
-                  <div class="place-info">
-                    <span x-text="place.name"></span>
-                    <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
-                  </div>
-                  <span class="place-actions friend-place-actions">
-                    <button class="friend-action-btn friend-fav-btn"
-                            @click="addFriendPlace(place, 'favorite')"
-                            :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
-                            :title="likes.some(l => l.name === place.name) ? 'Already in your likes' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Favorites'">&#x2605;</button>
-                    <button class="friend-action-btn friend-like-btn"
-                            @click="addFriendPlace(place, 'like')"
-                            :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
-                            :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Likes'">&#x1F44D;</button>
-                    <button class="friend-action-btn friend-dislike-btn"
-                            @click="addFriendPlace(place, 'dislike')"
-                            :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
-                            :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Dislikes'">&#x1F44E;</button>
-                    <button class="map-btn" @click="openMap(place.name)">Map</button>
-                  </span>
-                </li>
-              </template>
-            </ul>
-            <div x-show="viewingFriendLikes?.likes?.length === 0" class="empty-state">
-              <span class="empty-state-icon">&#x1F50D;</span>
-              <p>This friend hasn't liked any places yet.</p>
-              <p class="empty-state-hint">Check back later!</p>
-            </div>
-            <button class="back-btn" @click="viewingFriendLikes = null">Back</button>
-          </div>
-
-          <!-- Common Places -->
-          <div x-show="commonFriend">
-            <h4 x-text="'Common Places with ' + commonFriend"></h4>
-            <template x-if="commonPlaces.length > 0">
-              <ul>
-                <template x-for="(place, idx) in commonPlaces" :key="idx">
-                  <li>
-                    <span x-text="place"></span>
-                    <a :href="'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place)"
-                       target="_blank" rel="noopener" class="map-link-small">[Map]</a>
-                  </li>
-                </template>
-              </ul>
-            </template>
-            <div x-show="commonPlaces.length === 0" class="empty-state">
-              <span class="empty-state-icon">&#x1F91D;</span>
-              <p>No common places yet.</p>
-              <p class="empty-state-hint">Like some of the same restaurants to find common ground.</p>
             </div>
           </div>
         </section>
