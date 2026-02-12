@@ -240,6 +240,11 @@ try { db.exec('ALTER TABLE places ADD COLUMN address TEXT'); } catch (e) { /* al
 try { db.exec('ALTER TABLE users ADD COLUMN accent_color TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE likes ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE dislikes ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE want_to_try ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE places ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE session_suggestions ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -901,33 +906,57 @@ app.get('/api/place-details', auth, async (req, res) => {
     if (!place_id) return res.status(400).json({ error: 'Missing place_id' });
     const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
     url.searchParams.set('place_id', place_id);
-    url.searchParams.set('fields', 'geometry,name,formatted_address,types');
+    url.searchParams.set('fields', 'geometry,name,formatted_address,types,photos');
     url.searchParams.set('key', API_KEY);
     const r = await fetch(url);
-    res.json(await r.json());
+    const data = await r.json();
+    if (data.result?.photos?.[0]?.photo_reference) {
+      data.result.photo_reference = data.result.photos[0].photo_reference;
+    }
+    res.json(data);
   } catch (e) {
     res.status(500).json({ error: 'Proxy error' });
   }
 });
 
+app.get('/api/place-photo', auth, async (req, res) => {
+  if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
+  const { ref, maxwidth } = req.query;
+  if (!ref) return res.status(400).json({ error: 'Missing photo reference' });
+  try {
+    const url = new URL('https://maps.googleapis.com/maps/api/place/photo');
+    url.searchParams.set('photoreference', ref);
+    url.searchParams.set('maxwidth', maxwidth || '300');
+    url.searchParams.set('key', API_KEY);
+    const r = await fetch(url, { redirect: 'follow' });
+    if (!r.ok) return res.status(r.status).end();
+    res.set('Content-Type', r.headers.get('content-type') || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=604800');
+    const arrayBuffer = await r.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (e) {
+    res.status(500).json({ error: 'Photo proxy error' });
+  }
+});
+
 app.post('/api/place', auth, (req, res) => {
-  const { place, place_id, restaurant_type, address } = req.body;
+  const { place, place_id, restaurant_type, address, photo_ref } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
-  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address) VALUES (?, ?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null, address || null);
+  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null, address || null, photo_ref || null);
   res.json({ success: true });
 });
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred, meal_types FROM likes WHERE user_id = ?').all(uid);
-  const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address FROM dislikes WHERE user_id = ?').all(uid);
-  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred, meal_types FROM want_to_try WHERE user_id = ?').all(uid);
-  const all = db.prepare('SELECT place, place_id, restaurant_type, address FROM places WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred, meal_types, photo_ref FROM likes WHERE user_id = ?').all(uid);
+  const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address, photo_ref FROM dislikes WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred, meal_types, photo_ref FROM want_to_try WHERE user_id = ?').all(uid);
+  const all = db.prepare('SELECT place, place_id, restaurant_type, address, photo_ref FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [] })),
-    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null })),
-    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [] })),
-    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null })),
+    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null })),
+    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null })),
+    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null })),
   });
 });
 
@@ -967,7 +996,7 @@ app.post('/api/places/meal-types', auth, (req, res) => {
 });
 
 app.post('/api/places', auth, (req, res) => {
-  const { type, place, place_id, remove, restaurant_type, address } = req.body;
+  const { type, place, place_id, remove, restaurant_type, address, photo_ref } = req.body;
   const validTypes = ['likes', 'want_to_try', 'dislikes'];
   if (!place) return res.status(400).json({ error: 'Missing place' });
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
@@ -977,13 +1006,13 @@ app.post('/api/places', auth, (req, res) => {
   if (remove) {
     db.prepare(`DELETE FROM ${type} WHERE user_id = ? AND place = ?`).run(uid, place);
   } else {
-    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address) VALUES (?, ?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null, address || null);
+    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null, address || null, photo_ref || null);
     const others = { likes: ['dislikes', 'want_to_try'], want_to_try: ['likes', 'dislikes'], dislikes: ['likes', 'want_to_try'] };
     for (const tbl of others[type]) {
       const del = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, place);
       if (del.changes > 0 && !movedFrom) movedFrom = tbl;
     }
-    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address) VALUES (?, ?, ?, ?, ?)`).run(uid, place, place_id || null, restaurant_type || null, address || null);
+    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)`).run(uid, place, place_id || null, restaurant_type || null, address || null, photo_ref || null);
   }
   res.json({ success: true, movedFrom });
 });
@@ -1209,7 +1238,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
   `).all(planId);
 
   const suggestions = db.prepare(`
-    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.user_id,
+    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.photo_ref, ss.user_id,
            u.username AS suggested_by,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count,
@@ -1299,12 +1328,12 @@ app.post('/api/plans/:id/suggest', auth, async (req, res) => {
   const plan = db.prepare("SELECT status, name FROM sessions WHERE id = ?").get(planId);
   if (!plan || plan.status !== 'open') return res.status(400).json({ error: 'Plan is closed' });
 
-  let lat = null, lng = null, priceLevel = null;
+  let lat = null, lng = null, priceLevel = null, photoRef = null;
   if (place_id) {
     try {
       const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
       url.searchParams.set('place_id', place_id);
-      url.searchParams.set('fields', 'geometry,price_level');
+      url.searchParams.set('fields', 'geometry,price_level,photos');
       url.searchParams.set('key', API_KEY);
       const r = await fetch(url);
       const data = await r.json();
@@ -1315,20 +1344,23 @@ app.post('/api/plans/:id/suggest', auth, async (req, res) => {
       if (data.result?.price_level != null) {
         priceLevel = data.result.price_level;
       }
+      if (data.result?.photos?.[0]?.photo_reference) {
+        photoRef = data.result.photos[0].photo_reference;
+      }
     } catch (e) {
       console.error('Failed to fetch place details:', e.message);
     }
   }
 
   try {
-    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(planId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel);
+    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level, photo_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(planId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel, photoRef);
     if (result.changes === 0) return res.status(409).json({ error: 'Already suggested' });
     const suggestionId = result.lastInsertRowid;
     db.prepare("INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id, vote_type) VALUES (?, ?, ?, 'up')").run(planId, req.user.id, suggestionId);
     io.to(`plan:${planId}`).emit('plan:suggestion-added', {
       id: suggestionId, place, place_id: place_id || null,
       restaurant_type: restaurant_type || null,
-      lat, lng, price_level: priceLevel, suggested_by: req.user.username, vote_count: 1, user_voted: true,
+      lat, lng, price_level: priceLevel, photo_ref: photoRef, suggested_by: req.user.username, vote_count: 1, user_voted: true,
     });
     sendPushToPlanMembers(planId, { title: 'New Suggestion', body: `${req.user.username} suggested ${place}`, tag: `plan-${planId}` }, req.user.id);
     res.json({ success: true, id: suggestionId });

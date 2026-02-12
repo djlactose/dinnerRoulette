@@ -392,6 +392,7 @@
                        @touchmove="onTouchMove($event, place.name)"
                        @touchend="onTouchEnd(place._type, place)"
                        :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                    <img x-show="place.photo_ref" :src="placePhotoUrl(place.photo_ref)" class="place-card-photo" loading="lazy" alt="" />
                     <div class="place-card-header">
                       <div class="place-card-name-block">
                         <strong x-text="displayName(place)"></strong>
@@ -453,6 +454,7 @@
                      @touchmove="onTouchMove($event, place.name)"
                      @touchend="onTouchEnd('likes', place)"
                      :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                  <img x-show="place.photo_ref" :src="placePhotoUrl(place.photo_ref)" class="place-card-photo" loading="lazy" alt="" />
                   <div class="place-card-header">
                     <div class="place-card-name-block">
                       <strong x-text="displayName(place)"></strong>
@@ -561,6 +563,7 @@
                      @touchmove="onTouchMove($event, place.name)"
                      @touchend="onTouchEnd('want_to_try', place)"
                      :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
+                  <img x-show="place.photo_ref" :src="placePhotoUrl(place.photo_ref)" class="place-card-photo" loading="lazy" alt="" />
                   <div class="place-card-header">
                     <div class="place-card-name-block">
                       <strong x-text="displayName(place)"></strong>
@@ -1026,6 +1029,7 @@
                   <li :class="{ 'suggestion-vetoed': (s.veto_count || 0) > 0, 'list-item-removing': s._removing }"
                       class="stagger-item" :style="{ animationDelay: (sIdx * 40) + 'ms' }">
                     <div class="suggestion-info">
+                      <img x-show="s.photo_ref" :src="placePhotoUrl(s.photo_ref)" class="suggestion-photo-inline" loading="lazy" alt="" />
                       <span class="suggestion-name-block">
                         <span class="suggestion-name" x-text="displayName(s)"></span>
                         <span class="suggestion-address" x-show="displayAddress(s)" x-text="displayAddress(s)"></span>

@@ -376,6 +376,10 @@ function dinnerRoulette() {
       }
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.winner.place)}`;
     },
+    placePhotoUrl(photoRef) {
+      if (!photoRef) return null;
+      return `/api/place-photo?ref=${encodeURIComponent(photoRef)}&maxwidth=300`;
+    },
     openTableUrl(name) {
       return `https://www.opentable.com/s?term=${encodeURIComponent(name)}&covers=2`;
     },
@@ -1039,7 +1043,7 @@ function dinnerRoulette() {
       const restaurantType = this.formatPlaceType(pred.types);
       const mainText = pred.structured_formatting?.main_text || pred.description;
       const address = pred.structured_formatting?.secondary_text || null;
-      this.selectedPlace = { name: mainText, place_id: pred.place_id, restaurant_type: restaurantType, address };
+      this.selectedPlace = { name: mainText, place_id: pred.place_id, restaurant_type: restaurantType, address, photo_ref: null };
       this.placeSearch = pred.description;
       this.predictions = [];
       this.highlightedIndex = -1;
@@ -1053,11 +1057,14 @@ function dinnerRoulette() {
               this.selectedPlace.restaurant_type = betterType;
             }
           }
+          if (data.result?.photo_reference) {
+            this.selectedPlace.photo_ref = data.result.photo_reference;
+          }
         } catch (e) { /* keep autocomplete type */ }
       }
       this.api('/api/place', {
         method: 'POST',
-        body: JSON.stringify({ place: mainText, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address }),
+        body: JSON.stringify({ place: mainText, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address, photo_ref: this.selectedPlace.photo_ref }),
       });
     },
 
@@ -1088,7 +1095,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null }),
+        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to likes!' : 'Place liked!');
@@ -1101,7 +1108,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null }),
+        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'likes' ? 'Moved from likes to dislikes.' : 'Place disliked.');
@@ -1114,7 +1121,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null }),
+        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to want to try!' : 'Added to want to try!');
