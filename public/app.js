@@ -89,6 +89,7 @@ function dinnerRoulette() {
     planDislikes: [],
     planWantToTry: {},
     planSuggestSort: 'votes',
+    planVetoLimitInput: 1,
 
     // Picking
     picking: false,
@@ -254,6 +255,20 @@ function dinnerRoulette() {
       return best.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     },
 
+    displayName(p) {
+      const name = p.name || p.place;
+      if (p.address) return name;
+      const idx = name.indexOf(', ');
+      return idx > 0 ? name.substring(0, idx) : name;
+    },
+
+    displayAddress(p) {
+      if (p.address) return p.address;
+      const name = p.name || p.place;
+      const idx = name.indexOf(', ');
+      return idx > 0 ? name.substring(idx + 2) : null;
+    },
+
     priceDisplay(level) {
       if (level == null || level === 0) return '';
       return '$'.repeat(level);
@@ -276,7 +291,7 @@ function dinnerRoulette() {
     },
     get filteredLikes() {
       const f = this.placeFilter.toLowerCase();
-      let list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f)) : [...this.likes];
+      let list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.likes];
       list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       if (this.placeSortBy === 'type') {
@@ -288,13 +303,13 @@ function dinnerRoulette() {
     },
     get filteredDislikes() {
       const f = this.placeFilter.toLowerCase();
-      let list = f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f)) : [...this.dislikes];
+      let list = f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.dislikes];
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
     get filteredWantToTry() {
       const f = this.placeFilter.toLowerCase();
-      let list = f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f)) : [...this.wantToTry];
+      let list = f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.wantToTry];
       list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       return list.sort((a, b) => a.name.localeCompare(b.name));
@@ -502,6 +517,29 @@ function dinnerRoulette() {
         if (!this.activePlan) return;
         this.activePlan.plan.voting_deadline = data.deadline;
         this.startDeadlineCountdown();
+      });
+
+      this.socket.on('plan:veto-updated', (data) => {
+        if (!this.activePlan) return;
+        const s = this.activePlan.suggestions.find(s => s.id === data.suggestion_id);
+        if (s) {
+          s.veto_count = data.veto_count;
+          s.vetoers = data.vetoers || [];
+          if (data.user_id === this.userId) {
+            s.user_vetoed = (data.action === 'veto');
+            if (data.action === 'veto') {
+              this.activePlan.vetoesRemaining = Math.max(0, (this.activePlan.vetoesRemaining || 0) - 1);
+            } else {
+              this.activePlan.vetoesRemaining = (this.activePlan.vetoesRemaining || 0) + 1;
+            }
+          }
+        }
+      });
+
+      this.socket.on('plan:veto-limit-updated', (data) => {
+        if (!this.activePlan) return;
+        this.activePlan.plan.veto_limit = data.veto_limit;
+        this.refreshPlan();
       });
 
       this.socket.on('plan:message', (data) => {
@@ -871,7 +909,9 @@ function dinnerRoulette() {
 
     async selectPlace(pred) {
       const restaurantType = this.formatPlaceType(pred.types);
-      this.selectedPlace = { name: pred.description, place_id: pred.place_id, restaurant_type: restaurantType };
+      const mainText = pred.structured_formatting?.main_text || pred.description;
+      const address = pred.structured_formatting?.secondary_text || null;
+      this.selectedPlace = { name: mainText, place_id: pred.place_id, restaurant_type: restaurantType, address };
       this.placeSearch = pred.description;
       this.predictions = [];
       this.highlightedIndex = -1;
@@ -889,7 +929,7 @@ function dinnerRoulette() {
       }
       this.api('/api/place', {
         method: 'POST',
-        body: JSON.stringify({ place: pred.description, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
+        body: JSON.stringify({ place: mainText, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address }),
       });
     },
 
@@ -920,7 +960,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
+        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to likes!' : 'Place liked!');
@@ -933,7 +973,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
+        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'likes' ? 'Moved from likes to dislikes.' : 'Place disliked.');
@@ -946,7 +986,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
+        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to want to try!' : 'Added to want to try!');
@@ -1050,7 +1090,7 @@ function dinnerRoulette() {
       try {
         await this.api('/api/places', {
           method: 'POST',
-          body: JSON.stringify({ type: toType, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type }),
+          body: JSON.stringify({ type: toType, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type, address: place.address || null }),
         });
         this.showToast(`Moved "${place.name}" to ${labels[toList]}`);
       } catch (e) {
@@ -1335,13 +1375,15 @@ function dinnerRoulette() {
 
     async createPlan() {
       const name = this.newPlanName.trim() || 'Dinner Plan';
+      const veto_limit = parseInt(this.planVetoLimitInput) || 1;
       try {
         const resp = await this.api('/api/plans', {
           method: 'POST',
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({ name, veto_limit }),
         });
         const data = await resp.json();
         this.newPlanName = '';
+        this.planVetoLimitInput = 1;
         this.showToast(`Plan created! Code: ${data.code}`);
         await this.loadPlans();
       } catch (e) {
@@ -1599,6 +1641,44 @@ function dinnerRoulette() {
         body: JSON.stringify({ suggestion_id: suggestion.id }),
       });
       await this.refreshPlan();
+    },
+
+    async toggleVeto(suggestion) {
+      if (!this.activePlan) return;
+      if (!suggestion.user_vetoed && (this.activePlan.vetoesRemaining || 0) <= 0) {
+        this.showToast('No vetoes remaining', 'error');
+        return;
+      }
+      const endpoint = suggestion.user_vetoed ? 'unveto' : 'veto';
+      try {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/${endpoint}`, {
+          method: 'POST',
+          body: JSON.stringify({ suggestion_id: suggestion.id }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.showToast(err.error || 'Failed to veto', 'error');
+          return;
+        }
+        await this.refreshPlan();
+      } catch (e) {
+        this.showToast('Failed to veto', 'error');
+      }
+    },
+
+    async setVetoLimit() {
+      if (!this.activePlan) return;
+      const limit = parseInt(this.planVetoLimitInput);
+      if (isNaN(limit) || limit < 0) return;
+      try {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/veto-limit`, {
+          method: 'POST',
+          body: JSON.stringify({ veto_limit: limit }),
+        });
+        this.showToast('Veto limit updated');
+      } catch (e) {
+        this.showToast('Failed to update veto limit', 'error');
+      }
     },
 
     // ── Random Pick ──
@@ -2209,20 +2289,27 @@ function dinnerRoulette() {
       }
       try {
         const resp = await this.api('/api/push/vapid-key');
+        if (!resp.ok) throw new Error(`VAPID key fetch failed: ${resp.status}`);
         const { publicKey } = await resp.json();
+        if (!publicKey) throw new Error('Server returned empty VAPID key');
         const reg = await navigator.serviceWorker.ready;
+        // Unsubscribe any stale subscription (e.g. from old VAPID key)
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) await existing.unsubscribe();
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(publicKey),
         });
-        await this.api('/api/push/subscribe', {
+        const subResp = await this.api('/api/push/subscribe', {
           method: 'POST',
           body: JSON.stringify(sub.toJSON()),
         });
+        if (!subResp.ok) throw new Error(`Subscribe POST failed: ${subResp.status}`);
         this.notificationsEnabled = true;
         this.showToast('Notifications enabled!');
       } catch (e) {
-        this.showToast('Failed to enable notifications', 'error');
+        console.error('enableNotifications failed:', e);
+        this.showToast(`Failed to enable notifications: ${e.message}`, 'error');
       }
     },
 
@@ -2350,10 +2437,20 @@ function dinnerRoulette() {
       if (!this.email) {
         await this.showEmailPrompt();
       }
+      // Sync notification state from browser before deciding whether to prompt
+      if (this.notificationsSupported && Notification.permission === 'granted') {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          const sub = await reg.pushManager.getSubscription();
+          this.notificationsEnabled = !!sub;
+        } catch (e) {
+          this.notificationsEnabled = false;
+        }
+      }
       if (
         this.notificationsSupported &&
         !this.notificationsEnabled &&
-        Notification.permission !== 'denied' &&
+        Notification.permission === 'default' &&
         localStorage.getItem('notifications-prompt-dismissed') !== 'true'
       ) {
         await this.showNotificationPrompt();

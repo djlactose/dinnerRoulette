@@ -14,29 +14,15 @@ const { Server } = require('socket.io');
 const webpush = require('web-push');
 const nodemailer = require('nodemailer');
 
-// ── Environment Validation ─────────────────────────────────────────────────────
-let API_KEY = process.env.GOOGLE_API_KEY;
+// ── Infrastructure (env-only) ─────────────────────────────────────────────────
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const PORT = process.env.PORT || 8080;
-let JWT_SECRET = process.env.JWT_SECRET;
 
-if (!API_KEY) {
-  console.error('ERROR: GOOGLE_API_KEY is required');
-  process.exit(1);
-}
-
-if (!JWT_SECRET) {
-  JWT_SECRET = crypto.randomBytes(32).toString('hex');
-  console.warn('WARNING: JWT_SECRET not set — using random value. Sessions will not persist across restarts.');
-}
-
-// ── VAPID Keys for Web Push ────────────────────────────────────────────────────
-// NOTE: VAPID keys are loaded later after DB is initialized (see initVapid below)
-let VAPID_PUBLIC, VAPID_PRIVATE, VAPID_SOURCE;
+// App config vars — initialized after DB is ready (see initConfig below)
+let API_KEY, JWT_SECRET, VAPID_PUBLIC, VAPID_PRIVATE, COOKIE_SECURE;
 
 console.log(`Environment: ${NODE_ENV}`);
 console.log(`Port: ${PORT}`);
-console.log(`Database: ./data/db.sqlite`);
 
 // ── Express App & Middleware ────────────────────────────────────────────────────
 const app = express();
@@ -215,6 +201,12 @@ db.exec(`
     value TEXT,
     updated_at TEXT DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS session_vetoes (
+    session_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    suggestion_id INTEGER NOT NULL,
+    UNIQUE(session_id, user_id, suggestion_id)
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -240,6 +232,11 @@ try { db.exec('ALTER TABLE likes ADD COLUMN starred INTEGER DEFAULT 0'); } catch
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN starred INTEGER DEFAULT 0'); } catch (e) { /* already exists */ }
 try { db.exec("ALTER TABLE session_votes ADD COLUMN vote_type TEXT DEFAULT 'up'"); } catch (e) { /* already exists */ }
 try { db.exec("ALTER TABLE session_messages ADD COLUMN message_type TEXT DEFAULT 'text'"); } catch (e) { /* already exists */ }
+try { db.exec("ALTER TABLE sessions ADD COLUMN veto_limit INTEGER DEFAULT 1"); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE dislikes ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE want_to_try ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE places ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -310,29 +307,68 @@ function getSmtpTransport() {
   return nodemailer.createTransport(opts);
 }
 
-// ── VAPID Key Initialization (DB → env → ephemeral) ─────────────────────────
-function initVapid() {
+// ── App Config Initialization (DB → env → auto-generate) ────────────────────
+function initConfig() {
+  // JWT_SECRET
+  JWT_SECRET = getSetting('jwt_secret');
+  if (!JWT_SECRET && process.env.JWT_SECRET) {
+    JWT_SECRET = process.env.JWT_SECRET;
+    setSetting('jwt_secret', JWT_SECRET);
+  }
+  if (!JWT_SECRET) {
+    JWT_SECRET = crypto.randomBytes(32).toString('hex');
+    setSetting('jwt_secret', JWT_SECRET);
+    console.log('Generated and saved new JWT secret to database.');
+  }
+
+  // GOOGLE_API_KEY
+  API_KEY = getSetting('google_api_key');
+  if (!API_KEY && process.env.GOOGLE_API_KEY) {
+    API_KEY = process.env.GOOGLE_API_KEY;
+    setSetting('google_api_key', API_KEY);
+  }
+  if (!API_KEY) {
+    console.warn('WARNING: Google API key not set — configure via admin panel.');
+  }
+
+  // VAPID keys
   const dbPub = getSetting('vapid_public_key');
   const dbPriv = getSetting('vapid_private_key');
   if (dbPub && dbPriv) {
     VAPID_PUBLIC = dbPub;
     VAPID_PRIVATE = dbPriv;
-    VAPID_SOURCE = 'db';
   } else if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
     VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
-    VAPID_SOURCE = 'env';
+    setSetting('vapid_public_key', VAPID_PUBLIC);
+    setSetting('vapid_private_key', VAPID_PRIVATE);
   } else {
     const keys = webpush.generateVAPIDKeys();
     VAPID_PUBLIC = keys.publicKey;
     VAPID_PRIVATE = keys.privateKey;
-    VAPID_SOURCE = 'ephemeral';
-    console.warn('WARNING: VAPID keys not set — generated ephemeral keys. Push subscriptions will break on restart.');
+    setSetting('vapid_public_key', VAPID_PUBLIC);
+    setSetting('vapid_private_key', VAPID_PRIVATE);
+    console.log('Generated and saved new VAPID keys to database.');
   }
-  const email = getSetting('vapid_email') || process.env.VAPID_EMAIL || 'mailto:noreply@example.com';
-  webpush.setVapidDetails(email, VAPID_PUBLIC, VAPID_PRIVATE);
+  let vapidEmail = getSetting('vapid_email');
+  if (!vapidEmail && process.env.VAPID_EMAIL) {
+    vapidEmail = process.env.VAPID_EMAIL;
+    setSetting('vapid_email', vapidEmail);
+  }
+  webpush.setVapidDetails(vapidEmail || 'mailto:noreply@example.com', VAPID_PUBLIC, VAPID_PRIVATE);
+
+  // COOKIE_SECURE
+  const dbCookieSecure = getSetting('cookie_secure');
+  if (dbCookieSecure !== null) {
+    COOKIE_SECURE = dbCookieSecure === 'true';
+  } else if (process.env.COOKIE_SECURE) {
+    COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
+    setSetting('cookie_secure', COOKIE_SECURE ? 'true' : 'false');
+  } else {
+    COOKIE_SECURE = false;
+  }
 }
-initVapid();
+initConfig();
 
 // ── Admin Initialization ─────────────────────────────────────────────────────
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
@@ -352,8 +388,6 @@ if (!adminExists) {
 function generateToken(user) {
   return jwt.sign({ id: user.id, username: user.username, is_admin: !!user.is_admin }, JWT_SECRET, { expiresIn: getSetting('jwt_expiry') || '12h' });
 }
-
-const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
 
 function cookieOpts(remember) {
   return {
@@ -618,8 +652,7 @@ app.get('/api/admin/stats', adminAuth, (req, res) => {
   const active_plans = db.prepare("SELECT COUNT(*) as c FROM sessions WHERE status = 'open'").get().c;
   const places = db.prepare('SELECT COUNT(*) as c FROM likes').get().c;
   const smtp_configured = !!(getSetting('smtp_host') && getSetting('smtp_port'));
-  const vapid_source = VAPID_SOURCE || 'none';
-  res.json({ users, plans, active_plans, places, smtp_configured, vapid_source });
+  res.json({ users, plans, active_plans, places, smtp_configured, vapid_source: 'db' });
 });
 
 app.get('/api/admin/users', adminAuth, (req, res) => {
@@ -735,7 +768,7 @@ app.post('/api/admin/smtp/test', adminAuth, async (req, res) => {
 });
 
 app.get('/api/admin/vapid', adminAuth, (req, res) => {
-  res.json({ publicKey: VAPID_PUBLIC, hasPrivateKey: !!VAPID_PRIVATE, source: VAPID_SOURCE });
+  res.json({ publicKey: VAPID_PUBLIC, hasPrivateKey: !!VAPID_PRIVATE, source: 'db' });
 });
 
 app.post('/api/admin/vapid/generate', adminAuth, (req, res) => {
@@ -744,8 +777,7 @@ app.post('/api/admin/vapid/generate', adminAuth, (req, res) => {
   setSetting('vapid_private_key', keys.privateKey);
   VAPID_PUBLIC = keys.publicKey;
   VAPID_PRIVATE = keys.privateKey;
-  VAPID_SOURCE = 'db';
-  const email = getSetting('vapid_email') || process.env.VAPID_EMAIL || 'mailto:noreply@example.com';
+  const email = getSetting('vapid_email') || 'mailto:noreply@example.com';
   webpush.setVapidDetails(email, VAPID_PUBLIC, VAPID_PRIVATE);
   res.json({ publicKey: keys.publicKey });
 });
@@ -781,7 +813,7 @@ app.post('/api/admin/giphy-api-key', adminAuth, (req, res) => {
 app.get('/api/admin/settings', adminAuth, (req, res) => {
   res.json({
     jwt_expiry: getSetting('jwt_expiry') || '12h',
-    cookie_secure: (getSetting('cookie_secure') || String(COOKIE_SECURE)) === 'true' ? 'true' : 'false',
+    cookie_secure: getSetting('cookie_secure') === 'true' ? 'true' : 'false',
   });
 });
 
@@ -834,6 +866,7 @@ app.delete('/api/admin/plans/:id', adminAuth, (req, res) => {
 
 // ── Places Routes ───────────────────────────────────────────────────────────────
 app.get('/api/autocomplete', auth, async (req, res) => {
+  if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
   try {
     const { input } = req.query;
     if (!input) return res.status(400).json({ error: 'Missing input' });
@@ -849,6 +882,7 @@ app.get('/api/autocomplete', auth, async (req, res) => {
 });
 
 app.get('/api/place-details', auth, async (req, res) => {
+  if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
   try {
     const { place_id } = req.query;
     if (!place_id) return res.status(400).json({ error: 'Missing place_id' });
@@ -864,23 +898,23 @@ app.get('/api/place-details', auth, async (req, res) => {
 });
 
 app.post('/api/place', auth, (req, res) => {
-  const { place, place_id, restaurant_type } = req.body;
+  const { place, place_id, restaurant_type, address } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
-  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null);
+  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address) VALUES (?, ?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null, address || null);
   res.json({ success: true });
 });
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type, visited_at, notes, starred FROM likes WHERE user_id = ?').all(uid);
-  const dislikes = db.prepare('SELECT place, place_id, restaurant_type FROM dislikes WHERE user_id = ?').all(uid);
-  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, starred FROM want_to_try WHERE user_id = ?').all(uid);
-  const all = db.prepare('SELECT place, place_id, restaurant_type FROM places WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred FROM likes WHERE user_id = ?').all(uid);
+  const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address FROM dislikes WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred FROM want_to_try WHERE user_id = ?').all(uid);
+  const all = db.prepare('SELECT place, place_id, restaurant_type, address FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred })),
-    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
-    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, starred: !!r.starred })),
-    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred })),
+    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null })),
+    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred })),
+    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null })),
   });
 });
 
@@ -907,7 +941,7 @@ app.post('/api/places/notes', auth, (req, res) => {
 });
 
 app.post('/api/places', auth, (req, res) => {
-  const { type, place, place_id, remove, restaurant_type } = req.body;
+  const { type, place, place_id, remove, restaurant_type, address } = req.body;
   const validTypes = ['likes', 'want_to_try', 'dislikes'];
   if (!place) return res.status(400).json({ error: 'Missing place' });
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
@@ -917,13 +951,13 @@ app.post('/api/places', auth, (req, res) => {
   if (remove) {
     db.prepare(`DELETE FROM ${type} WHERE user_id = ? AND place = ?`).run(uid, place);
   } else {
-    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null);
+    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address) VALUES (?, ?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null, address || null);
     const others = { likes: ['dislikes', 'want_to_try'], want_to_try: ['likes', 'dislikes'], dislikes: ['likes', 'want_to_try'] };
     for (const tbl of others[type]) {
       const del = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, place);
       if (del.changes > 0 && !movedFrom) movedFrom = tbl;
     }
-    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type) VALUES (?, ?, ?, ?)`).run(uid, place, place_id || null, restaurant_type || null);
+    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address) VALUES (?, ?, ?, ?, ?)`).run(uid, place, place_id || null, restaurant_type || null, address || null);
   }
   res.json({ success: true, movedFrom });
 });
@@ -1065,10 +1099,11 @@ app.get('/api/suggestions/recent', auth, (req, res) => {
 
 // ── Plan Routes ──────────────────────────────────────────────────────────────
 app.post('/api/plans', auth, (req, res) => {
-  const { name } = req.body;
+  const { name, veto_limit } = req.body;
   const code = generatePlanCode();
+  const vetoLimit = (veto_limit != null && veto_limit >= 0) ? veto_limit : 1;
   try {
-    const result = db.prepare('INSERT INTO sessions (code, creator_id, name) VALUES (?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan');
+    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit) VALUES (?, ?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan', vetoLimit);
     const planId = result.lastInsertRowid;
     db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, req.user.id);
     res.json({ id: planId, code, name: name || 'Dinner Plan' });
@@ -1151,7 +1186,8 @@ app.get('/api/plans/:id', auth, (req, res) => {
     SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.user_id,
            u.username AS suggested_by,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
-           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count
+           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count,
+           (SELECT COUNT(*) FROM session_vetoes svt WHERE svt.suggestion_id = ss.id) AS veto_count
     FROM session_suggestions ss
     JOIN users u ON u.id = ss.user_id
     WHERE ss.session_id = ?
@@ -1160,6 +1196,9 @@ app.get('/api/plans/:id', auth, (req, res) => {
   const userVotes = db.prepare('SELECT suggestion_id, vote_type FROM session_votes WHERE session_id = ? AND user_id = ?').all(planId, req.user.id);
   const votedIds = new Set(userVotes.filter(v => v.vote_type === 'up').map(v => v.suggestion_id));
   const downvotedIds = new Set(userVotes.filter(v => v.vote_type === 'down').map(v => v.suggestion_id));
+
+  const userVetoes = db.prepare('SELECT suggestion_id FROM session_vetoes WHERE session_id = ? AND user_id = ?').all(planId, req.user.id);
+  const vetoedIds = new Set(userVetoes.map(v => v.suggestion_id));
 
   // Fetch voters for each suggestion
   const allVotes = db.prepare(`
@@ -1179,6 +1218,22 @@ app.get('/api/plans/:id', auth, (req, res) => {
       downvotersMap[v.suggestion_id].push(v.username);
     }
   });
+
+  // Fetch vetoers for each suggestion
+  const allVetoes = db.prepare(`
+    SELECT svt.suggestion_id, u.username
+    FROM session_vetoes svt
+    JOIN users u ON u.id = svt.user_id
+    WHERE svt.session_id = ?
+  `).all(planId);
+  const vetoersMap = {};
+  allVetoes.forEach(v => {
+    if (!vetoersMap[v.suggestion_id]) vetoersMap[v.suggestion_id] = [];
+    vetoersMap[v.suggestion_id].push(v.username);
+  });
+
+  const userVetoCount = db.prepare('SELECT COUNT(*) AS c FROM session_vetoes WHERE session_id = ? AND user_id = ?').get(planId, req.user.id).c;
+  const vetoesRemaining = (plan.veto_limit || 0) - userVetoCount;
 
   // Find which session suggestions are on members' want-to-try lists
   const memberIds = members.map(m => m.id);
@@ -1201,8 +1256,9 @@ app.get('/api/plans/:id', auth, (req, res) => {
   res.json({
     plan,
     members,
-    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id), user_downvoted: downvotedIds.has(s.id), voters: votersMap[s.id] || [], downvoters: downvotersMap[s.id] || [] })),
+    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id), user_downvoted: downvotedIds.has(s.id), user_vetoed: vetoedIds.has(s.id), voters: votersMap[s.id] || [], downvoters: downvotersMap[s.id] || [], vetoers: vetoersMap[s.id] || [] })),
     want_to_try: wantToTryMap,
+    vetoesRemaining,
   });
 });
 
@@ -1269,6 +1325,7 @@ app.delete('/api/plans/:id/suggestion/:suggestionId', auth, (req, res) => {
   if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
   if (suggestion.user_id !== req.user.id) return res.status(403).json({ error: 'You can only remove your own suggestions' });
 
+  db.prepare('DELETE FROM session_vetoes WHERE suggestion_id = ?').run(suggestionId);
   db.prepare('DELETE FROM session_votes WHERE suggestion_id = ?').run(suggestionId);
   db.prepare('DELETE FROM session_suggestions WHERE id = ?').run(suggestionId);
 
@@ -1338,6 +1395,65 @@ app.post('/api/plans/:id/undownvote', auth, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Vetoes ────────────────────────────────────────────────────────────────────
+app.post('/api/plans/:id/veto', auth, (req, res) => {
+  const planId = req.params.id;
+  const { suggestion_id } = req.body;
+  if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
+
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+
+  const plan = db.prepare('SELECT status, veto_limit FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  if (plan.status !== 'open') return res.status(400).json({ error: 'Plan is closed' });
+
+  const userVetoCount = db.prepare('SELECT COUNT(*) AS c FROM session_vetoes WHERE session_id = ? AND user_id = ?').get(planId, req.user.id).c;
+  if (userVetoCount >= (plan.veto_limit || 0)) return res.status(400).json({ error: 'No vetoes remaining' });
+
+  try {
+    db.prepare('INSERT INTO session_vetoes (session_id, user_id, suggestion_id) VALUES (?, ?, ?)').run(planId, req.user.id, suggestion_id);
+  } catch (e) {
+    if (e.message.includes('UNIQUE constraint')) return res.status(400).json({ error: 'Already vetoed' });
+    throw e;
+  }
+
+  const vetoCount = db.prepare('SELECT COUNT(*) AS c FROM session_vetoes WHERE suggestion_id = ?').get(suggestion_id).c;
+  const vetoers = db.prepare('SELECT u.username FROM session_vetoes sv JOIN users u ON u.id = sv.user_id WHERE sv.suggestion_id = ?').all(suggestion_id).map(r => r.username);
+  io.to(`plan:${planId}`).emit('plan:veto-updated', { suggestion_id, veto_count: vetoCount, vetoers, user_id: req.user.id, username: req.user.username, action: 'veto' });
+  res.json({ success: true });
+});
+
+app.post('/api/plans/:id/unveto', auth, (req, res) => {
+  const planId = req.params.id;
+  const { suggestion_id } = req.body;
+  if (!suggestion_id) return res.status(400).json({ error: 'Missing suggestion_id' });
+
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+
+  db.prepare('DELETE FROM session_vetoes WHERE session_id = ? AND user_id = ? AND suggestion_id = ?').run(planId, req.user.id, suggestion_id);
+
+  const vetoCount = db.prepare('SELECT COUNT(*) AS c FROM session_vetoes WHERE suggestion_id = ?').get(suggestion_id).c;
+  const vetoers = db.prepare('SELECT u.username FROM session_vetoes sv JOIN users u ON u.id = sv.user_id WHERE sv.suggestion_id = ?').all(suggestion_id).map(r => r.username);
+  io.to(`plan:${planId}`).emit('plan:veto-updated', { suggestion_id, veto_count: vetoCount, vetoers, user_id: req.user.id, username: req.user.username, action: 'unveto' });
+  res.json({ success: true });
+});
+
+app.post('/api/plans/:id/veto-limit', auth, (req, res) => {
+  const planId = req.params.id;
+  const { veto_limit } = req.body;
+  if (veto_limit == null || veto_limit < 0) return res.status(400).json({ error: 'Invalid veto limit' });
+
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan) return res.status(404).json({ error: 'Plan not found' });
+  if (plan.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the creator can change veto limit' });
+
+  db.prepare('UPDATE sessions SET veto_limit = ? WHERE id = ?').run(veto_limit, planId);
+  io.to(`plan:${planId}`).emit('plan:veto-limit-updated', { planId: Number(planId), veto_limit });
+  res.json({ success: true });
+});
+
 app.post('/api/plans/:id/pick', auth, (req, res) => {
   const planId = req.params.id;
   const { mode, lat, lng } = req.body;
@@ -1348,18 +1464,23 @@ app.post('/api/plans/:id/pick', auth, (req, res) => {
   const suggestions = db.prepare(`
     SELECT ss.id, ss.place, ss.place_id, ss.lat, ss.lng,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
-           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count
+           (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count,
+           (SELECT COUNT(*) FROM session_vetoes svt WHERE svt.suggestion_id = ss.id) AS veto_count
     FROM session_suggestions ss
     WHERE ss.session_id = ?
   `).all(planId);
 
   if (suggestions.length === 0) return res.status(400).json({ error: 'No suggestions yet' });
 
+  // Filter out vetoed suggestions; fall back to all if everything is vetoed
+  const nonVetoed = suggestions.filter(s => s.veto_count === 0);
+  const eligible = nonVetoed.length > 0 ? nonVetoed : suggestions;
+
   let winner;
 
   if (mode === 'closest') {
     if (lat == null || lng == null) return res.status(400).json({ error: 'Location required for closest pick' });
-    const withCoords = suggestions.filter(s => s.lat != null && s.lng != null);
+    const withCoords = eligible.filter(s => s.lat != null && s.lng != null);
     if (withCoords.length === 0) return res.status(400).json({ error: 'No suggestions have location data' });
     withCoords.forEach(s => { s.distance = haversine(lat, lng, s.lat, s.lng); });
     withCoords.sort((a, b) => a.distance - b.distance);
@@ -1377,7 +1498,7 @@ app.post('/api/plans/:id/pick', auth, (req, res) => {
     wttRows.forEach(r => { wantToTryCounts[r.place] = r.cnt; });
 
     const weighted = [];
-    suggestions.forEach(s => {
+    eligible.forEach(s => {
       const weight = Math.max(s.vote_count - s.downvote_count, 1) + (wantToTryCounts[s.place] || 0);
       for (let i = 0; i < weight; i++) weighted.push(s);
     });
@@ -1419,6 +1540,7 @@ app.delete('/api/plans/:id', auth, (req, res) => {
   const deleteAll = db.transaction(() => {
     db.prepare('DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM session_messages WHERE session_id = ?)').run(planId);
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(planId);
+    db.prepare('DELETE FROM session_vetoes WHERE session_id = ?').run(planId);
     db.prepare('DELETE FROM session_votes WHERE session_id = ?').run(planId);
     db.prepare('DELETE FROM session_suggestions WHERE session_id = ?').run(planId);
     db.prepare('DELETE FROM session_members WHERE session_id = ?').run(planId);
@@ -1554,7 +1676,11 @@ app.delete('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
 });
 
 // ── Giphy GIF Proxy ──────────────────────────────────────────────────────────
-let GIPHY_API_KEY = getSetting('giphy_api_key') || process.env.GIPHY_API_KEY;
+let GIPHY_API_KEY = getSetting('giphy_api_key');
+if (!GIPHY_API_KEY && process.env.GIPHY_API_KEY) {
+  GIPHY_API_KEY = process.env.GIPHY_API_KEY;
+  setSetting('giphy_api_key', GIPHY_API_KEY);
+}
 
 app.get('/api/giphy/search', auth, async (req, res) => {
   if (!GIPHY_API_KEY) return res.status(400).json({ error: 'Giphy API not configured' });

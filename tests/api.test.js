@@ -1167,6 +1167,100 @@ describe('Voting Deadline', () => {
   });
 });
 
+// ── Veto Tests ──────────────────────────────────────────────────────────
+
+describe('Vetoes', () => {
+  let cookie1, cookie2, planId, suggestionId1, suggestionId2;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('vetouser1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('vetouser2', 'password123');
+    cookie2 = r2.cookie;
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'Veto Plan', veto_limit: 1 });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+
+    const s1 = await request(app).post(`/api/plans/${planId}/suggest`).set('Cookie', cookie1)
+      .send({ place: 'Veto Pizza' });
+    suggestionId1 = s1.body.id;
+    const s2 = await request(app).post(`/api/plans/${planId}/suggest`).set('Cookie', cookie2)
+      .send({ place: 'Veto Sushi' });
+    suggestionId2 = s2.body.id;
+  });
+
+  test('POST /api/plans/:id/veto — veto a suggestion', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/veto`).set('Cookie', cookie1)
+      .send({ suggestion_id: suggestionId2 });
+    expect(res.status).toBe(200);
+  });
+
+  test('GET /api/plans/:id — shows veto data', async () => {
+    const res = await request(app).get(`/api/plans/${planId}`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.vetoesRemaining).toBe(0);
+    const vetoed = res.body.suggestions.find(s => s.id === suggestionId2);
+    expect(vetoed.veto_count).toBe(1);
+    expect(vetoed.user_vetoed).toBe(true);
+    expect(vetoed.vetoers).toContain('vetouser1');
+  });
+
+  test('POST /api/plans/:id/veto — no vetoes remaining returns 400', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/veto`).set('Cookie', cookie1)
+      .send({ suggestion_id: suggestionId1 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/No vetoes remaining/);
+  });
+
+  test('POST /api/plans/:id/veto — duplicate veto returns 400', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/veto`).set('Cookie', cookie1)
+      .send({ suggestion_id: suggestionId2 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Already vetoed|No vetoes remaining/);
+  });
+
+  test('POST /api/plans/:id/unveto — remove veto', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/unveto`).set('Cookie', cookie1)
+      .send({ suggestion_id: suggestionId2 });
+    expect(res.status).toBe(200);
+
+    const detail = await request(app).get(`/api/plans/${planId}`).set('Cookie', cookie1);
+    expect(detail.body.vetoesRemaining).toBe(1);
+    const s = detail.body.suggestions.find(s => s.id === suggestionId2);
+    expect(s.veto_count).toBe(0);
+    expect(s.user_vetoed).toBe(false);
+  });
+
+  test('POST /api/plans/:id/veto-limit — creator can change limit', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/veto-limit`).set('Cookie', cookie1)
+      .send({ veto_limit: 3 });
+    expect(res.status).toBe(200);
+
+    const detail = await request(app).get(`/api/plans/${planId}`).set('Cookie', cookie1);
+    expect(detail.body.plan.veto_limit).toBe(3);
+  });
+
+  test('POST /api/plans/:id/veto-limit — non-creator gets 403', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/veto-limit`).set('Cookie', cookie2)
+      .send({ veto_limit: 5 });
+    expect(res.status).toBe(403);
+  });
+
+  test('Pick excludes vetoed suggestions', async () => {
+    // Veto suggestion 1
+    await request(app).post(`/api/plans/${planId}/veto`).set('Cookie', cookie1)
+      .send({ suggestion_id: suggestionId1 });
+
+    // Pick should return suggestion 2 (the only non-vetoed one)
+    const res = await request(app).post(`/api/plans/${planId}/pick`).set('Cookie', cookie1)
+      .send({ mode: 'random' });
+    expect(res.status).toBe(200);
+    expect(res.body.winner.place).toBe('Veto Sushi');
+  });
+});
+
 // ── Plan Chat Tests ─────────────────────────────────────────────────────
 
 describe('Plan Chat', () => {

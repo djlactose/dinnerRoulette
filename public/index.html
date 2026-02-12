@@ -9,14 +9,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Dinner Roulette" />
-  <link rel="manifest" href="manifest.json" />
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" href="icon-192.png" />
-  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="app.js?v=17"></script>
+  <script defer src="/app.js?v=17"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -354,7 +354,10 @@
                        @touchend="onTouchEnd(place._type, place)"
                        :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                     <div class="place-card-header">
-                      <strong x-text="place.name"></strong>
+                      <div class="place-card-name-block">
+                        <strong x-text="displayName(place)"></strong>
+                        <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
+                      </div>
                       <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                     </div>
                     <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
@@ -406,7 +409,10 @@
                      @touchend="onTouchEnd('likes', place)"
                      :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                   <div class="place-card-header">
-                    <strong x-text="place.name"></strong>
+                    <div class="place-card-name-block">
+                      <strong x-text="displayName(place)"></strong>
+                      <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
+                    </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                   </div>
                   <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
@@ -460,7 +466,10 @@
                      @touchend="onTouchEnd('dislikes', place)"
                      :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                   <div class="place-card-header">
-                    <strong x-text="place.name"></strong>
+                    <div class="place-card-name-block">
+                      <strong x-text="displayName(place)"></strong>
+                      <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
+                    </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                   </div>
                   <div class="place-card-actions">
@@ -502,7 +511,10 @@
                      @touchend="onTouchEnd('want_to_try', place)"
                      :style="{ transform: getSwipeTransform(place.name), background: getSwipeBg(place.name) || undefined, transition: swipeState.swiping ? 'none' : 'transform 0.2s' }">
                   <div class="place-card-header">
-                    <strong x-text="place.name"></strong>
+                    <div class="place-card-name-block">
+                      <strong x-text="displayName(place)"></strong>
+                      <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
+                    </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                   </div>
                   <div class="place-card-actions">
@@ -660,6 +672,11 @@
                        @keydown.enter="createPlan()" aria-label="Plan name" />
                 <button @click="createPlan()">Create Plan</button>
               </div>
+              <div class="veto-limit-create">
+                <label>Vetoes per person:</label>
+                <input type="number" min="0" max="10" x-model.number="planVetoLimitInput"
+                       aria-label="Vetoes per person" />
+              </div>
               <div class="inline-input" style="margin-top: 0.5rem;">
                 <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
                        style="text-transform: uppercase;" @keydown.enter="joinPlan()" aria-label="Plan invite code" />
@@ -776,13 +793,25 @@
                 </div>
               </div>
 
+              <!-- Veto Info -->
+              <div class="veto-info-section" x-show="activePlan?.plan?.status === 'open' && (activePlan?.plan?.veto_limit ?? 1) > 0">
+                <span class="veto-remaining"
+                      x-text="(activePlan?.vetoesRemaining ?? activePlan?.plan?.veto_limit ?? 1) + '/' + (activePlan?.plan?.veto_limit ?? 1) + ' vetoes remaining'"></span>
+                <div class="veto-controls" x-show="activePlan?.plan?.creator_id === userId">
+                  <input type="number" min="0" max="10" x-model.number="planVetoLimitInput"
+                         :placeholder="activePlan?.plan?.veto_limit || 1"
+                         aria-label="Set veto limit" />
+                  <button class="suggest-btn btn-sm" @click="setVetoLimit()">Update</button>
+                </div>
+              </div>
+
               <!-- Winner Selection on Close -->
               <div x-show="closingPlan" class="close-winner-panel">
                 <h4>Select the winning restaurant:</h4>
                 <ul class="close-winner-list">
                   <template x-for="s in activePlan?.suggestions || []" :key="s.id">
                     <li @click="closeWithWinner(s.place)">
-                      <span class="suggestion-name" x-text="s.place"></span>
+                      <span class="suggestion-name" x-text="displayName(s)"></span>
                       <span class="type-badge" x-show="s.restaurant_type" x-text="s.restaurant_type"></span>
                       <span class="vote-count"
                             :class="{ 'vote-count-high': (s.vote_count - (s.downvote_count || 0)) >= 3, 'vote-count-med': (s.vote_count - (s.downvote_count || 0)) === 2, 'vote-count-negative': (s.downvote_count || 0) > s.vote_count }"
@@ -838,7 +867,7 @@
                               @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                               :aria-label="'Suggest ' + place.name">
                         <span class="starred-icon">&#x2605;</span>
-                        <span x-text="place.name"></span>
+                        <span x-text="displayName(place)"></span>
                       </button>
                     </template>
                   </div>
@@ -851,7 +880,7 @@
                     <template x-for="rs in recentSuggestions" :key="rs.name">
                       <button class="recent-suggest-btn" :disabled="isAlreadySuggestedToPlan(rs.name)"
                               @click="suggestToPlan(rs.name, rs.place_id, rs.restaurant_type)"
-                              :aria-label="'Suggest ' + rs.name" x-text="'+ ' + rs.name"></button>
+                              :aria-label="'Suggest ' + rs.name" x-text="'+ ' + displayName(rs)"></button>
                     </template>
                   </div>
                 </div>
@@ -862,7 +891,7 @@
                     <button class="suggest-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
                             @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
-                      <span x-text="'+ ' + place.name"></span>
+                      <span x-text="'+ ' + displayName(place)"></span>
                       <span class="dislike-warn-badge" x-show="isPlanDisliked(place.name)">!</span>
                     </button>
                   </template>
@@ -874,7 +903,7 @@
                     <button class="want-to-try-quick-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
                             @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
-                      <span x-text="'⭐ ' + place.name"></span>
+                      <span x-text="'⭐ ' + displayName(place)"></span>
                     </button>
                   </template>
                 </div>
@@ -913,7 +942,7 @@
                   <template x-for="(s, idx) in (activePlan?.suggestions || []).filter(s => s.lat != null)" :key="s.id">
                     <span class="map-legend-item">
                       <span class="legend-number" x-text="idx + 1"></span>
-                      <span x-text="s.place"></span>
+                      <span x-text="displayName(s)"></span>
                     </span>
                   </template>
                 </div>
@@ -922,9 +951,12 @@
               <!-- List View -->
               <ul class="plan-suggestion-list" x-show="!mapView">
                 <template x-for="s in sortedPlanSuggestions" :key="s.id">
-                  <li>
+                  <li :class="{ 'suggestion-vetoed': (s.veto_count || 0) > 0 }">
                     <div class="suggestion-info">
-                      <span class="suggestion-name" x-text="s.place"></span>
+                      <span class="suggestion-name-block">
+                        <span class="suggestion-name" x-text="displayName(s)"></span>
+                        <span class="suggestion-address" x-show="displayAddress(s)" x-text="displayAddress(s)"></span>
+                      </span>
                       <span class="want-to-try-badge" x-show="isWantToTry(s.place)"
                             :title="getWantToTryUsers(s.place).map(u => u.username).join(', ') + ' want' + (getWantToTryUsers(s.place).length === 1 ? 's' : '') + ' to try this'">
                         ⭐
@@ -949,11 +981,17 @@
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
                               @click="toggleVote(s)"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
-                              x-show="activePlan?.plan?.status === 'open'">👍</button>
+                              x-show="activePlan?.plan?.status === 'open' && (s.veto_count || 0) === 0">👍</button>
                       <button class="downvote-btn" :class="{ downvoted: s.user_downvoted }"
                               @click="toggleDownvote(s)"
                               :aria-label="s.user_downvoted ? 'Remove downvote from ' + s.place : 'Downvote ' + s.place"
-                              x-show="activePlan?.plan?.status === 'open'">👎</button>
+                              x-show="activePlan?.plan?.status === 'open' && (s.veto_count || 0) === 0">👎</button>
+                      <button class="veto-btn" :class="{ vetoed: s.user_vetoed }"
+                              @click="toggleVeto(s)"
+                              :disabled="!s.user_vetoed && (activePlan?.vetoesRemaining || 0) <= 0"
+                              :aria-label="s.user_vetoed ? 'Remove veto from ' + s.place : 'Veto ' + s.place"
+                              :title="s.user_vetoed ? 'Remove veto' : (activePlan?.vetoesRemaining || 0) > 0 ? 'Veto (eliminates from pick)' : 'No vetoes remaining'"
+                              x-show="activePlan?.plan?.status === 'open' && (activePlan?.plan?.veto_limit ?? 1) > 0"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg></button>
                       <button class="overflow-toggle" @click.stop="toggleSuggestionMenu(s.id)" aria-label="More actions">···</button>
                       <button class="remove-btn btn-sm" @click="removeSuggestion(s)"
                               x-show="activePlan?.plan?.status === 'open' && s.suggested_by === username"
@@ -977,7 +1015,7 @@
                                 :title="suggestionInList(s.place) ? 'Already in your ' + suggestionInList(s.place).replace('_', ' ') : 'Add to Want to Try'">&#x2B50; Try</button>
                       </div>
                     </div>
-                    <div class="voters-list" x-show="s._showVoters && ((s.voters?.length > 0) || (s.downvoters?.length > 0))" x-collapse>
+                    <div class="voters-list" x-show="s._showVoters && ((s.voters?.length > 0) || (s.downvoters?.length > 0) || (s.vetoers?.length > 0))" x-collapse>
                       <template x-for="voter in s.voters || []" :key="'up-' + voter">
                         <span class="voter-chip">
                           <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
@@ -990,6 +1028,13 @@
                           <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(voter) }" x-text="getInitials(voter)"></span>
                           <span x-text="voter"></span>
                           <span class="vote-type-indicator vote-type-down">-</span>
+                        </span>
+                      </template>
+                      <template x-for="vetoer in s.vetoers || []" :key="'veto-' + vetoer">
+                        <span class="voter-chip voter-chip-veto">
+                          <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(vetoer) }" x-text="getInitials(vetoer)"></span>
+                          <span x-text="vetoer"></span>
+                          <span class="vote-type-indicator vote-type-veto"><svg class="icon icon-xxs" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg></span>
                         </span>
                       </template>
                     </div>
@@ -1015,7 +1060,7 @@
 
               <!-- Winner Display -->
               <div class="winner-display" x-show="winner && !spinningWheel" x-transition>
-                <h3 x-text="winner?.place" id="winner-text"></h3>
+                <h3 x-text="winner ? displayName(winner) : ''" id="winner-text"></h3>
                 <p x-show="winner?.distance != null" x-text="winnerDistanceText"></p>
                 <a :href="winnerMapUrl" target="_blank" rel="noopener"
                    x-text="winner?.distance != null ? 'Get Directions' : 'View on Google Maps'"></a>
