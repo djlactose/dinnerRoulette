@@ -363,18 +363,18 @@
                     <div class="place-note-edit" x-show="editingNote === place.name">
                       <input type="text" x-model="noteText" placeholder="Add a note..."
                              @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
-                      <button class="suggest-btn" @click="saveNote(place)">Save</button>
-                      <button class="back-btn" @click="cancelEditNote()">Cancel</button>
+                      <button class="suggest-btn" @click="saveNote(place)" aria-label="Save note">✓</button>
+                      <button class="back-btn" @click="cancelEditNote()" aria-label="Cancel">✕</button>
                     </div>
                     <div class="place-card-actions">
                       <button class="star-btn starred" @click="toggleStar(place._type, place.name)"
                               aria-label="Unstar">&#x2605;</button>
-                      <button class="remove-btn" @click="removePlace(place._type, place.name)" :aria-label="'Remove from ' + place._type">Remove</button>
+                      <button class="remove-btn" @click="removePlace(place._type, place.name)" :aria-label="'Remove from ' + place._type">✕</button>
                       <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                         target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                      <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                         target="_blank" rel="noopener" aria-label="View Google reviews">★</a>
+                      <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">📍</button>
                       <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
-                              @click="startEditNote(place)">+ Note</button>
+                              @click="startEditNote(place)" aria-label="Add note">📝</button>
                       <button class="move-btn" x-show="place._type === 'want_to_try'" @click="movePlace('want_to_try', 'likes', place)" aria-label="Move to likes">👍</button>
                     </div>
                   </div>
@@ -415,19 +415,19 @@
                   <div class="place-note-edit" x-show="editingNote === place.name">
                     <input type="text" x-model="noteText" placeholder="Add a note..."
                            @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
-                    <button class="suggest-btn" @click="saveNote(place)">Save</button>
-                    <button class="back-btn" @click="cancelEditNote()">Cancel</button>
+                    <button class="suggest-btn" @click="saveNote(place)" aria-label="Save note">✓</button>
+                    <button class="back-btn" @click="cancelEditNote()" aria-label="Cancel">✕</button>
                   </div>
                   <div class="place-card-actions">
                     <button class="star-btn" @click="toggleStar('likes', place.name)"
                             :aria-label="place.starred ? 'Unstar ' + place.name : 'Star ' + place.name"
                             x-text="place.starred ? '\u2605' : '\u2606'"></button>
-                    <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">Remove</button>
+                    <button class="remove-btn" @click="removePlace('likes', place.name)" aria-label="Remove from likes">✕</button>
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                       target="_blank" rel="noopener" aria-label="View Google reviews">★</a>
+                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">📍</button>
                     <button class="note-add-btn" x-show="!place.notes && editingNote !== place.name"
-                            @click="startEditNote(place)">+ Note</button>
+                            @click="startEditNote(place)" aria-label="Add note">📝</button>
                   </div>
                 </div>
               </template>
@@ -464,12 +464,12 @@
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
                   </div>
                   <div class="place-card-actions">
-                    <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">Remove</button>
+                    <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">✕</button>
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                       target="_blank" rel="noopener" aria-label="View Google reviews">★</a>
+                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">📍</button>
                     <button class="move-btn" @click="movePlace('dislikes', 'likes', place)" aria-label="Move to likes">👍</button>
-                    <button class="move-btn" @click="movePlace('dislikes', 'want_to_try', place)" aria-label="Move to want to try">→ Try</button>
+                    <button class="move-btn" @click="movePlace('dislikes', 'want_to_try', place)" aria-label="Move to want to try">📌</button>
                   </div>
                 </div>
               </template>
@@ -509,10 +509,10 @@
                     <button class="star-btn" @click="toggleStar('want_to_try', place.name)"
                             :aria-label="place.starred ? 'Unstar ' + place.name : 'Star ' + place.name"
                             x-text="place.starred ? '\u2605' : '\u2606'"></button>
-                    <button class="remove-btn" @click="removePlace('want_to_try', place.name)" aria-label="Remove from want to try">Remove</button>
+                    <button class="remove-btn" @click="removePlace('want_to_try', place.name)" aria-label="Remove from want to try">✕</button>
                     <a class="reviews-link" x-show="place.place_id" :href="googleReviewsUrl(place.name, place.place_id)"
-                       target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">Map</button>
+                       target="_blank" rel="noopener" aria-label="View Google reviews">★</a>
+                    <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">📍</button>
                     <button class="move-btn" @click="movePlace('want_to_try', 'likes', place)" aria-label="Move to likes">👍</button>
                   </div>
                 </div>
@@ -544,8 +544,8 @@
                   <span class="avatar avatar-sm avatar-inline" :style="{ background: hashColor(r.username) }" x-text="getInitials(r.username)"></span>
                   <span x-text="r.username"></span>
                   <span class="place-actions">
-                    <button class="suggest-btn" @click="acceptFriend(r.id)">Accept</button>
-                    <button class="remove-btn" @click="rejectFriend(r.id)">Reject</button>
+                    <button class="suggest-btn" @click="acceptFriend(r.id)" aria-label="Accept">✓</button>
+                    <button class="remove-btn" @click="rejectFriend(r.id)" aria-label="Reject">✕</button>
                   </span>
                 </li>
               </template>
@@ -575,7 +575,7 @@
                                 :title="activePlan?.members?.some(m => m.username === f.username) ? 'Already in plan' : 'Invite to plan'"
                                 aria-label="Invite to plan"
                                 x-text="activePlan?.members?.some(m => m.username === f.username) ? 'In Plan' : 'Invite'"></button>
-                        <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
+                        <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">✕</button>
                       </span>
                     </div>
 
@@ -607,7 +607,7 @@
                                       @click="addFriendPlace(place, 'dislike')"
                                       :disabled="likes.some(l => l.name === place.name) || dislikes.some(d => d.name === place.name)"
                                       :title="likes.some(l => l.name === place.name) ? 'Already liked' : dislikes.some(d => d.name === place.name) ? 'Already disliked' : 'Add to Dislikes'">&#x1F44E;</button>
-                              <button class="map-btn" @click="openMap(place.name)">Map</button>
+                              <button class="map-btn" @click="openMap(place.name)" aria-label="View on map">📍</button>
                             </span>
                           </li>
                         </template>
@@ -629,7 +629,7 @@
                         <template x-for="(place, idx) in getFriendSection(f.id).commonPlaces || []" :key="'fc-' + idx">
                           <li>
                             <span x-text="place"></span>
-                            <button class="map-btn" @click="openMap(place)">Map</button>
+                            <button class="map-btn" @click="openMap(place)" aria-label="View on map">📍</button>
                           </li>
                         </template>
                       </ul>
@@ -728,10 +728,10 @@
                 <span class="plan-code clickable" @click="copyCode()" x-text="activePlan?.plan?.code"
                       title="Click to copy"></span>
                 <button class="share-invite-btn" @click="sharePlanInvite()"
-                        x-show="activePlan?.plan?.status === 'open'">Share Invite</button>
+                        x-show="activePlan?.plan?.status === 'open'" aria-label="Share invite">📤</button>
                 <button class="share-invite-btn" @click="showQrCode()"
                         x-show="activePlan?.plan?.status === 'open'" title="Show QR code">QR</button>
-                <button class="back-btn" @click="closeActivePlan()">Back</button>
+                <button class="back-btn" @click="closeActivePlan()" aria-label="Back">←</button>
                 <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'open' && !closingPlan"
                         @click="closePlan()">Close Plan</button>
                 <button class="back-btn" x-show="closingPlan" @click="cancelClose()">Cancel</button>
@@ -947,21 +947,21 @@
                             :title="'Up: ' + ((s.voters || []).join(', ') || 'none') + ' | Down: ' + ((s.downvoters || []).join(', ') || 'none')"
                             :aria-label="'Show voters for ' + s.place"></span>
                       <button class="vote-btn" :class="{ voted: s.user_voted }"
-                              @click="toggleVote(s)" x-text="s.user_voted ? 'Voted' : 'Vote'"
+                              @click="toggleVote(s)"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
-                              x-show="activePlan?.plan?.status === 'open'"></button>
+                              x-show="activePlan?.plan?.status === 'open'">👍</button>
                       <button class="downvote-btn" :class="{ downvoted: s.user_downvoted }"
-                              @click="toggleDownvote(s)" x-text="s.user_downvoted ? 'Noped' : 'Nope'"
+                              @click="toggleDownvote(s)"
                               :aria-label="s.user_downvoted ? 'Remove downvote from ' + s.place : 'Downvote ' + s.place"
-                              x-show="activePlan?.plan?.status === 'open'"></button>
+                              x-show="activePlan?.plan?.status === 'open'">👎</button>
                       <button class="overflow-toggle" @click.stop="toggleSuggestionMenu(s.id)" aria-label="More actions">···</button>
                       <button class="remove-btn btn-sm" @click="removeSuggestion(s)"
                               x-show="activePlan?.plan?.status === 'open' && s.suggested_by === username"
                               :aria-label="'Remove ' + s.place">✕</button>
                       <div class="overflow-menu" x-show="suggestionMenuOpen === s.id" @click.outside="closeSuggestionMenu()" x-collapse>
                         <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
-                           target="_blank" rel="noopener" aria-label="View Google reviews">Reviews</a>
-                        <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">Map</button>
+                           target="_blank" rel="noopener" aria-label="View Google reviews">★ Reviews</a>
+                        <button class="map-btn" @click="openMap(s.place)" aria-label="View on map">📍 Map</button>
                         <span class="overflow-divider"></span>
                         <button class="save-list-btn save-fav-btn" @click="addSuggestionToList(s, 'favorite')"
                                 :disabled="suggestionInList(s.place) != null"
@@ -1019,7 +1019,7 @@
                 <p x-show="winner?.distance != null" x-text="winnerDistanceText"></p>
                 <a :href="winnerMapUrl" target="_blank" rel="noopener"
                    x-text="winner?.distance != null ? 'Get Directions' : 'View on Google Maps'"></a>
-                <button class="share-btn" @click="shareWinner()">Share Result</button>
+                <button class="share-btn" @click="shareWinner()" aria-label="Share result">📤 Share</button>
                 <!-- Plan Recap -->
                 <div class="plan-recap" x-show="planRecap">
                   <div class="recap-stat">
@@ -1130,7 +1130,7 @@
                             :class="{ active: gifSearchVisible }">GIF</button>
                     <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message..." maxlength="500"
                            @keydown.enter="sendChatMessage()" aria-label="Chat message" />
-                    <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()">Send</button>
+                    <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()" aria-label="Send">➤</button>
                   </div>
                 </div>
               </div>
