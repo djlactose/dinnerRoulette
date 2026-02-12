@@ -335,42 +335,35 @@
 
           <!-- Quick Pick -->
           <div x-show="likes.length > 0" class="quick-pick-section">
-            <button class="quick-pick-btn" @click="quickPick()" :disabled="quickPicking">
-              🎲 Quick Pick from Likes
-            </button>
-            <div x-show="quickPickResult" class="quick-pick-result">
+            <div class="quick-pick-row">
+              <button class="quick-pick-btn" @click="quickPick()" :disabled="quickPicking || moodPicking">
+                🎲 Any
+              </button>
+              <template x-for="t in moodPickTypes" :key="t">
+                <button class="mood-chip" @click="moodPick(t)" :disabled="moodPicking || quickPicking"
+                        :class="{ active: moodPickType === t }" x-text="t"></button>
+              </template>
+              <button class="mood-chip surprise" @click="moodSurpriseMe()" :disabled="moodPicking || quickPicking">
+                Surprise Me!
+              </button>
+            </div>
+            <label class="mood-toggle" x-show="wantToTry.length > 0">
+              <input type="checkbox" x-model="moodIncludeWantToTry" />
+              Include Want to Try
+            </label>
+            <div x-show="quickPickResult && !moodPickResult" class="quick-pick-result">
               <span x-text="quickPickResult?.name"></span>
               <span class="type-badge" x-show="quickPickResult?.restaurant_type" x-text="quickPickResult?.restaurant_type"></span>
               <a :href="quickPickMapUrl" target="_blank" rel="noopener">View on Map</a>
             </div>
-          </div>
-
-          <!-- Mood Pick -->
-          <div x-show="moodPickTypes.length > 0" class="mood-pick-section">
-            <h4>I'm in the mood for...</h4>
-            <label class="mood-toggle">
-              <input type="checkbox" x-model="moodIncludeWantToTry" />
-              Include Want to Try
-            </label>
-            <div class="mood-chips">
-              <template x-for="t in moodPickTypes" :key="t">
-                <button class="mood-chip" @click="moodPick(t)" :disabled="moodPicking"
-                        :class="{ active: moodPickType === t }" x-text="t"></button>
-              </template>
-              <button class="mood-chip surprise" @click="moodSurpriseMe()" :disabled="moodPicking">
-                Surprise Me!
-              </button>
-            </div>
-            <div x-show="moodPickResult" class="mood-pick-result" x-transition.scale.origin.top>
-              <div class="mood-result-card">
-                <strong x-text="moodPickResult?.name"></strong>
-                <span class="type-badge" x-show="moodPickResult?.restaurant_type" x-text="moodPickResult?.restaurant_type"></span>
-                <span class="mood-result-address" x-show="moodPickResult?.address" x-text="moodPickResult?.address"></span>
-                <div class="mood-result-actions">
-                  <a class="mood-go-btn" :href="moodPickMapUrl" target="_blank" rel="noopener">View on Map</a>
-                  <button class="mood-reroll-btn" @click="moodPick(moodPickType)" :disabled="moodPicking">Pick Again</button>
-                  <button class="mood-dismiss-btn" @click="clearMoodPick()">Dismiss</button>
-                </div>
+            <div x-show="moodPickResult" class="quick-pick-result" x-transition.scale.origin.top>
+              <strong x-text="moodPickResult?.name"></strong>
+              <span class="type-badge" x-show="moodPickResult?.restaurant_type" x-text="moodPickResult?.restaurant_type"></span>
+              <span class="mood-result-address" x-show="moodPickResult?.address" x-text="moodPickResult?.address"></span>
+              <div class="mood-result-actions">
+                <a class="mood-go-btn" :href="moodPickMapUrl" target="_blank" rel="noopener">View on Map</a>
+                <button class="mood-reroll-btn" @click="moodPick(moodPickType)" :disabled="moodPicking">Pick Again</button>
+                <button class="mood-dismiss-btn" @click="clearMoodPick()">Dismiss</button>
               </div>
             </div>
           </div>
@@ -867,32 +860,40 @@
               </ul>
 
               <!-- Plan History -->
-              <h4 x-show="historyPlans.length > 0">Plan History</h4>
-              <ul class="plan-list">
-                <template x-for="s in historyPlans" :key="s.id">
-                  <li @click="openPlan(s.id)">
-                    <div>
-                      <strong x-text="s.name"></strong>
-                      <span class="plan-creator">
-                        <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
-                        <span x-text="s.creator_username"></span>
-                      </span>
-                      <span class="plan-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
-                    </div>
-                    <div>
-                      <span class="member-count" x-text="s.member_count + ' members'"></span>
-                      <span x-show="s.winner_place" class="plan-winner" x-text="'Winner: ' + s.winner_place"></span>
-                      <span x-show="s.winner_place" class="mini-reservation-links">
-                        <a class="mini-reservation-link opentable" :href="openTableUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="OpenTable">OT</a>
-                        <a class="mini-reservation-link yelp" :href="yelpUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Yelp">Y</a>
-                        <a class="mini-reservation-link google" :href="reservationSearchUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Reservations">R</a>
-                      </span>
-                      <button class="remove-btn" x-show="s.creator_id === userId"
-                              @click.stop="deletePlan(s.id)" aria-label="Delete plan">Delete</button>
-                    </div>
-                  </li>
-                </template>
-              </ul>
+              <div class="section-header" x-show="historyPlans.length > 0" @click="planHistoryVisible = !planHistoryVisible">
+                <h4>
+                  <span class="section-collapse-icon" :class="{ open: planHistoryVisible }">&#x25B6;</span>
+                  Plan History
+                  <span class="section-count" x-text="historyPlans.length"></span>
+                </h4>
+              </div>
+              <div x-show="planHistoryVisible" x-collapse>
+                <ul class="plan-list">
+                  <template x-for="s in historyPlans" :key="s.id">
+                    <li @click="openPlan(s.id)">
+                      <div>
+                        <strong x-text="s.name"></strong>
+                        <span class="plan-creator">
+                          <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
+                          <span x-text="s.creator_username"></span>
+                        </span>
+                        <span class="plan-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
+                      </div>
+                      <div>
+                        <span class="member-count" x-text="s.member_count + ' members'"></span>
+                        <span x-show="s.winner_place" class="plan-winner" x-text="'Winner: ' + s.winner_place"></span>
+                        <span x-show="s.winner_place" class="mini-reservation-links">
+                          <a class="mini-reservation-link opentable" :href="openTableUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="OpenTable">OT</a>
+                          <a class="mini-reservation-link yelp" :href="yelpUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Yelp">Y</a>
+                          <a class="mini-reservation-link google" :href="reservationSearchUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Reservations">R</a>
+                        </span>
+                        <button class="remove-btn" x-show="s.creator_id === userId"
+                                @click.stop="deletePlan(s.id)" aria-label="Delete plan">Delete</button>
+                      </div>
+                    </li>
+                  </template>
+                </ul>
+              </div>
 
               <!-- Dining Timeline -->
               <div class="section-header" @click="historyVisible = !historyVisible; if (historyVisible && historyTimeline.length === 0) loadHistory()">
@@ -1349,7 +1350,7 @@
                         <div class="chat-bubble-wrapper">
                           <div class="chat-bubble" :class="{ 'chat-bubble-gif': msg.message_type === 'gif' }">
                             <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.username"></div>
-                            <div x-show="msg.message_type !== 'gif'" x-text="msg.message"></div>
+                            <div x-show="msg.message_type !== 'gif'" x-html="formatMessageWithMentions(msg.message)"></div>
                             <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" referrerpolicy="no-referrer" />
                             <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
                           </div>
@@ -1413,12 +1414,37 @@
 
                   <!-- Chat Input Row -->
                   <div class="chat-input-wrapper">
+                    <!-- Mention Autocomplete Dropdown -->
+                    <div class="mention-dropdown" x-show="mentionDropdownVisible"
+                         @click.outside="mentionDropdownVisible = false" x-transition>
+                      <template x-for="(member, idx) in getMentionOptions()" :key="member.id">
+                        <button class="mention-option" :class="{ selected: idx === mentionSelectedIndex }"
+                                @click="selectMention(idx)">
+                          <template x-if="member.isAll">
+                            <span class="mention-option-row">
+                              <span class="mention-option-all">@all</span>
+                              <span class="mention-option-desc">Mention everyone</span>
+                            </span>
+                          </template>
+                          <template x-if="!member.isAll">
+                            <span class="mention-option-row">
+                              <span class="mention-option-avatar avatar-xs"
+                                    :style="{ background: hashColor(member.username) }"
+                                    x-text="getInitials(member.username)"></span>
+                              <span x-text="member.username"></span>
+                            </span>
+                          </template>
+                        </button>
+                      </template>
+                    </div>
                     <button class="chat-action-btn" @click="toggleEmojiPicker()" title="Emoji"
                             :class="{ active: emojiPickerVisible }">😀</button>
                     <button class="chat-action-btn" @click="toggleGifSearch()" title="GIF"
                             :class="{ active: gifSearchVisible }">GIF</button>
-                    <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message..." maxlength="500"
-                           @keydown.enter="sendChatMessage()" aria-label="Chat message" />
+                    <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message... (@mention)"
+                           maxlength="500" @input="onChatInput()" @keydown="onMentionKeydown($event)"
+                           @keydown.enter="if (!mentionDropdownVisible) sendChatMessage()"
+                           aria-label="Chat message" />
                     <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()" aria-label="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
                   </div>
                 </div>
