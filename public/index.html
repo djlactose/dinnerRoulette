@@ -570,7 +570,11 @@
                       <span x-text="f.username"></span>
                       <span class="place-actions">
                         <button class="suggest-btn" x-show="activePlan && activePlan.plan.status === 'open'"
-                                @click="quickInviteFriend(f.username)" aria-label="Invite to plan">Invite</button>
+                                @click="quickInviteFriend(f.username)"
+                                :disabled="activePlan?.members?.some(m => m.username === f.username)"
+                                :title="activePlan?.members?.some(m => m.username === f.username) ? 'Already in plan' : 'Invite to plan'"
+                                aria-label="Invite to plan"
+                                x-text="activePlan?.members?.some(m => m.username === f.username) ? 'In Plan' : 'Invite'"></button>
                         <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">Remove</button>
                       </span>
                     </div>
