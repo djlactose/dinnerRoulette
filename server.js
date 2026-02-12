@@ -1338,6 +1338,47 @@ app.get('/api/suggestions/recent', auth, (req, res) => {
   res.json({ recent: rows.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
 });
 
+// ── History Timeline ─────────────────────────────────────────────────────────────
+app.get('/api/history', auth, (req, res) => {
+  const uid = req.user.id;
+  const { from, to, member } = req.query;
+  let query = `
+    SELECT s.id, s.name, s.winner_place, s.created_at, s.picked_at,
+           ss.restaurant_type AS winner_type
+    FROM sessions s
+    JOIN session_members sm ON sm.session_id = s.id AND sm.user_id = ?
+    LEFT JOIN session_suggestions ss ON ss.session_id = s.id AND ss.place = s.winner_place
+    WHERE s.status = 'closed' AND s.winner_place IS NOT NULL
+  `;
+  const params = [uid];
+
+  if (from) { query += ' AND s.picked_at >= ?'; params.push(from); }
+  if (to) { query += ' AND s.picked_at <= ?'; params.push(to + 'T23:59:59'); }
+
+  if (member) {
+    query += ` AND s.id IN (
+      SELECT sm2.session_id FROM session_members sm2
+      JOIN users u2 ON u2.id = sm2.user_id
+      WHERE LOWER(u2.username) LIKE ?
+    )`;
+    params.push(`%${member.toLowerCase()}%`);
+  }
+
+  query += ' ORDER BY s.picked_at DESC, s.created_at DESC LIMIT 50';
+
+  const plans = db.prepare(query).all(...params);
+
+  // Fetch members for each plan
+  const result = plans.map(p => {
+    const members = db.prepare(`
+      SELECT u.username FROM session_members sm JOIN users u ON u.id = sm.user_id WHERE sm.session_id = ?
+    `).all(p.id);
+    return { ...p, members: members.map(m => m.username) };
+  });
+
+  res.json(result);
+});
+
 // ── Friend Groups ────────────────────────────────────────────────────────────────
 app.get('/api/friend-groups', auth, (req, res) => {
   const groups = db.prepare('SELECT * FROM friend_groups WHERE creator_id = ?').all(req.user.id);

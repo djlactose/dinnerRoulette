@@ -103,6 +103,14 @@ function dinnerRoulette() {
     friendGroups: [],
     groupModal: { visible: false, editingId: null, name: '', selectedMembers: [] },
 
+    // History Timeline
+    historyTimeline: [],
+    historyLoading: false,
+    historyFilterFrom: '',
+    historyFilterTo: '',
+    historyFilterMember: '',
+    historyVisible: false,
+
     // Plans
     plans: [],
     newPlanName: '',
@@ -1413,6 +1421,25 @@ function dinnerRoulette() {
         ...this.likes.filter(p => p.starred).map(p => ({ ...p, _type: 'likes' })),
         ...this.wantToTry.filter(p => p.starred).map(p => ({ ...p, _type: 'want_to_try' })),
       ];
+    },
+
+    // ── History Timeline ──
+    async loadHistory() {
+      this.historyLoading = true;
+      try {
+        const params = new URLSearchParams();
+        if (this.historyFilterFrom) params.set('from', this.historyFilterFrom);
+        if (this.historyFilterTo) params.set('to', this.historyFilterTo);
+        if (this.historyFilterMember) params.set('member', this.historyFilterMember);
+        const resp = await this.api(`/api/history?${params.toString()}`);
+        this.historyTimeline = await resp.json();
+      } catch (e) { /* ignore */ }
+      this.historyLoading = false;
+    },
+    formatTimelineDate(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     },
 
     // ── Friend Groups ──

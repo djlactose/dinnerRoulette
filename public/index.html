@@ -838,6 +838,48 @@
                   </li>
                 </template>
               </ul>
+
+              <!-- Dining Timeline -->
+              <div class="section-header" @click="historyVisible = !historyVisible; if (historyVisible && historyTimeline.length === 0) loadHistory()">
+                <h4>
+                  <span class="section-collapse-icon" :class="{ open: historyVisible }">&#x25B6;</span>
+                  Dining Timeline
+                </h4>
+              </div>
+              <div x-show="historyVisible" x-collapse>
+                <div class="timeline-filters">
+                  <input type="date" x-model="historyFilterFrom" @change="loadHistory()" aria-label="From date" />
+                  <input type="date" x-model="historyFilterTo" @change="loadHistory()" aria-label="To date" />
+                  <input type="text" x-model="historyFilterMember" @input.debounce.500ms="loadHistory()" placeholder="Filter by member..." aria-label="Filter by member" />
+                </div>
+                <div x-show="historyLoading" class="loading-spinner">Loading...</div>
+                <div x-show="!historyLoading && historyTimeline.length === 0" class="empty-state">
+                  <p>No dining history yet.</p>
+                </div>
+                <div class="timeline" x-show="!historyLoading && historyTimeline.length > 0">
+                  <template x-for="entry in historyTimeline" :key="entry.id">
+                    <div class="timeline-item" @click="openPlan(entry.id)">
+                      <div class="timeline-dot"></div>
+                      <div class="timeline-connector"></div>
+                      <div class="timeline-card">
+                        <span class="timeline-date" x-text="formatTimelineDate(entry.picked_at || entry.created_at)"></span>
+                        <span class="timeline-plan-name" x-text="entry.name"></span>
+                        <div class="timeline-winner">
+                          <strong x-text="entry.winner_place"></strong>
+                          <span class="type-badge" x-show="entry.winner_type" x-text="entry.winner_type"></span>
+                        </div>
+                        <div class="timeline-members">
+                          <template x-for="m in entry.members.slice(0, 5)" :key="m">
+                            <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(m) }" :title="m" x-text="getInitials(m)"></span>
+                          </template>
+                          <span x-show="entry.members.length > 5" class="timeline-more" x-text="'+' + (entry.members.length - 5)"></span>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
               <!-- Skeleton Loading -->
               <div x-show="loading.plans" class="skeleton-list">
                 <div class="skeleton-card"><div class="skeleton-line skeleton-line-lg"></div><div class="skeleton-line skeleton-line-sm"></div></div>
