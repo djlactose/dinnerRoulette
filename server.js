@@ -619,6 +619,110 @@ app.get('/api/stats', auth, (req, res) => {
   });
 });
 
+// ── Badges ───────────────────────────────────────────────────────────────────────
+function computeBadges(userId) {
+  const completedPlans = db.prepare(`
+    SELECT COUNT(*) AS c FROM session_members sm
+    JOIN sessions s ON s.id = sm.session_id
+    WHERE sm.user_id = ? AND s.status = 'closed' AND s.winner_place IS NOT NULL
+  `).get(userId).c;
+
+  const suggestionsWon = db.prepare(`
+    SELECT COUNT(*) AS c FROM session_suggestions ss
+    JOIN sessions s ON s.id = ss.session_id
+    WHERE ss.user_id = ? AND s.status = 'closed' AND s.winner_place = ss.place
+  `).get(userId).c;
+
+  const wantToTryCount = db.prepare('SELECT COUNT(*) AS c FROM want_to_try WHERE user_id = ?').get(userId).c;
+
+  const cuisineTypes = db.prepare('SELECT COUNT(DISTINCT restaurant_type) AS c FROM likes WHERE user_id = ? AND restaurant_type IS NOT NULL').get(userId).c;
+
+  const friendCount = db.prepare(`
+    SELECT COUNT(*) AS c FROM friends WHERE (user_id = ? OR friend_id = ?) AND status = 'accepted'
+  `).get(userId, userId).c;
+
+  const vetoCount = db.prepare('SELECT COUNT(*) AS c FROM session_vetoes WHERE user_id = ?').get(userId).c;
+
+  const starredCount = db.prepare(`
+    SELECT COUNT(*) AS c FROM (
+      SELECT 1 FROM likes WHERE user_id = ? AND starred = 1
+      UNION ALL SELECT 1 FROM want_to_try WHERE user_id = ? AND starred = 1
+    )
+  `).get(userId, userId).c;
+
+  const dislikeCount = db.prepare('SELECT COUNT(*) AS c FROM dislikes WHERE user_id = ?').get(userId).c;
+
+  const uniqueRestaurants = db.prepare(`
+    SELECT COUNT(DISTINCT s.winner_place) AS c FROM sessions s
+    JOIN session_members sm ON sm.session_id = s.id
+    WHERE sm.user_id = ? AND s.status = 'closed' AND s.winner_place IS NOT NULL
+  `).get(userId).c;
+
+  const plansCreated = db.prepare('SELECT COUNT(*) AS c FROM sessions WHERE creator_id = ?').get(userId).c;
+
+  // Early Bird: first to suggest in plans
+  const earlyBirdCount = db.prepare(`
+    SELECT COUNT(*) AS c FROM (
+      SELECT ss.session_id FROM session_suggestions ss
+      WHERE ss.user_id = ?
+      AND ss.id = (SELECT MIN(id) FROM session_suggestions WHERE session_id = ss.session_id)
+    )
+  `).get(userId).c;
+
+  // Streak: consecutive weeks with activity
+  const weekRows = db.prepare(`
+    SELECT DISTINCT strftime('%Y-%W', s.created_at) AS wk FROM sessions s
+    JOIN session_members sm ON sm.session_id = s.id
+    WHERE sm.user_id = ? ORDER BY wk DESC
+  `).all(userId);
+  let streak = 0, maxStreak = 0;
+  for (let i = 0; i < weekRows.length; i++) {
+    if (i === 0) { streak = 1; maxStreak = 1; continue; }
+    const [py, pw] = weekRows[i - 1].wk.split('-').map(Number);
+    const [cy, cw] = weekRows[i].wk.split('-').map(Number);
+    if ((py === cy && pw - cw === 1) || (py - cy === 1 && pw === 0 && cw >= 51)) {
+      streak++;
+      maxStreak = Math.max(maxStreak, streak);
+    } else {
+      streak = 1;
+    }
+  }
+
+  const badges = [
+    { id: 'first_bite', icon: '🍽️', name: 'First Bite', desc: 'Complete your first plan', target: 1, current: completedPlans },
+    { id: 'regular', icon: '🔄', name: 'Regular', desc: 'Complete 5 plans', target: 5, current: completedPlans },
+    { id: 'foodie', icon: '👨‍🍳', name: 'Foodie', desc: 'Complete 25 plans', target: 25, current: completedPlans },
+    { id: 'trendsetter', icon: '🏆', name: 'Trendsetter', desc: 'Win 3 suggestion picks', target: 3, current: suggestionsWon },
+    { id: 'crowd_pleaser', icon: '🎯', name: 'Crowd Pleaser', desc: 'Win 10 suggestion picks', target: 10, current: suggestionsWon },
+    { id: 'explorer', icon: '🗺️', name: 'Explorer', desc: 'Add 10 want-to-try places', target: 10, current: wantToTryCount },
+    { id: 'globetrotter', icon: '🌎', name: 'Globetrotter', desc: 'Like 5 different cuisine types', target: 5, current: cuisineTypes },
+    { id: 'social_butterfly', icon: '🦋', name: 'Social Butterfly', desc: 'Make 5 friends', target: 5, current: friendCount },
+    { id: 'veto_king', icon: '🚫', name: 'Veto King', desc: 'Use 10 vetoes', target: 10, current: vetoCount },
+    { id: 'loyal_fan', icon: '⭐', name: 'Loyal Fan', desc: 'Star 5 places', target: 5, current: starredCount },
+    { id: 'critic', icon: '👎', name: 'Critic', desc: 'Dislike 10 places', target: 10, current: dislikeCount },
+    { id: 'adventurer', icon: '🧭', name: 'Adventurer', desc: 'Visit 10 unique restaurants', target: 10, current: uniqueRestaurants },
+    { id: 'plan_master', icon: '📋', name: 'Plan Master', desc: 'Create 10 plans', target: 10, current: plansCreated },
+    { id: 'early_bird', icon: '🐦', name: 'Early Bird', desc: 'Be first to suggest in 5 plans', target: 5, current: earlyBirdCount },
+    { id: 'streak', icon: '🔥', name: 'On Fire', desc: '3 consecutive active weeks', target: 3, current: maxStreak },
+  ];
+
+  return badges.map(b => ({ ...b, earned: b.current >= b.target }));
+}
+
+app.get('/api/badges', auth, (req, res) => {
+  res.json(computeBadges(req.user.id));
+});
+
+app.get('/api/badges/:userId', auth, (req, res) => {
+  const targetId = parseInt(req.params.userId);
+  // Only allow viewing friends' badges
+  const isFriend = db.prepare(`
+    SELECT 1 FROM friends WHERE ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)) AND status = 'accepted'
+  `).get(req.user.id, targetId, targetId, req.user.id);
+  if (!isFriend) return res.status(403).json({ error: 'Not friends' });
+  res.json(computeBadges(targetId));
+});
+
 app.post('/api/change-password', auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });

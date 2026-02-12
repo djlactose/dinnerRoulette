@@ -190,6 +190,8 @@ function dinnerRoulette() {
     accountTab: 'profile',
     userStats: null,
     statsLoading: false,
+    badges: [],
+    badgesLoading: false,
 
     // Admin
     adminTab: 'dashboard',
@@ -2619,6 +2621,33 @@ function dinnerRoulette() {
         this.userStats = await resp.json();
       } catch (e) { /* ignore */ }
       this.statsLoading = false;
+    },
+
+    // ── Badges ──
+    async loadBadges() {
+      if (this.badgesLoading) return;
+      this.badgesLoading = true;
+      try {
+        const resp = await this.api('/api/badges');
+        const newBadges = await resp.json();
+        // Check for newly earned badges
+        const prevEarned = JSON.parse(localStorage.getItem('earnedBadges') || '[]');
+        const nowEarned = newBadges.filter(b => b.earned).map(b => b.id);
+        const newlyEarned = nowEarned.filter(id => !prevEarned.includes(id));
+        if (newlyEarned.length > 0) {
+          const badge = newBadges.find(b => b.id === newlyEarned[0]);
+          if (badge) this.showToast(`Badge unlocked: ${badge.icon} ${badge.name}!`, 'success');
+          localStorage.setItem('earnedBadges', JSON.stringify(nowEarned));
+        }
+        this.badges = newBadges;
+      } catch (e) { /* ignore */ }
+      this.badgesLoading = false;
+    },
+    get earnedBadges() {
+      return this.badges.filter(b => b.earned);
+    },
+    get unearnedBadges() {
+      return this.badges.filter(b => !b.earned);
     },
 
     // ── Account ──

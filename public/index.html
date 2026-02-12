@@ -1285,6 +1285,7 @@
           <div class="admin-sub-tabs">
             <button class="admin-sub-tab" :class="{ active: accountTab === 'profile' }" @click="accountTab = 'profile'">Profile</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'stats' }" @click="accountTab = 'stats'; loadStats()">Stats</button>
+            <button class="admin-sub-tab" :class="{ active: accountTab === 'badges' }" @click="accountTab = 'badges'; loadBadges()">Badges</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'security' }" @click="accountTab = 'security'">Security</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'notifications' }" @click="accountTab = 'notifications'">Notifications</button>
             <button class="admin-sub-tab" :class="{ active: accountTab === 'danger' }" @click="accountTab = 'danger'">Danger Zone</button>
@@ -1392,6 +1393,37 @@
                   <span class="stat-pie-legend-item"><span class="stat-pie-dot" style="background: var(--danger);"></span> Dislikes: <strong x-text="userStats?.dislikesCount || 0"></strong></span>
                   <span class="stat-pie-legend-item"><span class="stat-pie-dot" style="background: var(--warning);"></span> Want to Try: <strong x-text="userStats?.wantToTryCount || 0"></strong></span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Badges Sub-tab -->
+          <div x-show="accountTab === 'badges'">
+            <div x-show="badgesLoading" class="loading-spinner">Loading badges...</div>
+            <div x-show="!badgesLoading && badges.length > 0">
+              <h4 x-show="earnedBadges.length > 0">Earned Badges</h4>
+              <div class="badge-grid" x-show="earnedBadges.length > 0">
+                <template x-for="badge in earnedBadges" :key="badge.id">
+                  <div class="badge-card badge-earned">
+                    <span class="badge-icon" x-text="badge.icon"></span>
+                    <span class="badge-name" x-text="badge.name"></span>
+                    <span class="badge-desc" x-text="badge.desc"></span>
+                    <div class="badge-progress-bar"><div class="badge-progress-fill" style="width: 100%;"></div></div>
+                    <span class="badge-complete">Complete!</span>
+                  </div>
+                </template>
+              </div>
+              <h4 x-show="unearnedBadges.length > 0">In Progress</h4>
+              <div class="badge-grid" x-show="unearnedBadges.length > 0">
+                <template x-for="badge in unearnedBadges" :key="badge.id">
+                  <div class="badge-card badge-locked">
+                    <span class="badge-icon" x-text="badge.icon"></span>
+                    <span class="badge-name" x-text="badge.name"></span>
+                    <span class="badge-desc" x-text="badge.desc"></span>
+                    <div class="badge-progress-bar"><div class="badge-progress-fill" :style="{ width: Math.min(badge.current / badge.target * 100, 100) + '%' }"></div></div>
+                    <span class="badge-progress-text" x-text="badge.current + ' / ' + badge.target"></span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
