@@ -246,9 +246,12 @@ function dinnerRoulette() {
     formatPlaceType(types) {
       if (!types?.length) return '';
       const ignore = new Set(['point_of_interest', 'establishment', 'geocode', 'political']);
+      const generic = new Set(['restaurant', 'food', 'meal_delivery', 'meal_takeaway', 'store']);
       const meaningful = types.filter(t => !ignore.has(t));
       if (!meaningful.length) return '';
-      return meaningful[0].replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const specific = meaningful.filter(t => !generic.has(t));
+      const best = specific.length ? specific[0] : meaningful[0];
+      return best.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     },
 
     priceDisplay(level) {
@@ -860,15 +863,27 @@ function dinnerRoulette() {
       }
     },
 
-    selectPlace(pred) {
+    async selectPlace(pred) {
       const restaurantType = this.formatPlaceType(pred.types);
       this.selectedPlace = { name: pred.description, place_id: pred.place_id, restaurant_type: restaurantType };
       this.placeSearch = pred.description;
       this.predictions = [];
       this.highlightedIndex = -1;
+      if (pred.place_id) {
+        try {
+          const resp = await this.api(`/api/place-details?place_id=${encodeURIComponent(pred.place_id)}`);
+          const data = await resp.json();
+          if (data.result?.types) {
+            const betterType = this.formatPlaceType(data.result.types);
+            if (betterType && betterType !== 'Restaurant' && betterType !== 'Food') {
+              this.selectedPlace.restaurant_type = betterType;
+            }
+          }
+        } catch (e) { /* keep autocomplete type */ }
+      }
       this.api('/api/place', {
         method: 'POST',
-        body: JSON.stringify({ place: pred.description, place_id: pred.place_id, restaurant_type: restaurantType || null }),
+        body: JSON.stringify({ place: pred.description, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null }),
       });
     },
 

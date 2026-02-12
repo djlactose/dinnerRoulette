@@ -854,7 +854,7 @@ app.get('/api/place-details', auth, async (req, res) => {
     if (!place_id) return res.status(400).json({ error: 'Missing place_id' });
     const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
     url.searchParams.set('place_id', place_id);
-    url.searchParams.set('fields', 'geometry,name,formatted_address');
+    url.searchParams.set('fields', 'geometry,name,formatted_address,types');
     url.searchParams.set('key', API_KEY);
     const r = await fetch(url);
     res.json(await r.json());
