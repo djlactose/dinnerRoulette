@@ -1064,17 +1064,45 @@ a {
 }
 
 /* ── Veto Limit on Plan Creation ─────────────────────────────────────────── */
-.veto-limit-create {
+.plan-create-options {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+.veto-limit-create, .meal-type-create {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.35rem;
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
 .veto-limit-create input[type="number"] {
   width: 60px;
+}
+.meal-type-create select {
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.plan-meal-type-select {
+  padding: 0.2rem 0.35rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+.meal-type-filter-chips.compact {
+  margin-bottom: 0.3rem;
+}
+.meal-type-filter-chips.compact .filter-chip {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
 }
 
 /* ── Pick Buttons ──────────────────────────────────────────────────────────── */

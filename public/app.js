@@ -133,6 +133,10 @@ function dinnerRoulette() {
     planWantToTry: {},
     planSuggestSort: 'votes',
     planVetoLimitInput: 1,
+    planMealType: '',
+    planMealTypeFilter: '',
+    planSuggestionMealFilter: '',
+    planLikesMealFilter: '',
 
     // Picking
     picking: false,
@@ -387,10 +391,14 @@ function dinnerRoulette() {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.moodPickResult.name)}`;
     },
     get activePlans() {
-      return this.plans.filter(s => s.status === 'open');
+      let list = this.plans.filter(s => s.status === 'open');
+      if (this.planMealTypeFilter) list = list.filter(s => s.meal_type === this.planMealTypeFilter);
+      return list;
     },
     get historyPlans() {
-      return this.plans.filter(s => s.status === 'closed');
+      let list = this.plans.filter(s => s.status === 'closed');
+      if (this.planMealTypeFilter) list = list.filter(s => s.meal_type === this.planMealTypeFilter);
+      return list;
     },
     get winnerDistanceText() {
       if (!this.winner?.distance) return '';
@@ -434,6 +442,9 @@ function dinnerRoulette() {
       }
       if (this.planPriceFilter.length > 0) {
         suggestions = suggestions.filter(s => s.price_level == null || this.planPriceFilter.includes(s.price_level));
+      }
+      if (this.planSuggestionMealFilter) {
+        suggestions = suggestions.filter(s => (s.meal_types || []).includes(this.planSuggestionMealFilter));
       }
       const sorted = [...suggestions];
       if (this.planSuggestSort === 'votes') {
@@ -564,6 +575,11 @@ function dinnerRoulette() {
           this.activePlan.members.push({ id: data.userId, username: data.username });
           this.showToast(`${data.username} joined the plan`);
         }
+      });
+
+      this.socket.on('plan:updated', (data) => {
+        if (!this.activePlan) return;
+        if (data.meal_type !== undefined) this.activePlan.plan.meal_type = data.meal_type;
       });
 
       this.socket.on('plan:suggestion-added', (data) => {
@@ -1763,14 +1779,16 @@ function dinnerRoulette() {
     async createPlan() {
       const name = this.newPlanName.trim() || 'Dinner Plan';
       const veto_limit = parseInt(this.planVetoLimitInput) || 1;
+      const meal_type = this.planMealType || null;
       try {
         const resp = await this.api('/api/plans', {
           method: 'POST',
-          body: JSON.stringify({ name, veto_limit }),
+          body: JSON.stringify({ name, veto_limit, meal_type }),
         });
         const data = await resp.json();
         this.newPlanName = '';
         this.planVetoLimitInput = 1;
+        this.planMealType = '';
         this.showToast(`Plan created! Code: ${data.code}`);
         await this.loadPlans();
       } catch (e) {
@@ -1951,6 +1969,17 @@ function dinnerRoulette() {
         navigator.clipboard.writeText(code);
         this.showToast('Code copied!');
       }
+    },
+
+    async updatePlanMealType() {
+      if (!this.activePlan) return;
+      const meal_type = this.activePlan.plan.meal_type || null;
+      try {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/meal-type`, {
+          method: 'PUT',
+          body: JSON.stringify({ meal_type }),
+        });
+      } catch (e) { /* ignore */ }
     },
 
     // ── Plan Suggest ──

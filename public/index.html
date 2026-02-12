@@ -772,10 +772,21 @@
                        @keydown.enter="createPlan()" aria-label="Plan name" />
                 <button @click="createPlan()">Create Plan</button>
               </div>
-              <div class="veto-limit-create">
-                <label>Vetoes per person:</label>
-                <input type="number" min="0" max="10" x-model.number="planVetoLimitInput"
-                       aria-label="Vetoes per person" />
+              <div class="plan-create-options">
+                <div class="veto-limit-create">
+                  <label>Vetoes per person:</label>
+                  <input type="number" min="0" max="10" x-model.number="planVetoLimitInput"
+                         aria-label="Vetoes per person" />
+                </div>
+                <div class="meal-type-create">
+                  <label>Meal type:</label>
+                  <select x-model="planMealType" aria-label="Plan meal type">
+                    <option value="">Any</option>
+                    <template x-for="mt in MEAL_TYPES" :key="mt">
+                      <option :value="mt" x-text="mt"></option>
+                    </template>
+                  </select>
+                </div>
               </div>
               <div class="inline-input" style="margin-top: 0.5rem;">
                 <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
@@ -838,6 +849,16 @@
                 </template>
               </div>
 
+              <!-- Meal Type Filter for Plans -->
+              <div x-show="plans.length > 0" class="meal-type-filter-chips">
+                <button class="filter-chip" :class="{ active: planMealTypeFilter === '' }"
+                        @click="planMealTypeFilter = ''">All Meals</button>
+                <template x-for="mt in MEAL_TYPES" :key="mt">
+                  <button class="filter-chip" :class="{ active: planMealTypeFilter === mt }"
+                          @click="planMealTypeFilter = mt" x-text="mt"></button>
+                </template>
+              </div>
+
               <!-- Active Plans -->
               <h4 x-show="activePlans.length > 0">Active Plans</h4>
               <ul class="plan-list">
@@ -846,6 +867,7 @@
                     <div>
                       <strong x-text="s.name"></strong>
                       <span class="plan-code" x-text="s.code"></span>
+                      <span class="type-badge" x-show="s.meal_type" x-text="s.meal_type"></span>
                       <span class="plan-creator">
                         <span class="avatar avatar-xs avatar-inline" :style="{ background: hashColor(s.creator_username) }" x-text="getInitials(s.creator_username)"></span>
                         <span x-text="s.creator_username"></span>
@@ -954,6 +976,16 @@
                 <h4 x-text="activePlan?.plan?.name"></h4>
                 <span class="plan-code clickable" @click="copyCode()" x-text="activePlan?.plan?.code"
                       title="Click to copy"></span>
+                <select class="plan-meal-type-select" x-model="activePlan.plan.meal_type"
+                        @change="updatePlanMealType()" x-show="activePlan?.plan?.status === 'open'"
+                        aria-label="Plan meal type">
+                  <option value="">Any meal</option>
+                  <template x-for="mt in MEAL_TYPES" :key="mt">
+                    <option :value="mt" x-text="mt"></option>
+                  </template>
+                </select>
+                <span class="type-badge" x-show="activePlan?.plan?.meal_type && activePlan?.plan?.status !== 'open'"
+                      x-text="activePlan?.plan?.meal_type"></span>
                 <button class="share-invite-btn" @click="sharePlanInvite()"
                         x-show="activePlan?.plan?.status === 'open'" aria-label="Share invite"><svg class="icon" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg></button>
                 <button class="share-invite-btn" @click="showQrCode()"
@@ -1101,9 +1133,18 @@
                   </div>
                 </div>
 
+                <div x-show="likes.length > 0 || wantToTry.length > 0" class="meal-type-filter-chips compact">
+                  <button class="filter-chip" :class="{ active: planLikesMealFilter === '' }"
+                          @click="planLikesMealFilter = ''">All</button>
+                  <template x-for="mt in MEAL_TYPES" :key="mt">
+                    <button class="filter-chip" :class="{ active: planLikesMealFilter === mt }"
+                            @click="planLikesMealFilter = mt" x-text="mt"></button>
+                  </template>
+                </div>
+
                 <div x-show="likes.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">Quick suggest from likes:</span>
-                  <template x-for="place in likes" :key="place.name">
+                  <template x-for="place in likes.filter(p => !planLikesMealFilter || (p.meal_types || []).includes(planLikesMealFilter))" :key="place.name">
                     <button class="suggest-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
                             @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
@@ -1115,7 +1156,7 @@
 
                 <div x-show="wantToTry.length > 0" class="liked-suggest-grid">
                   <span class="grid-label">From your bucket list:</span>
-                  <template x-for="place in wantToTry" :key="place.name">
+                  <template x-for="place in wantToTry.filter(p => !planLikesMealFilter || (p.meal_types || []).includes(planLikesMealFilter))" :key="place.name">
                     <button class="want-to-try-quick-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
                             @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
@@ -1136,6 +1177,16 @@
                 <template x-for="cuisine in uniquePlanCuisines" :key="cuisine">
                   <button class="filter-chip" :class="{ active: planCuisineFilter === cuisine }"
                           @click="planCuisineFilter = cuisine" x-text="cuisine"></button>
+                </template>
+              </div>
+
+              <!-- Meal Type Filter Chips for Suggestions -->
+              <div class="meal-type-filter-chips" x-show="activePlan?.suggestions?.some(s => s.meal_types?.length > 0)">
+                <button class="filter-chip" :class="{ active: planSuggestionMealFilter === '' }"
+                        @click="planSuggestionMealFilter = ''">All Meals</button>
+                <template x-for="mt in MEAL_TYPES" :key="mt">
+                  <button class="filter-chip" :class="{ active: planSuggestionMealFilter === mt }"
+                          @click="planSuggestionMealFilter = mt" x-text="mt"></button>
                 </template>
               </div>
 

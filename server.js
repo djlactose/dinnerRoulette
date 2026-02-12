@@ -35,7 +35,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io", "https://maps.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://*.giphy.com", "https://media.giphy.com", "https://media0.giphy.com", "https://media1.giphy.com", "https://media2.giphy.com", "https://media3.giphy.com", "https://media4.giphy.com", "https://i.giphy.com"],
-      connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com", "https://places.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       upgradeInsecureRequests: null,
     }
@@ -268,6 +268,8 @@ try { db.exec('ALTER TABLE dislikes ADD COLUMN photo_ref TEXT'); } catch (e) { /
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE places ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN photo_ref TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN meal_type TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE session_suggestions ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -1085,13 +1087,34 @@ app.get('/api/autocomplete', auth, async (req, res) => {
   try {
     const { input } = req.query;
     if (!input) return res.status(400).json({ error: 'Missing input' });
-    const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
-    url.searchParams.set('input', input);
-    url.searchParams.set('types', 'establishment');
-    url.searchParams.set('key', API_KEY);
-    const r = await fetch(url);
-    res.json(await r.json());
+    const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': API_KEY },
+      body: JSON.stringify({ input, includedPrimaryTypes: ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway', 'meal_delivery'] }),
+    });
+    const data = await r.json();
+    if (data.error) {
+      console.error('Places API error:', data.error.message || JSON.stringify(data.error));
+      return res.status(data.error.code || 500).json({ error: data.error.message });
+    }
+    // Transform new API response to match legacy format the frontend expects
+    const predictions = (data.suggestions || [])
+      .filter(s => s.placePrediction)
+      .map(s => {
+        const p = s.placePrediction;
+        return {
+          place_id: p.placeId,
+          description: p.text?.text || '',
+          structured_formatting: {
+            main_text: p.structuredFormat?.mainText?.text || '',
+            secondary_text: p.structuredFormat?.secondaryText?.text || '',
+          },
+          types: (p.types || []).map(t => t.toLowerCase()),
+        };
+      });
+    res.json({ predictions, status: predictions.length ? 'OK' : 'ZERO_RESULTS' });
   } catch (e) {
+    console.error('Autocomplete proxy error:', e.message);
     res.status(500).json({ error: 'Proxy error' });
   }
 });
@@ -1101,17 +1124,30 @@ app.get('/api/place-details', auth, async (req, res) => {
   try {
     const { place_id } = req.query;
     if (!place_id) return res.status(400).json({ error: 'Missing place_id' });
-    const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
-    url.searchParams.set('place_id', place_id);
-    url.searchParams.set('fields', 'geometry,name,formatted_address,types,photos');
-    url.searchParams.set('key', API_KEY);
-    const r = await fetch(url);
+    const r = await fetch(`https://places.googleapis.com/v1/places/${place_id}`, {
+      headers: {
+        'X-Goog-Api-Key': API_KEY,
+        'X-Goog-FieldMask': 'id,displayName,formattedAddress,types,photos,location',
+      },
+    });
     const data = await r.json();
-    if (data.result?.photos?.[0]?.photo_reference) {
-      data.result.photo_reference = data.result.photos[0].photo_reference;
+    if (data.error) {
+      console.error('Place details API error:', data.error.message || JSON.stringify(data.error));
+      return res.status(data.error.code || 500).json({ error: data.error.message });
     }
-    res.json(data);
+    // Transform to legacy format the frontend expects
+    const result = {
+      types: (data.types || []).map(t => t.toLowerCase()),
+      geometry: data.location ? { location: { lat: data.location.latitude, lng: data.location.longitude } } : undefined,
+      name: data.displayName?.text,
+      formatted_address: data.formattedAddress,
+    };
+    if (data.photos?.[0]?.name) {
+      result.photo_reference = data.photos[0].name;
+    }
+    res.json({ result, status: 'OK' });
   } catch (e) {
+    console.error('Place details proxy error:', e.message);
     res.status(500).json({ error: 'Proxy error' });
   }
 });
@@ -1121,11 +1157,9 @@ app.get('/api/place-photo', auth, async (req, res) => {
   const { ref, maxwidth } = req.query;
   if (!ref) return res.status(400).json({ error: 'Missing photo reference' });
   try {
-    const url = new URL('https://maps.googleapis.com/maps/api/place/photo');
-    url.searchParams.set('photoreference', ref);
-    url.searchParams.set('maxwidth', maxwidth || '300');
-    url.searchParams.set('key', API_KEY);
-    const r = await fetch(url, { redirect: 'follow' });
+    // New API: ref is a resource name like "places/ChIJ.../photos/AUy..."
+    const photoUrl = `https://places.googleapis.com/v1/${ref}/media?maxWidthPx=${maxwidth || 300}&key=${API_KEY}`;
+    const r = await fetch(photoUrl, { redirect: 'follow' });
     if (!r.ok) return res.status(r.status).end();
     res.set('Content-Type', r.headers.get('content-type') || 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=604800');
@@ -1525,14 +1559,14 @@ app.post('/api/recurring-plans/:id/skip', auth, (req, res) => {
 
 // ── Plan Routes ──────────────────────────────────────────────────────────────
 app.post('/api/plans', auth, (req, res) => {
-  const { name, veto_limit } = req.body;
+  const { name, veto_limit, meal_type } = req.body;
   const code = generatePlanCode();
   const vetoLimit = (veto_limit != null && veto_limit >= 0) ? veto_limit : 1;
   try {
-    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit) VALUES (?, ?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan', vetoLimit);
+    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit, meal_type) VALUES (?, ?, ?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan', vetoLimit, meal_type || null);
     const planId = result.lastInsertRowid;
     db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, req.user.id);
-    res.json({ id: planId, code, name: name || 'Dinner Plan' });
+    res.json({ id: planId, code, name: name || 'Dinner Plan', meal_type: meal_type || null });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create plan' });
   }
@@ -1581,7 +1615,7 @@ app.get('/api/plans/:id/dislikes', auth, (req, res) => {
 
 app.get('/api/plans', auth, (req, res) => {
   const plans = db.prepare(`
-    SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id, s.voting_deadline,
+    SELECT s.id, s.code, s.name, s.status, s.winner_place, s.picked_at, s.created_at, s.creator_id, s.voting_deadline, s.meal_type,
            u.username AS creator_username,
            (SELECT COUNT(*) FROM session_members WHERE session_id = s.id) AS member_count,
            (SELECT COUNT(*) FROM session_suggestions WHERE session_id = s.id) AS suggestion_count
@@ -1609,7 +1643,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
   `).all(planId);
 
   const suggestions = db.prepare(`
-    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.photo_ref, ss.user_id,
+    SELECT ss.id, ss.place, ss.place_id, ss.restaurant_type, ss.lat, ss.lng, ss.price_level, ss.photo_ref, ss.meal_types, ss.user_id,
            u.username AS suggested_by,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'up') AS vote_count,
            (SELECT COUNT(*) FROM session_votes sv WHERE sv.suggestion_id = ss.id AND sv.vote_type = 'down') AS downvote_count,
@@ -1682,7 +1716,7 @@ app.get('/api/plans/:id', auth, (req, res) => {
   res.json({
     plan,
     members,
-    suggestions: suggestions.map(s => ({ ...s, user_voted: votedIds.has(s.id), user_downvoted: downvotedIds.has(s.id), user_vetoed: vetoedIds.has(s.id), voters: votersMap[s.id] || [], downvoters: downvotersMap[s.id] || [], vetoers: vetoersMap[s.id] || [] })),
+    suggestions: suggestions.map(s => ({ ...s, meal_types: s.meal_types ? s.meal_types.split(',') : [], user_voted: votedIds.has(s.id), user_downvoted: downvotedIds.has(s.id), user_vetoed: vetoedIds.has(s.id), voters: votersMap[s.id] || [], downvoters: downvotersMap[s.id] || [], vetoers: vetoersMap[s.id] || [] })),
     want_to_try: wantToTryMap,
     vetoesRemaining,
   });
@@ -1702,35 +1736,44 @@ app.post('/api/plans/:id/suggest', auth, async (req, res) => {
   let lat = null, lng = null, priceLevel = null, photoRef = null;
   if (place_id) {
     try {
-      const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
-      url.searchParams.set('place_id', place_id);
-      url.searchParams.set('fields', 'geometry,price_level,photos');
-      url.searchParams.set('key', API_KEY);
-      const r = await fetch(url);
+      const r = await fetch(`https://places.googleapis.com/v1/places/${place_id}`, {
+        headers: {
+          'X-Goog-Api-Key': API_KEY,
+          'X-Goog-FieldMask': 'location,priceLevel,photos',
+        },
+      });
       const data = await r.json();
-      if (data.result?.geometry?.location) {
-        lat = data.result.geometry.location.lat;
-        lng = data.result.geometry.location.lng;
+      if (data.location) {
+        lat = data.location.latitude;
+        lng = data.location.longitude;
       }
-      if (data.result?.price_level != null) {
-        priceLevel = data.result.price_level;
+      if (data.priceLevel != null) {
+        // New API returns enum strings like PRICE_LEVEL_MODERATE; convert to number
+        const priceLevels = { PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 };
+        priceLevel = priceLevels[data.priceLevel] ?? null;
       }
-      if (data.result?.photos?.[0]?.photo_reference) {
-        photoRef = data.result.photos[0].photo_reference;
+      if (data.photos?.[0]?.name) {
+        photoRef = data.photos[0].name;
       }
     } catch (e) {
       console.error('Failed to fetch place details:', e.message);
     }
   }
 
+  // Auto-populate meal_types from user's liked places
+  let mealTypes = null;
+  const likedPlace = db.prepare('SELECT meal_types FROM likes WHERE user_id = ? AND place = ?').get(req.user.id, place);
+  if (likedPlace?.meal_types) mealTypes = likedPlace.meal_types;
+
   try {
-    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level, photo_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(planId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel, photoRef);
+    const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level, photo_ref, meal_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(planId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel, photoRef, mealTypes);
     if (result.changes === 0) return res.status(409).json({ error: 'Already suggested' });
     const suggestionId = result.lastInsertRowid;
     db.prepare("INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id, vote_type) VALUES (?, ?, ?, 'up')").run(planId, req.user.id, suggestionId);
     io.to(`plan:${planId}`).emit('plan:suggestion-added', {
       id: suggestionId, place, place_id: place_id || null,
       restaurant_type: restaurant_type || null,
+      meal_types: mealTypes ? mealTypes.split(',') : [],
       lat, lng, price_level: priceLevel, photo_ref: photoRef, suggested_by: req.user.username, vote_count: 1, user_voted: true,
     });
     sendPushToPlanMembers(planId, { title: 'New Suggestion', body: `${req.user.username} suggested ${place}`, tag: `plan-${planId}` }, req.user.id);
@@ -1738,6 +1781,16 @@ app.post('/api/plans/:id/suggest', auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to suggest' });
   }
+});
+
+app.put('/api/plans/:id/meal-type', auth, (req, res) => {
+  const planId = req.params.id;
+  const { meal_type } = req.body;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member' });
+  db.prepare('UPDATE sessions SET meal_type = ? WHERE id = ?').run(meal_type || null, planId);
+  io.to(`plan:${planId}`).emit('plan:updated', { meal_type: meal_type || null });
+  res.json({ success: true });
 });
 
 app.delete('/api/plans/:id/suggestion/:suggestionId', auth, (req, res) => {
