@@ -3331,12 +3331,16 @@ img.avatar-pic {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s, background-color 0.2s;
+  transition: transform 0.2s, background-color 0.2s, bottom 0.3s;
+}
+.fab-raised {
+  bottom: calc(70px + 1rem + 56px + 0.75rem);
 }
 .fab:hover { background: var(--accent-hover); }
 .fab:active { transform: scale(0.92); }
 @media (min-width: 900px) {
   .fab { bottom: 2rem; }
+  .fab-raised { bottom: calc(2rem + 56px + 0.75rem); }
 }
 
 /* ── Place Cards ──────────────────────────────────────────────────────────── */

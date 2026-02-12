@@ -781,6 +781,53 @@ function dinnerRoulette() {
           this.showToast('This plan has been deleted', 'error');
         }
       });
+
+      this.socket.on('user:profile-updated', (data) => {
+        const { userId, username, display_name, profile_pic } = data;
+        const update = (obj) => {
+          if (!obj) return;
+          if (obj.user_id === userId || obj.id === userId) {
+            obj.display_name = display_name;
+            obj.profile_pic = profile_pic;
+          }
+        };
+        // Friends list
+        this.friends.forEach(update);
+        // Friend requests
+        this.friendRequests.forEach(update);
+        this.sentFriendRequests.forEach(update);
+        // Friend groups
+        this.friendGroups.forEach(g => g.members.forEach(update));
+        // Active plan members & suggestions
+        if (this.activePlan) {
+          this.activePlan.members.forEach(update);
+          this.activePlan.suggestions.forEach(s => {
+            if (s.suggested_by === username) {
+              s.suggested_by_display_name = display_name;
+              s.suggested_by_profile_pic = profile_pic;
+            }
+            if (s.want_to_try) s.want_to_try.forEach(update);
+          });
+        }
+        // Chat messages
+        this.chatMessages.forEach(update);
+        // Plans list (creator info)
+        this.plans.forEach(p => {
+          if (p.creator_username === username) {
+            p.creator_display_name = display_name;
+            p.creator_profile_pic = profile_pic;
+          }
+        });
+        // History timeline members
+        this.historyTimeline.forEach(entry => {
+          entry.members.forEach(m => {
+            if (m.username === username) {
+              m.display_name = display_name;
+              m.profile_pic = profile_pic;
+            }
+          });
+        });
+      });
     },
 
     disconnectSocket() {

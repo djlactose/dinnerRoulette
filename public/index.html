@@ -257,7 +257,8 @@
       </nav>
 
       <!-- Floating Action Button -->
-      <button class="fab" x-show="loggedIn && activeTab !== 'account' && activeTab !== 'admin'"
+      <button class="fab" :class="{ 'fab-raised': activePlan || (plans.some(p => p.status === 'open') && activeTab !== 'plans') }"
+              x-show="loggedIn && activeTab !== 'account' && activeTab !== 'admin'"
               @click="fabAction()" x-transition.scale.origin.bottom-right>
         <span x-text="activeTab === 'plans' ? '🎲' : '+'"></span>
       </button>
@@ -948,8 +949,8 @@
                           <span class="type-badge" x-show="entry.winner_type" x-text="entry.winner_type"></span>
                         </div>
                         <div class="timeline-members">
-                          <template x-for="m in entry.members.slice(0, 5)" :key="m">
-                            <span class="avatar avatar-xxs avatar-inline" :style="{ background: hashColor(m) }" :title="m" x-text="getInitials(m)"></span>
+                          <template x-for="m in entry.members.slice(0, 5)" :key="m.username">
+                            <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': m.profile_pic }" :style="avatarStyle(m)" :title="m.display_name || m.username" x-text="m.profile_pic ? '' : getInitials(m.display_name || m.username)"></span>
                           </template>
                           <span x-show="entry.members.length > 5" class="timeline-more" x-text="'+' + (entry.members.length - 5)"></span>
                         </div>

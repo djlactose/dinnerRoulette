@@ -591,6 +591,25 @@ app.post('/api/profile', auth, express.json({ limit: '500kb' }), (req, res) => {
     db.prepare('UPDATE users SET profile_pic = ? WHERE id = ?').run(profilePic || null, req.user.id);
   }
   const user = db.prepare('SELECT display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
+
+  // Broadcast profile update to friends and plan co-members
+  const profileUpdate = { userId: req.user.id, username: req.user.username, display_name: user.display_name || null, profile_pic: user.profile_pic || null };
+  const friendIds = db.prepare(`
+    SELECT friend_id AS id FROM friends WHERE user_id = ? AND status = 'accepted'
+    UNION
+    SELECT user_id AS id FROM friends WHERE friend_id = ? AND status = 'accepted'
+  `).all(req.user.id, req.user.id).map(r => r.id);
+  const coMemberIds = db.prepare(`
+    SELECT DISTINCT sm2.user_id AS id FROM session_members sm1
+    JOIN session_members sm2 ON sm2.session_id = sm1.session_id AND sm2.user_id != sm1.user_id
+    JOIN sessions s ON s.id = sm1.session_id AND s.status = 'open'
+    WHERE sm1.user_id = ?
+  `).all(req.user.id).map(r => r.id);
+  const notifyIds = [...new Set([...friendIds, ...coMemberIds])];
+  for (const id of notifyIds) {
+    io.to(`user:${id}`).emit('user:profile-updated', profileUpdate);
+  }
+
   res.json({ success: true, display_name: user.display_name || null, profile_pic: user.profile_pic || null });
 });
 
@@ -1518,9 +1537,9 @@ app.get('/api/history', auth, (req, res) => {
   // Fetch members for each plan
   const result = plans.map(p => {
     const members = db.prepare(`
-      SELECT u.username FROM session_members sm JOIN users u ON u.id = sm.user_id WHERE sm.session_id = ?
+      SELECT u.username, u.display_name, u.profile_pic FROM session_members sm JOIN users u ON u.id = sm.user_id WHERE sm.session_id = ?
     `).all(p.id);
-    return { ...p, members: members.map(m => m.username) };
+    return { ...p, members };
   });
 
   res.json(result);
@@ -2360,6 +2379,8 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  socket.join(`user:${socket.user.id}`);
+
   socket.on('join-plan', (planId) => {
     const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, socket.user.id);
     if (membership) {
