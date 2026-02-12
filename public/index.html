@@ -1053,9 +1053,17 @@
                 <button @click="closestPick()" :disabled="picking" aria-label="Pick the closest restaurant"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg> Closest</button>
               </div>
 
-              <!-- Spin Wheel -->
-              <div class="spin-wheel-container" x-show="spinningWheel" x-transition>
-                <canvas id="spin-wheel-canvas"></canvas>
+              <!-- Spin Wheel Modal (rendered outside flow, positioned fixed) -->
+              <div class="spin-wheel-modal" x-show="spinningWheel"
+                   x-transition:enter="transition ease-out duration-300"
+                   x-transition:enter-start="opacity-0"
+                   x-transition:enter-end="opacity-100"
+                   x-transition:leave="transition ease-in duration-200"
+                   x-transition:leave-start="opacity-100"
+                   x-transition:leave-end="opacity-0">
+                <div class="spin-wheel-container">
+                  <canvas id="spin-wheel-canvas"></canvas>
+                </div>
               </div>
 
               <!-- Winner Display -->

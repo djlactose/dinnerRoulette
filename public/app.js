@@ -1773,8 +1773,17 @@ function dinnerRoulette() {
         return;
       }
 
-      // Spin the wheel animation
-      await this.spinWheel(suggestions.map(s => s.place), serverWinner.place);
+      // Spin the wheel animation (only non-vetoed suggestions)
+      const eligible = suggestions.filter(s => !(s.veto_count > 0));
+      if (eligible.length <= 1) {
+        // Skip wheel for single option
+        this.winner = serverWinner;
+        this.showToast(`Winner: ${serverWinner.place}`);
+        this.createConfetti();
+        this.picking = false;
+        return;
+      }
+      await this.spinWheel(eligible.map(s => s.place), serverWinner.place);
 
       this.winner = serverWinner;
       this.showToast(`Winner: ${serverWinner.place}`);
@@ -1788,29 +1797,48 @@ function dinnerRoulette() {
         const canvas = document.getElementById('spin-wheel-canvas');
         if (!canvas) { this.spinningWheel = false; resolve(); return; }
         const ctx = canvas.getContext('2d');
-        const size = Math.min(canvas.parentElement.clientWidth - 32, 320);
-        canvas.width = size;
-        canvas.height = size;
-        const cx = size / 2;
-        const cy = size / 2;
-        const r = size / 2 - 8;
+
+        // HiDPI support
+        const dpr = window.devicePixelRatio || 1;
+        const cssSize = Math.min(window.innerWidth - 48, 380);
+        canvas.style.width = cssSize + 'px';
+        canvas.style.height = cssSize + 'px';
+        canvas.width = cssSize * dpr;
+        canvas.height = cssSize * dpr;
+        ctx.scale(dpr, dpr);
+
+        const cx = cssSize / 2;
+        const cy = cssSize / 2;
+        const r = cssSize / 2 - 12;
         const segAngle = (Math.PI * 2) / names.length;
-        const colors = ['#E07A5F', '#5B9A6F', '#E8A838', '#8B7E74', '#D64545', '#4A8360', '#C96A52', '#776B62'];
+        const colors = [
+          '#E07A5F', '#5B9A6F', '#E8A838', '#6B8FBF',
+          '#C96A52', '#4A8360', '#D49530', '#8B7E74',
+          '#D64545', '#7B68AE', '#3D9970', '#F4A460'
+        ];
+
+        // Resolve CSS color for pointer
+        const cs = getComputedStyle(document.documentElement);
+        const pointerColor = cs.getPropertyValue('--text-primary').trim() || '#2D2A26';
 
         // Calculate target angle so winner lands at top (pointer)
         const winnerIdx = names.indexOf(winnerName);
         const targetSegCenter = winnerIdx * segAngle + segAngle / 2;
-        // We want the pointer at the top (3π/2 or -π/2) to point at the winner segment
-        // totalRotation = multiple full spins + offset to land on winner
         const totalRotation = Math.PI * 2 * (5 + Math.random() * 3) + (Math.PI * 2 - targetSegCenter + Math.PI / 2);
 
         let startTime = null;
-        const duration = 3000;
+        const duration = 4000;
+        let lastSegIdx = -1;
 
-        const easeOut = t => 1 - Math.pow(1 - t, 3);
+        // Quartic ease-out with slight settle
+        const easeOut = t => {
+          if (t < 0.95) return 1 - Math.pow(1 - (t / 0.95), 4);
+          const p = (t - 0.95) / 0.05;
+          return 1 + 0.003 * Math.sin(p * Math.PI);
+        };
 
-        const draw = (angle) => {
-          ctx.clearRect(0, 0, size, size);
+        const draw = (angle, highlight) => {
+          ctx.clearRect(0, 0, cssSize, cssSize);
           for (let i = 0; i < names.length; i++) {
             const start = angle + i * segAngle;
             const end = start + segAngle;
@@ -1820,35 +1848,65 @@ function dinnerRoulette() {
             ctx.closePath();
             ctx.fillStyle = colors[i % colors.length];
             ctx.fill();
-            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.strokeStyle = 'rgba(255,255,255,0.4)';
             ctx.lineWidth = 2;
             ctx.stroke();
 
             // Label
+            const fontSize = Math.max(11, Math.min(15, (segAngle * r) / 6));
             ctx.save();
             ctx.translate(cx, cy);
             ctx.rotate(start + segAngle / 2);
             ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
             ctx.fillStyle = '#fff';
-            ctx.font = `bold ${Math.max(10, Math.min(14, r / names.length))}px sans-serif`;
-            const label = names[i].length > 18 ? names[i].slice(0, 16) + '...' : names[i];
-            ctx.fillText(label, r - 12, 4);
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 2;
+            ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+            const maxLen = Math.floor(r / (fontSize * 0.55));
+            const label = names[i].length > maxLen ? names[i].slice(0, maxLen - 1) + '\u2026' : names[i];
+            ctx.fillText(label, r - 16, 0);
+            ctx.shadowBlur = 0;
             ctx.restore();
           }
-          // Pointer
+
+          // Winner highlight glow
+          if (highlight && winnerIdx >= 0) {
+            const wStart = angle + winnerIdx * segAngle;
+            const wEnd = wStart + segAngle;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, r, wStart, wEnd);
+            ctx.closePath();
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 20;
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+          }
+
+          // Pointer triangle at top
+          const pSize = 14;
           ctx.beginPath();
-          ctx.moveTo(cx, 4);
-          ctx.lineTo(cx - 10, -6);
-          ctx.lineTo(cx + 10, -6);
+          ctx.moveTo(cx, cy - r + 2);
+          ctx.lineTo(cx - pSize, cy - r - 24);
+          ctx.lineTo(cx + pSize, cy - r - 24);
           ctx.closePath();
-          ctx.fillStyle = 'var(--text-primary)';
+          ctx.fillStyle = pointerColor;
           ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
           // Center circle
           ctx.beginPath();
-          ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+          ctx.arc(cx, cy, 18, 0, Math.PI * 2);
           ctx.fillStyle = '#fff';
           ctx.fill();
-          ctx.strokeStyle = '#ccc';
+          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
           ctx.lineWidth = 2;
           ctx.stroke();
         };
@@ -1859,14 +1917,26 @@ function dinnerRoulette() {
           const progress = Math.min(elapsed / duration, 1);
           const easedProgress = easeOut(progress);
           this.wheelAngle = easedProgress * totalRotation;
-          draw(this.wheelAngle);
+          draw(this.wheelAngle, false);
+
+          // Visual tick when segment boundary crosses pointer
+          const currentAngle = ((this.wheelAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+          const segIdx = Math.floor(((Math.PI * 1.5 - currentAngle + Math.PI * 2) % (Math.PI * 2)) / segAngle);
+          if (segIdx !== lastSegIdx) {
+            lastSegIdx = segIdx;
+            canvas.style.filter = 'brightness(1.06)';
+            setTimeout(() => { canvas.style.filter = ''; }, 40);
+          }
+
           if (progress < 1) {
             requestAnimationFrame(animate);
           } else {
+            // Final frame with winner highlight
+            draw(this.wheelAngle, true);
             setTimeout(() => {
               this.spinningWheel = false;
               resolve();
-            }, 500);
+            }, 1200);
           }
         };
 
