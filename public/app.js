@@ -351,6 +351,15 @@ function dinnerRoulette() {
       }
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.winner.place)}`;
     },
+    openTableUrl(name) {
+      return `https://www.opentable.com/s?term=${encodeURIComponent(name)}&covers=2`;
+    },
+    yelpUrl(name) {
+      return `https://www.yelp.com/search?find_desc=${encodeURIComponent(name)}`;
+    },
+    reservationSearchUrl(name) {
+      return `https://www.google.com/search?q=${encodeURIComponent(name + ' reservations')}`;
+    },
 
     get uniquePlanCuisines() {
       const types = new Set();
