@@ -89,6 +89,10 @@ function dinnerRoulette() {
     moodPickType: '',
     moodIncludeWantToTry: false,
 
+    // Meal Type Tags
+    MEAL_TYPES: ['Breakfast', 'Brunch', 'Lunch', 'Dinner', 'Late Night', 'Dessert/Coffee'],
+    placeMealTypeFilter: '',
+
     // Friends
     friendUsername: '',
     friends: [],
@@ -315,6 +319,7 @@ function dinnerRoulette() {
       let list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.likes];
       list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
+      if (this.placeMealTypeFilter) list = list.filter(p => (p.meal_types || []).includes(this.placeMealTypeFilter));
       if (this.placeSortBy === 'type') {
         list.sort((a, b) => (a.restaurant_type || '').localeCompare(b.restaurant_type || '') || a.name.localeCompare(b.name));
       } else {
@@ -333,6 +338,7 @@ function dinnerRoulette() {
       let list = f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.wantToTry];
       list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
+      if (this.placeMealTypeFilter) list = list.filter(p => (p.meal_types || []).includes(this.placeMealTypeFilter));
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
     get quickPickMapUrl() {
@@ -1312,6 +1318,27 @@ function dinnerRoulette() {
     clearMoodPick() {
       this.moodPickResult = null;
       this.moodPickType = '';
+    },
+
+    // ── Meal Type Tags ──
+    hasMealType(place, mealType) {
+      return (place.meal_types || []).includes(mealType);
+    },
+    async toggleMealType(listType, place, mealType) {
+      const types = [...(place.meal_types || [])];
+      const idx = types.indexOf(mealType);
+      if (idx >= 0) types.splice(idx, 1);
+      else types.push(mealType);
+      try {
+        const resp = await fetch('/api/places/meal-types', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ place: place.name, meal_types: types, list_type: listType }),
+        });
+        if (resp.ok) {
+          place.meal_types = types;
+        }
+      } catch (e) { /* ignore */ }
     },
 
     // ── Notes ──

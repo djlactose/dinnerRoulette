@@ -323,6 +323,15 @@
               <option value="type">Sort: Type</option>
             </select>
           </div>
+          <!-- Meal Type Filter -->
+          <div x-show="likes.length > 0 || wantToTry.length > 0" class="meal-type-filter-chips">
+            <button class="filter-chip" :class="{ active: placeMealTypeFilter === '' }"
+                    @click="placeMealTypeFilter = ''">All Meals</button>
+            <template x-for="mt in MEAL_TYPES" :key="mt">
+              <button class="filter-chip" :class="{ active: placeMealTypeFilter === mt }"
+                      @click="placeMealTypeFilter = mt" x-text="mt"></button>
+            </template>
+          </div>
 
           <!-- Quick Pick -->
           <div x-show="likes.length > 0" class="quick-pick-section">
@@ -399,6 +408,12 @@
                       <button class="suggest-btn" @click="saveNote(place)" aria-label="Save note">✓ Save</button>
                       <button class="back-btn" @click="cancelEditNote()" aria-label="Cancel">✕ Cancel</button>
                     </div>
+                    <div class="meal-type-pills">
+                      <template x-for="mt in MEAL_TYPES" :key="mt">
+                        <button class="meal-pill" :class="{ active: hasMealType(place, mt) }"
+                                @click="toggleMealType(place._type, place, mt)" x-text="mt"></button>
+                      </template>
+                    </div>
                     <div class="place-card-actions">
                       <button class="star-btn starred" @click="toggleStar(place._type, place.name)"
                               aria-label="Unstar">&#x2605;</button>
@@ -453,6 +468,12 @@
                            @keydown.enter="saveNote(place)" @keydown.escape="cancelEditNote()" />
                     <button class="suggest-btn" @click="saveNote(place)" aria-label="Save note">✓ Save</button>
                     <button class="back-btn" @click="cancelEditNote()" aria-label="Cancel">✕ Cancel</button>
+                  </div>
+                  <div class="meal-type-pills">
+                    <template x-for="mt in MEAL_TYPES" :key="mt">
+                      <button class="meal-pill" :class="{ active: hasMealType(place, mt) }"
+                              @click="toggleMealType('likes', place, mt)" x-text="mt"></button>
+                    </template>
                   </div>
                   <div class="place-card-actions">
                     <button class="star-btn" @click="toggleStar('likes', place.name)"
@@ -546,6 +567,12 @@
                       <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
                     </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                  </div>
+                  <div class="meal-type-pills">
+                    <template x-for="mt in MEAL_TYPES" :key="mt">
+                      <button class="meal-pill" :class="{ active: hasMealType(place, mt) }"
+                              @click="toggleMealType('want_to_try', place, mt)" x-text="mt"></button>
+                    </template>
                   </div>
                   <div class="place-card-actions">
                     <button class="star-btn" @click="toggleStar('want_to_try', place.name)"

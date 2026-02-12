@@ -3544,3 +3544,37 @@ button {
   from { transform: scale(0.9); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* ── Meal Type Tags ────────────────────────────────────────────────────────── */
+.meal-type-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+.meal-type-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+.meal-pill {
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.meal-pill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.meal-pill.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}

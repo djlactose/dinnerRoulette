@@ -238,6 +238,8 @@ try { db.exec('ALTER TABLE dislikes ADD COLUMN address TEXT'); } catch (e) { /* 
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE places ADD COLUMN address TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN accent_color TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE want_to_try ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -917,14 +919,14 @@ app.post('/api/place', auth, (req, res) => {
 
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred FROM likes WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred, meal_types FROM likes WHERE user_id = ?').all(uid);
   const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address FROM dislikes WHERE user_id = ?').all(uid);
-  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred FROM want_to_try WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred, meal_types FROM want_to_try WHERE user_id = ?').all(uid);
   const all = db.prepare('SELECT place, place_id, restaurant_type, address FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [] })),
     dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null })),
-    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred })),
+    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [] })),
     all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null })),
   });
 });
@@ -948,6 +950,19 @@ app.post('/api/places/notes', auth, (req, res) => {
   const row = db.prepare('SELECT 1 FROM likes WHERE user_id = ? AND place = ?').get(req.user.id, place);
   if (!row) return res.status(404).json({ error: 'Place not in your likes' });
   db.prepare('UPDATE likes SET notes = ? WHERE user_id = ? AND place = ?').run(notes || null, req.user.id, place);
+  res.json({ success: true });
+});
+
+app.post('/api/places/meal-types', auth, (req, res) => {
+  const { place, meal_types, list_type } = req.body;
+  if (!place) return res.status(400).json({ error: 'Missing place' });
+  if (list_type !== 'likes' && list_type !== 'want_to_try') return res.status(400).json({ error: 'Invalid list type' });
+  if (!Array.isArray(meal_types)) return res.status(400).json({ error: 'meal_types must be an array' });
+  const table = list_type === 'likes' ? 'likes' : 'want_to_try';
+  const row = db.prepare(`SELECT 1 FROM ${table} WHERE user_id = ? AND place = ?`).get(req.user.id, place);
+  if (!row) return res.status(404).json({ error: 'Place not found in your list' });
+  const val = meal_types.length > 0 ? meal_types.join(',') : null;
+  db.prepare(`UPDATE ${table} SET meal_types = ? WHERE user_id = ? AND place = ?`).run(val, req.user.id, place);
   res.json({ success: true });
 });
 
