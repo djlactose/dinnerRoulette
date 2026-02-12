@@ -83,6 +83,12 @@ function dinnerRoulette() {
     quickPickResult: null,
     quickPicking: false,
 
+    // Mood Pick
+    moodPickResult: null,
+    moodPicking: false,
+    moodPickType: '',
+    moodIncludeWantToTry: false,
+
     // Friends
     friendUsername: '',
     friends: [],
@@ -331,6 +337,18 @@ function dinnerRoulette() {
     get quickPickMapUrl() {
       if (!this.quickPickResult) return '#';
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.quickPickResult.name)}`;
+    },
+    get moodPickTypes() {
+      const types = new Set();
+      this.likes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+      if (this.moodIncludeWantToTry) {
+        this.wantToTry.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+      }
+      return [...types].sort();
+    },
+    get moodPickMapUrl() {
+      if (!this.moodPickResult) return '#';
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.moodPickResult.name)}`;
     },
     get activePlans() {
       return this.plans.filter(s => s.status === 'open');
@@ -1245,6 +1263,51 @@ function dinnerRoulette() {
       // Final random pick
       this.quickPickResult = this.likes[Math.floor(Math.random() * this.likes.length)];
       this.quickPicking = false;
+    },
+
+    // ── Mood Pick ──
+    async moodPick(cuisineType) {
+      if (this.moodPicking) return;
+      let pool = this.likes.filter(p => p.restaurant_type === cuisineType);
+      if (this.moodIncludeWantToTry) {
+        pool = pool.concat(this.wantToTry.filter(p => p.restaurant_type === cuisineType));
+      }
+      if (pool.length === 0) return;
+      this.moodPicking = true;
+      this.moodPickType = cuisineType;
+      this.moodPickResult = null;
+
+      let cycles = 12;
+      let delay = 60;
+      let i = 0;
+
+      await new Promise(resolve => {
+        const spin = () => {
+          this.moodPickResult = pool[i % pool.length];
+          i++;
+          cycles--;
+          if (cycles > 0) {
+            delay += 25;
+            setTimeout(spin, delay);
+          } else {
+            resolve();
+          }
+        };
+        spin();
+      });
+
+      this.moodPickResult = pool[Math.floor(Math.random() * pool.length)];
+      this.moodPicking = false;
+    },
+    async moodSurpriseMe() {
+      const types = this.moodPickTypes;
+      if (types.length === 0) return;
+      const randomType = types[Math.floor(Math.random() * types.length)];
+      await this.moodPick(randomType);
+    },
+    clearMoodPick() {
+      this.moodPickResult = null;
+      this.moodPickType = '';
     },
 
     // ── Notes ──

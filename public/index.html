@@ -336,6 +336,36 @@
             </div>
           </div>
 
+          <!-- Mood Pick -->
+          <div x-show="moodPickTypes.length > 0" class="mood-pick-section">
+            <h4>I'm in the mood for...</h4>
+            <label class="mood-toggle">
+              <input type="checkbox" x-model="moodIncludeWantToTry" />
+              Include Want to Try
+            </label>
+            <div class="mood-chips">
+              <template x-for="t in moodPickTypes" :key="t">
+                <button class="mood-chip" @click="moodPick(t)" :disabled="moodPicking"
+                        :class="{ active: moodPickType === t }" x-text="t"></button>
+              </template>
+              <button class="mood-chip surprise" @click="moodSurpriseMe()" :disabled="moodPicking">
+                Surprise Me!
+              </button>
+            </div>
+            <div x-show="moodPickResult" class="mood-pick-result" x-transition.scale.origin.top>
+              <div class="mood-result-card">
+                <strong x-text="moodPickResult?.name"></strong>
+                <span class="type-badge" x-show="moodPickResult?.restaurant_type" x-text="moodPickResult?.restaurant_type"></span>
+                <span class="mood-result-address" x-show="moodPickResult?.address" x-text="moodPickResult?.address"></span>
+                <div class="mood-result-actions">
+                  <a class="mood-go-btn" :href="moodPickMapUrl" target="_blank" rel="noopener">View on Map</a>
+                  <button class="mood-reroll-btn" @click="moodPick(moodPickType)" :disabled="moodPicking">Pick Again</button>
+                  <button class="mood-dismiss-btn" @click="clearMoodPick()">Dismiss</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ── Favorites Section ── -->
           <div x-show="starredPlaces.length > 0">
             <div class="section-header" @click="togglePlaceSection('favorites')">
