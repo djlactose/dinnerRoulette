@@ -328,6 +328,15 @@ label {
   flex-wrap: wrap;
 }
 
+/* Semantic buttons: consistent small-tier sizing everywhere */
+.remove-btn,
+.suggest-btn,
+.back-btn,
+.map-btn {
+  font-size: var(--text-sm);
+  padding: 0.3rem 0.6rem;
+}
+
 .remove-btn {
   background-color: var(--danger);
   color: white;
@@ -1198,6 +1207,13 @@ a {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+
+/* Modal buttons should be medium-sized (overrides small semantic defaults) */
+.confirm-modal-actions button:not(.prompt-dismiss-link),
+.qr-modal-actions button {
+  font-size: var(--text-base);
+  padding: 0.5rem 1rem;
 }
 
 /* ── Post-Login Prompt Modal ───────────────────────────────────────────── */
