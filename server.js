@@ -1241,13 +1241,15 @@ app.post('/api/plans/:id/suggest', auth, async (req, res) => {
   try {
     const result = db.prepare('INSERT OR IGNORE INTO session_suggestions (session_id, user_id, place, place_id, restaurant_type, lat, lng, price_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(planId, req.user.id, place, place_id || null, restaurant_type || null, lat, lng, priceLevel);
     if (result.changes === 0) return res.status(409).json({ error: 'Already suggested' });
+    const suggestionId = result.lastInsertRowid;
+    db.prepare("INSERT OR IGNORE INTO session_votes (session_id, user_id, suggestion_id, vote_type) VALUES (?, ?, ?, 'up')").run(planId, req.user.id, suggestionId);
     io.to(`plan:${planId}`).emit('plan:suggestion-added', {
-      id: result.lastInsertRowid, place, place_id: place_id || null,
+      id: suggestionId, place, place_id: place_id || null,
       restaurant_type: restaurant_type || null,
-      lat, lng, price_level: priceLevel, suggested_by: req.user.username, vote_count: 0, user_voted: false,
+      lat, lng, price_level: priceLevel, suggested_by: req.user.username, vote_count: 1, user_voted: true,
     });
     sendPushToPlanMembers(planId, { title: 'New Suggestion', body: `${req.user.username} suggested ${place}`, tag: `plan-${planId}` }, req.user.id);
-    res.json({ success: true, id: result.lastInsertRowid });
+    res.json({ success: true, id: suggestionId });
   } catch (err) {
     res.status(500).json({ error: 'Failed to suggest' });
   }
