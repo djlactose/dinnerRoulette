@@ -2159,7 +2159,7 @@ img.avatar-pic {
 /* ── Chat FAB ─────────────────────────────────────────────────────────── */
 .chat-fab {
   position: fixed;
-  bottom: 1.5rem;
+  bottom: calc(70px + 1rem);
   right: 1.5rem;
   z-index: 900;
   width: 56px;
@@ -2201,7 +2201,7 @@ img.avatar-pic {
 /* ── Plan FAB ─────────────────────────────────────────────────────────── */
 .plan-fab {
   position: fixed;
-  bottom: 1.5rem;
+  bottom: calc(70px + 1rem);
   right: 1.5rem;
   z-index: 900;
   height: 40px;
@@ -2241,10 +2241,15 @@ img.avatar-pic {
   white-space: nowrap;
 }
 
+@media (min-width: 900px) {
+  .plan-fab {
+    bottom: 1.5rem;
+  }
+}
+
 @media (max-width: 480px) {
   .plan-fab {
     right: 1rem;
-    bottom: 1rem;
     max-width: 150px;
   }
   .plan-fab-shifted {
@@ -2313,12 +2318,17 @@ img.avatar-pic {
   color: var(--text-primary);
 }
 
+@media (min-width: 900px) {
+  .chat-fab {
+    bottom: 1.5rem;
+  }
+}
+
 @media (max-width: 480px) {
   .chat-drawer {
     width: 100%;
   }
   .chat-fab {
-    bottom: 1rem;
     right: 1rem;
   }
 }
