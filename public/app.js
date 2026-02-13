@@ -84,7 +84,7 @@ function dinnerRoulette() {
     cardMenuOpen: null,
     planHeaderMenuOpen: false,
     placeSections: { favorites: true, likes: true, dislikes: false, wantToTry: false },
-    suggestSectionOpen: true,
+    suggestSectionOpen: false,
     suggestionMenuOpen: null,
 
     // Quick Pick

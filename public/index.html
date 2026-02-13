@@ -1272,12 +1272,10 @@
 
               <!-- Suggest to Plan -->
               <div x-show="activePlan?.plan?.status === 'open'">
-                <div class="section-header" @click="suggestSectionOpen = !suggestSectionOpen">
-                  <h3>
-                    <span class="section-collapse-icon" :class="{ open: suggestSectionOpen }">&#x25B6;</span>
-                    Suggest a Place
-                  </h3>
-                </div>
+                <button class="add-suggestion-btn" @click="suggestSectionOpen = !suggestSectionOpen; if (!suggestSectionOpen) { planCuisineFilter = ''; planSuggestionMealFilter = ''; planPriceFilter = []; }"
+                        :class="{ active: suggestSectionOpen }">
+                  <span x-text="suggestSectionOpen ? '✕ Close' : '+ Add Suggestion'"></span>
+                </button>
                 <div x-show="suggestSectionOpen" x-collapse>
                 <div class="autocomplete-container">
                   <input placeholder="Search for a restaurant..." autocomplete="off"
@@ -1370,37 +1368,43 @@
               <!-- Plan Suggestions with Votes -->
               <h4>Suggestions <span class="vote-hint" x-show="activePlan?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
 
-              <!-- Cuisine Filter Chips -->
-              <div class="cuisine-filter-chips" x-show="uniquePlanCuisines.length > 1">
-                <button class="filter-chip" :class="{ active: planCuisineFilter === '' }"
-                        @click="planCuisineFilter = ''">All</button>
-                <template x-for="cuisine in uniquePlanCuisines" :key="cuisine">
-                  <button class="filter-chip" :class="{ active: planCuisineFilter === cuisine }"
-                          @click="planCuisineFilter = cuisine" x-text="cuisine"></button>
-                </template>
+              <!-- Cuisine / Meal / Price Filters (only when adding suggestions) -->
+              <div x-show="suggestSectionOpen" x-collapse>
+                <div class="cuisine-filter-chips" x-show="uniquePlanCuisines.length > 1">
+                  <button class="filter-chip" :class="{ active: planCuisineFilter === '' }"
+                          @click="planCuisineFilter = ''">All</button>
+                  <template x-for="cuisine in uniquePlanCuisines" :key="cuisine">
+                    <button class="filter-chip" :class="{ active: planCuisineFilter === cuisine }"
+                            @click="planCuisineFilter = cuisine" x-text="cuisine"></button>
+                  </template>
+                </div>
+
+                <div class="meal-type-filter-chips" x-show="activePlan?.suggestions?.some(s => s.meal_types?.length > 0)">
+                  <button class="filter-chip" :class="{ active: planSuggestionMealFilter === '' }"
+                          @click="planSuggestionMealFilter = ''">All Meals</button>
+                  <template x-for="mt in MEAL_TYPES" :key="mt">
+                    <button class="filter-chip" :class="{ active: planSuggestionMealFilter === mt }"
+                            @click="planSuggestionMealFilter = mt" x-text="mt"></button>
+                  </template>
+                </div>
+
+                <div class="price-filter-chips" x-show="activePlan?.suggestions?.some(s => s.price_level != null)">
+                  <template x-for="level in [1, 2, 3, 4]" :key="level">
+                    <button class="filter-chip price-chip"
+                            :class="{ active: planPriceFilter.includes(level) }"
+                            @click="planPriceFilter.includes(level) ? planPriceFilter = planPriceFilter.filter(l => l !== level) : planPriceFilter = [...planPriceFilter, level]"
+                            x-text="'$'.repeat(level)"></button>
+                  </template>
+                </div>
+
+                <div class="sort-controls" x-show="activePlan?.suggestions?.length > 1">
+                  <button class="sort-btn" :class="{ active: planSuggestSort === 'votes' }" @click="planSuggestSort = 'votes'">By Votes</button>
+                  <button class="sort-btn" :class="{ active: planSuggestSort === 'name' }" @click="planSuggestSort = 'name'">By Name</button>
+                  <button class="sort-btn" :class="{ active: planSuggestSort === 'suggester' }" @click="planSuggestSort = 'suggester'">By Suggester</button>
+                </div>
               </div>
 
-              <!-- Meal Type Filter Chips for Suggestions -->
-              <div class="meal-type-filter-chips" x-show="activePlan?.suggestions?.some(s => s.meal_types?.length > 0)">
-                <button class="filter-chip" :class="{ active: planSuggestionMealFilter === '' }"
-                        @click="planSuggestionMealFilter = ''">All Meals</button>
-                <template x-for="mt in MEAL_TYPES" :key="mt">
-                  <button class="filter-chip" :class="{ active: planSuggestionMealFilter === mt }"
-                          @click="planSuggestionMealFilter = mt" x-text="mt"></button>
-                </template>
-              </div>
-
-              <!-- Price Filter Chips -->
-              <div class="price-filter-chips" x-show="activePlan?.suggestions?.some(s => s.price_level != null)">
-                <template x-for="level in [1, 2, 3, 4]" :key="level">
-                  <button class="filter-chip price-chip"
-                          :class="{ active: planPriceFilter.includes(level) }"
-                          @click="planPriceFilter.includes(level) ? planPriceFilter = planPriceFilter.filter(l => l !== level) : planPriceFilter = [...planPriceFilter, level]"
-                          x-text="'$'.repeat(level)"></button>
-                </template>
-              </div>
-
-              <div class="sort-controls" x-show="activePlan?.suggestions?.length > 1">
+              <div class="sort-controls" x-show="activePlan?.suggestions?.length > 1 && !suggestSectionOpen">
                 <button class="sort-btn" :class="{ active: planSuggestSort === 'votes' }" @click="planSuggestSort = 'votes'">By Votes</button>
                 <button class="sort-btn" :class="{ active: planSuggestSort === 'name' }" @click="planSuggestSort = 'name'">By Name</button>
                 <button class="sort-btn" :class="{ active: planSuggestSort === 'suggester' }" @click="planSuggestSort = 'suggester'">By Suggester</button>
