@@ -80,9 +80,11 @@ function dinnerRoulette() {
     placeSortBy: 'name',
     editingNote: null,
     noteText: '',
+    filtersOpen: false,
+    cardMenuOpen: null,
+    planHeaderMenuOpen: false,
     placeSections: { favorites: true, likes: true, dislikes: false, wantToTry: false },
     suggestSectionOpen: true,
-    cardMenuOpen: null,
     suggestionMenuOpen: null,
 
     // Quick Pick
@@ -194,6 +196,7 @@ function dinnerRoulette() {
     chatMessages: [],
     chatInput: '',
     chatDrawerOpen: false,
+    speedDialOpen: false,
     unreadChatCount: 0,
     emojiPickerVisible: false,
     gifSearchVisible: false,
@@ -938,6 +941,7 @@ function dinnerRoulette() {
       const direction = newIdx > oldIdx ? '20px' : newIdx < oldIdx ? '-20px' : '0';
       document.documentElement.style.setProperty('--tab-slide-from', direction);
       this.activeTab = tab;
+      this.speedDialOpen = false;
       window.location.hash = tab;
     },
 

@@ -31,8 +31,8 @@
   --radius-pill: 20px;
 
   /* Typography scale */
-  --text-xs: 0.75rem;
-  --text-sm: 0.85rem;
+  --text-xs: 0.8rem;
+  --text-sm: 0.9rem;
   --text-base: 1rem;
   --text-lg: 1.1rem;
 }
@@ -787,6 +787,37 @@ a {
 
 .plan-header h4 {
   margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-header .overflow-toggle {
+  margin-left: auto;
+}
+
+.plan-header-overflow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  align-items: center;
+}
+
+.plan-header-overflow button,
+.plan-header-overflow a {
+  font-size: var(--text-sm);
+}
+
+.plan-header-overflow .plan-meal-type-select {
+  flex: 1;
+  min-width: 120px;
 }
 
 .members-line {
@@ -831,9 +862,9 @@ a {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  padding: 0.5rem 0;
+  padding: 0.6rem 0;
   border-bottom: 1px solid var(--border-light);
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 .plan-suggestion-list li .voters-list {
   width: 100%;
@@ -845,7 +876,7 @@ a {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
 .suggestion-name-block {
@@ -856,7 +887,7 @@ a {
   font-weight: 500;
 }
 .suggestion-address {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   line-height: 1.3;
 }
@@ -870,7 +901,7 @@ a {
 .suggestion-actions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -1302,6 +1333,49 @@ a {
   color: var(--text-primary);
   font-size: 0.9rem;
   cursor: pointer;
+}
+
+/* Filter toggle for mobile */
+.filter-toggle-wrapper {
+  display: none;
+  margin-bottom: 0.5rem;
+}
+.filter-toggle-btn {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 0.5rem 1rem;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.filter-toggle-btn:hover {
+  background: var(--border-light);
+  border-color: var(--accent);
+}
+.filter-active-badge {
+  background: var(--accent);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+}
+@media (max-width: 700px) {
+  .filter-toggle-wrapper { display: block; }
+  .filter-collapsible { display: none !important; }
+  .filter-collapsible.filter-open { display: flex !important; }
 }
 
 /* ── Quick Pick ───────────────────────────────────────────────────────────── */
@@ -2184,106 +2258,8 @@ img.avatar-pic {
   min-width: 180px;
 }
 
-/* ── Chat FAB ─────────────────────────────────────────────────────────── */
-.chat-fab {
-  position: fixed;
-  bottom: calc(70px + 1rem);
-  right: 1.5rem;
-  z-index: 900;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: white;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px var(--shadow-md);
-  transition: background 0.2s, transform 0.2s;
-}
-
-.chat-fab:hover {
-  background: var(--accent-hover);
-  transform: scale(1.05);
-}
-
-.chat-fab-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--danger);
-  color: white;
-  font-size: 0.7rem;
-  font-weight: 700;
-  min-width: 20px;
-  height: 20px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-
-/* ── Plan FAB ─────────────────────────────────────────────────────────── */
-.plan-fab {
-  position: fixed;
-  bottom: calc(70px + 1rem);
-  right: 1.5rem;
-  z-index: 900;
-  height: 40px;
-  border-radius: 20px;
-  background: var(--accent);
-  color: white;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.85rem 0 0.65rem;
-  box-shadow: 0 4px 12px var(--shadow-md);
-  transition: background 0.2s, transform 0.2s, right 0.3s;
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
-  max-width: 180px;
-}
-
-.plan-fab-shifted {
-  right: calc(1.5rem + 56px + 0.75rem);
-}
-
-.plan-fab:hover {
-  background: var(--accent-hover);
-  transform: scale(1.05);
-}
-
-.plan-fab svg {
-  flex-shrink: 0;
-}
-
-.plan-fab-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (min-width: 900px) {
-  .plan-fab {
-    bottom: 1.5rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .plan-fab {
-    right: 1rem;
-    max-width: 150px;
-  }
-  .plan-fab-shifted {
-    right: calc(1rem + 56px + 0.5rem);
-  }
-}
+/* ── Speed Dial FAB (replaces individual chat/plan/main FABs) ─────────── */
+/* Old .chat-fab, .plan-fab styles removed — consolidated into speed dial */
 
 /* ── Chat Drawer ──────────────────────────────────────────────────────── */
 .chat-drawer-backdrop {
@@ -2346,18 +2322,9 @@ img.avatar-pic {
   color: var(--text-primary);
 }
 
-@media (min-width: 900px) {
-  .chat-fab {
-    bottom: 1.5rem;
-  }
-}
-
 @media (max-width: 480px) {
   .chat-drawer {
     width: 100%;
-  }
-  .chat-fab {
-    right: 1rem;
   }
 }
 
@@ -3169,7 +3136,7 @@ img.avatar-pic {
 
 /* Tab content needs bottom padding on mobile for fixed tab bar */
 .tab-content {
-  padding-bottom: 80px;
+  padding-bottom: 100px;
 }
 
 /* Move toast above tab bar on mobile */
@@ -3618,11 +3585,21 @@ img.avatar-pic {
   to { transform: rotate(360deg); }
 }
 
-/* ── Floating Action Button ────────────────────────────────────────────────── */
-.fab {
+/* ── Speed Dial FAB ────────────────────────────────────────────────────────── */
+.speed-dial-container {
   position: fixed;
   bottom: calc(70px + 1rem);
   right: 1rem;
+  z-index: 900;
+}
+.speed-dial-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  z-index: 899;
+}
+.speed-dial-trigger {
+  position: relative;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -3632,27 +3609,103 @@ img.avatar-pic {
   font-size: 1.5rem;
   cursor: pointer;
   box-shadow: 0 4px 12px var(--shadow-md);
-  z-index: 40;
+  z-index: 901;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s, background-color 0.2s, bottom 0.3s;
+  transition: transform 0.2s, background-color 0.2s;
 }
-.fab-raised {
-  bottom: calc(70px + 1rem + 56px + 0.75rem);
+.speed-dial-trigger:hover { background: var(--accent-hover); transform: scale(1.05); }
+.speed-dial-trigger:active { transform: scale(0.92); }
+.speed-dial-trigger.open { background: var(--secondary); }
+.speed-dial-trigger.open:hover { background: var(--secondary-hover); }
+.speed-dial-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.25s;
 }
-.fab:hover { background: var(--accent-hover); }
-.fab:active { transform: scale(0.92); }
+.speed-dial-trigger.open .speed-dial-icon { transform: rotate(45deg); }
+.speed-dial-unread {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 12px;
+  height: 12px;
+  background: var(--danger);
+  border-radius: 50%;
+  border: 2px solid white;
+}
+.speed-dial-actions {
+  position: absolute;
+  bottom: 68px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  z-index: 901;
+}
+.speed-dial-action {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--shadow-md);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  transition: transform 0.15s, background 0.15s, box-shadow 0.15s;
+  min-height: 44px;
+}
+.speed-dial-action:hover {
+  background: var(--accent);
+  color: white;
+  transform: translateX(-4px);
+  box-shadow: 0 4px 12px var(--shadow-md);
+}
+.speed-dial-action svg { flex-shrink: 0; }
+.speed-dial-label {
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.speed-dial-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--danger);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
 @media (min-width: 900px) {
-  .fab { bottom: 2rem; }
-  .fab-raised { bottom: calc(2rem + 56px + 0.75rem); }
+  .speed-dial-container { bottom: 2rem; }
 }
+@media (max-width: 480px) {
+  .speed-dial-label { max-width: 130px; }
+}
+.roulette-icon { transition: transform 0.3s ease; }
+.speed-dial-trigger:hover .roulette-icon-lg { transform: rotate(90deg); }
+.speed-dial-trigger:active .roulette-icon-lg { transform: rotate(180deg); }
 
 /* ── Place Cards ──────────────────────────────────────────────────────────── */
 .place-card-grid {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 .place-card {
   background: var(--bg-card);
@@ -3697,23 +3750,57 @@ img.avatar-pic {
 .place-card-actions {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
-  margin-top: 0.4rem;
-  padding-top: 0.4rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
   border-top: 1px solid var(--border-light);
 }
 .place-card-actions button,
 .place-card-actions a {
   font-size: var(--text-sm);
-  padding: 0.3rem 0.6rem;
+  padding: 0.35rem 0.7rem;
 }
 @media (min-width: 700px) {
   .place-card-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 0.5rem;
+    gap: 0.75rem;
   }
+}
+
+/* ── Card Overflow Menu ───────────────────────────────────────────────────── */
+.card-overflow-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+.card-overflow-menu button,
+.card-overflow-menu a {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  font-size: var(--text-sm);
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-sm);
+}
+.card-overflow-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.25rem 0;
+}
+.card-overflow-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0 0.25rem;
 }
 
 /* ── Collapsible Section Headers ──────────────────────────────────────────── */
@@ -3805,10 +3892,14 @@ img.avatar-pic {
   letter-spacing: 0.15em;
   border-radius: var(--radius-md);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .overflow-toggle:hover {
   background: var(--border-light);
-  color: var(--text-primary);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .overflow-menu {
   display: flex;
@@ -3913,9 +4004,9 @@ img.avatar-pic {
 
   /* Place cards mobile */
   .place-card { padding: 0.6rem 0.75rem; }
-  .place-card-actions { gap: 0.4rem; margin-top: 0.5rem; }
+  .place-card-actions { gap: 0.5rem; margin-top: 0.6rem; }
   .place-card-actions button,
-  .place-card-actions a { min-height: 40px; padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+  .place-card-actions a { min-height: 44px; padding: 0.4rem 0.7rem; font-size: var(--text-sm); }
 
   /* Filter controls mobile */
   .filter-controls { flex-direction: column; }
@@ -4235,13 +4326,13 @@ button {
 .meal-type-filter-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-bottom: 0.5rem;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
 }
 .meal-type-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.35rem;
   margin-top: 0.3rem;
 }
 .meal-pill {
