@@ -1156,6 +1156,16 @@ a {
   flex-wrap: wrap;
   margin-top: 0.35rem;
 }
+.plan-create-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.plan-action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
 .veto-limit-create, .meal-type-create {
   display: flex;
   align-items: center;

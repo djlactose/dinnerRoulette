@@ -926,41 +926,53 @@
                 </template>
               </ul>
 
-              <div class="inline-input">
-                <input x-model="newPlanName" placeholder="Plan name (e.g., Friday Dinner)"
-                       @keydown.enter="createPlan()" aria-label="Plan name" />
-                <button @click="createPlan()">Create Plan</button>
-              </div>
-              <div class="plan-create-options">
-                <div class="veto-limit-create">
-                  <label>Vetoes per person:</label>
-                  <input type="number" min="0" max="10" x-model.number="planVetoLimitInput"
-                         aria-label="Vetoes per person" />
+              <div class="plan-action-buttons">
+                <button class="add-suggestion-btn" @click="showCreatePlanForm = !showCreatePlanForm"
+                        :class="{ active: showCreatePlanForm }" x-show="!showCreatePlanForm">
+                  <span>+ New Plan</span>
+                </button>
+                <div class="inline-input" style="margin-top: 0.5rem;" x-show="!showCreatePlanForm">
+                  <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
+                         style="text-transform: uppercase;" @keydown.enter="joinPlan()" aria-label="Plan invite code" />
+                  <button @click="joinPlan()">Join Plan</button>
                 </div>
-                <div class="meal-type-create">
-                  <label>Meal type:</label>
-                  <select x-model="planMealType" aria-label="Plan meal type">
-                    <option value="">Any</option>
-                    <template x-for="mt in MEAL_TYPES" :key="mt">
-                      <option :value="mt" x-text="mt"></option>
+              </div>
+
+              <div x-show="showCreatePlanForm" x-collapse>
+                <div class="inline-input">
+                  <input x-model="newPlanName" placeholder="Plan name (e.g., Friday Dinner)"
+                         @keydown.enter="createPlan()" aria-label="Plan name" x-ref="planNameInput" />
+                </div>
+                <div class="plan-create-options">
+                  <div class="veto-limit-create">
+                    <label>Vetoes per person:</label>
+                    <input type="number" min="0" max="10" x-model.number="planVetoLimitInput"
+                           aria-label="Vetoes per person" />
+                  </div>
+                  <div class="meal-type-create">
+                    <label>Meal type:</label>
+                    <select x-model="planMealType" aria-label="Plan meal type">
+                      <option value="">Any</option>
+                      <template x-for="mt in MEAL_TYPES" :key="mt">
+                        <option :value="mt" x-text="mt"></option>
+                      </template>
+                    </select>
+                  </div>
+                </div>
+                <div class="dietary-tags-create" x-show="planDietaryTags !== undefined">
+                  <label>Dietary restrictions:</label>
+                  <div class="dietary-chips">
+                    <template x-for="tag in dietaryOptions" :key="tag">
+                      <button class="filter-chip" :class="{ active: planDietaryTags.includes(tag) }"
+                              @click="planDietaryTags.includes(tag) ? planDietaryTags = planDietaryTags.filter(t => t !== tag) : planDietaryTags.push(tag)"
+                              x-text="tag" type="button"></button>
                     </template>
-                  </select>
+                  </div>
                 </div>
-              </div>
-              <div class="dietary-tags-create" x-show="planDietaryTags !== undefined">
-                <label>Dietary restrictions:</label>
-                <div class="dietary-chips">
-                  <template x-for="tag in dietaryOptions" :key="tag">
-                    <button class="filter-chip" :class="{ active: planDietaryTags.includes(tag) }"
-                            @click="planDietaryTags.includes(tag) ? planDietaryTags = planDietaryTags.filter(t => t !== tag) : planDietaryTags.push(tag)"
-                            x-text="tag" type="button"></button>
-                  </template>
+                <div class="plan-create-actions">
+                  <button class="suggest-btn" @click="createPlan()">Create Plan</button>
+                  <button class="back-btn" @click="showCreatePlanForm = false; newPlanName = ''">Cancel</button>
                 </div>
-              </div>
-              <div class="inline-input" style="margin-top: 0.5rem;">
-                <input x-model="joinCode" placeholder="Enter invite code" maxlength="6"
-                       style="text-transform: uppercase;" @keydown.enter="joinPlan()" aria-label="Plan invite code" />
-                <button @click="joinPlan()">Join Plan</button>
               </div>
 
               <!-- Recurring Plans -->

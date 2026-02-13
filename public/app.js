@@ -135,6 +135,7 @@ function dinnerRoulette() {
 
     // Plans
     plans: [],
+    showCreatePlanForm: false,
     newPlanName: '',
     joinCode: '',
     activePlan: null,
@@ -2101,6 +2102,7 @@ function dinnerRoulette() {
         this.planVetoLimitInput = 1;
         this.planMealType = '';
         this.planDietaryTags = [];
+        this.showCreatePlanForm = false;
         this.showToast(`Plan created! Code: ${data.code}`);
         await this.loadPlans();
       } catch (e) {
