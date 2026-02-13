@@ -260,6 +260,7 @@ function dinnerRoulette() {
     adminTestEmail: '',
     adminPlans: [],
     adminBackingUp: false,
+    adminRepulling: false,
 
     // ── Helpers ──────────────────────────────────────────────────────────────
     getInitials(username) {
@@ -1549,7 +1550,7 @@ function dinnerRoulette() {
       try {
         await this.api('/api/places', {
           method: 'POST',
-          body: JSON.stringify({ name: place.name, place_id: place.place_id, type: list, restaurant_type: (place.types || []).find(t => !['restaurant','food','point_of_interest','establishment'].includes(t)) || 'Restaurant', address: place.address, photo_ref: place.photo_ref }),
+          body: JSON.stringify({ place: place.name, place_id: place.place_id, type: list, restaurant_type: (place.types || []).find(t => !['restaurant','food','point_of_interest','establishment'].includes(t)) || 'Restaurant', address: place.address, photo_ref: place.photo_ref }),
         });
         this.nearbyPlaces = this.nearbyPlaces.filter(p => p.place_id !== place.place_id);
         await this.loadPlaces();
@@ -2024,7 +2025,7 @@ function dinnerRoulette() {
         const type = action === 'dislike' ? 'dislikes' : 'likes';
         const resp = await this.api('/api/places', {
           method: 'POST',
-          body: JSON.stringify({ type, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null }),
+          body: JSON.stringify({ type, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type || null, address: place.address || null, photo_ref: place.photo_ref || null }),
         });
         if (!resp.ok) {
           this.showToast('Failed to add place', 'error');
@@ -3921,6 +3922,24 @@ function dinnerRoulette() {
         await this.loadAdminGoogleKey();
       } catch (e) {
         this.showToast('Failed to save Google API key', 'error');
+      }
+    },
+
+    async adminRepullPlaces() {
+      if (!await this.showConfirm('Re-fetch all place data from Google? This updates names, photos, addresses, and types for every saved place.')) return;
+      this.adminRepulling = true;
+      try {
+        const resp = await this.api('/api/admin/repull-places', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) {
+          this.showToast(data.error || 'Repull failed', 'error');
+          return;
+        }
+        this.showToast(`Updated ${data.updated}/${data.total} places (${data.failed} failed)`);
+      } catch (e) {
+        this.showToast('Failed to repull places', 'error');
+      } finally {
+        this.adminRepulling = false;
       }
     },
 

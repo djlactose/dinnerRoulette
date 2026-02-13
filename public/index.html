@@ -1964,6 +1964,10 @@
               <div class="admin-key-display" x-show="adminGoogleKey" x-text="adminGoogleKey"></div>
               <input id="admin-google-key" x-model="adminGoogleKey" placeholder="Enter Google API key" />
               <button class="admin-btn primary" @click="saveAdminGoogleKey()" style="margin-top: 0.3rem;">Save API Key</button>
+              <button class="admin-btn" @click="adminRepullPlaces()" :disabled="adminRepulling || !adminGoogleKey" style="margin-top: 0.3rem;">
+                <span x-show="!adminRepulling">Refresh All Place Data</span>
+                <span x-show="adminRepulling">Refreshing...</span>
+              </button>
             </div>
 
             <div class="admin-form-group">

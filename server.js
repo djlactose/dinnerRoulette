@@ -1267,6 +1267,7 @@ app.post('/api/admin/repull-places', adminAuth, async (req, res) => {
         });
         const data = await r.json();
         if (data.error) { failed++; continue; }
+        const placeName = data.displayName?.text || null;
         const photoRef = data.photos?.[0]?.name || null;
         const address = data.formattedAddress || null;
         const types = (data.types || []).map(t => t.toLowerCase());
@@ -1274,6 +1275,7 @@ app.post('/api/admin/repull-places', adminAuth, async (req, res) => {
         // Update all tables that have this place_id
         for (const t of tables) {
           db.prepare(`UPDATE ${t} SET photo_ref = ? WHERE place_id = ?`).run(photoRef, row.place_id);
+          if (placeName) db.prepare(`UPDATE ${t} SET place = ? WHERE place_id = ?`).run(placeName, row.place_id);
           if (['likes', 'dislikes', 'want_to_try', 'places'].includes(t)) {
             db.prepare(`UPDATE ${t} SET address = ? WHERE place_id = ? AND (address IS NULL OR address = '')`).run(address, row.place_id);
             db.prepare(`UPDATE ${t} SET restaurant_type = ? WHERE place_id = ?`).run(restaurantType, row.place_id);
@@ -1552,7 +1554,52 @@ app.get('/api/places', auth, (req, res) => {
     want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null })),
     all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null })),
   });
+  // Background backfill: fetch missing data from Google for places with a place_id
+  if (API_KEY) {
+    const tables = ['likes', 'dislikes', 'want_to_try', 'places'];
+    const incomplete = [];
+    const seen = new Set();
+    for (const table of tables) {
+      const rows = db.prepare(`SELECT place_id FROM ${table} WHERE user_id = ? AND place_id IS NOT NULL AND place_id != '' AND (photo_ref IS NULL OR photo_ref = '' OR address IS NULL OR address = '')`).all(uid);
+      for (const row of rows) {
+        if (!seen.has(row.place_id)) { seen.add(row.place_id); incomplete.push(row.place_id); }
+      }
+    }
+    if (incomplete.length > 0) {
+      backfillPlaces(incomplete).catch(e => console.error('Background backfill error:', e.message));
+    }
+  }
 });
+
+async function backfillPlaces(placeIds) {
+  const tables = ['likes', 'dislikes', 'want_to_try', 'places'];
+  for (const placeId of placeIds) {
+    try {
+      const r = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
+        headers: {
+          'X-Goog-Api-Key': API_KEY,
+          'X-Goog-FieldMask': 'id,displayName,formattedAddress,types,photos',
+        },
+      });
+      const data = await r.json();
+      if (data.error) continue;
+      const placeName = data.displayName?.text || null;
+      const photoRef = data.photos?.[0]?.name || null;
+      const address = data.formattedAddress || null;
+      const types = (data.types || []).map(t => t.toLowerCase());
+      const restaurantType = formatPlaceTypes(types);
+      for (const t of tables) {
+        if (photoRef) db.prepare(`UPDATE ${t} SET photo_ref = ? WHERE place_id = ? AND (photo_ref IS NULL OR photo_ref = '')`).run(photoRef, placeId);
+        if (address) db.prepare(`UPDATE ${t} SET address = ? WHERE place_id = ? AND (address IS NULL OR address = '')`).run(address, placeId);
+        if (placeName) db.prepare(`UPDATE ${t} SET place = ? WHERE place_id = ?`).run(placeName, placeId);
+        if (restaurantType) db.prepare(`UPDATE ${t} SET restaurant_type = ? WHERE place_id = ? AND (restaurant_type IS NULL OR restaurant_type = '')`).run(restaurantType, placeId);
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    } catch (e) {
+      console.error(`Backfill failed for ${placeId}:`, e.message);
+    }
+  }
+}
 
 app.post('/api/places/:type/star', auth, (req, res) => {
   const { place } = req.body;
@@ -1589,7 +1636,7 @@ app.post('/api/places/meal-types', auth, (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/places', auth, (req, res) => {
+app.post('/api/places', auth, async (req, res) => {
   const { type, place, place_id, remove, restaurant_type, address, photo_ref } = req.body;
   const validTypes = ['likes', 'want_to_try', 'dislikes'];
   if (!place) return res.status(400).json({ error: 'Missing place' });
@@ -1597,16 +1644,41 @@ app.post('/api/places', auth, (req, res) => {
   const uid = req.user.id;
   let movedFrom = null;
 
+  // If we have a place_id but missing photo/address, fetch from Google before saving
+  let finalPlace = place, finalAddress = address, finalPhotoRef = photo_ref, finalType = restaurant_type;
+  if (!remove && place_id && API_KEY && (!photo_ref || !address)) {
+    try {
+      const r = await fetch(`https://places.googleapis.com/v1/places/${place_id}`, {
+        headers: { 'X-Goog-Api-Key': API_KEY, 'X-Goog-FieldMask': 'id,displayName,formattedAddress,types,photos' },
+      });
+      const data = await r.json();
+      if (!data.error) {
+        if (data.displayName?.text) finalPlace = data.displayName.text;
+        if (!finalAddress && data.formattedAddress) finalAddress = data.formattedAddress;
+        if (!finalPhotoRef && data.photos?.[0]?.name) finalPhotoRef = data.photos[0].name;
+        if (!finalType) {
+          const types = (data.types || []).map(t => t.toLowerCase());
+          finalType = formatPlaceTypes(types) || finalType;
+        }
+      }
+    } catch (e) { /* continue with what we have */ }
+  }
+
   if (remove) {
     db.prepare(`DELETE FROM ${type} WHERE user_id = ? AND place = ?`).run(uid, place);
   } else {
-    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)').run(uid, place, place_id || null, restaurant_type || null, address || null, photo_ref || null);
+    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)').run(uid, finalPlace, place_id || null, finalType || null, finalAddress || null, finalPhotoRef || null);
     const others = { likes: ['dislikes', 'want_to_try'], want_to_try: ['likes', 'dislikes'], dislikes: ['likes', 'want_to_try'] };
     for (const tbl of others[type]) {
-      const del = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, place);
+      const del = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, finalPlace);
       if (del.changes > 0 && !movedFrom) movedFrom = tbl;
+      // Also clean up by old name in case it differs
+      if (finalPlace !== place) {
+        const del2 = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, place);
+        if (del2.changes > 0 && !movedFrom) movedFrom = tbl;
+      }
     }
-    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)`).run(uid, place, place_id || null, restaurant_type || null, address || null, photo_ref || null);
+    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)`).run(uid, finalPlace, place_id || null, finalType || null, finalAddress || null, finalPhotoRef || null);
   }
   res.json({ success: true, movedFrom });
 });
@@ -1687,8 +1759,8 @@ app.get('/api/friends/:id/likes', auth, (req, res) => {
   const friendId = req.params.id;
   const friendship = db.prepare("SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'").get(req.user.id, friendId);
   if (!friendship) return res.status(403).json({ error: 'Not friends with this user' });
-  const likes = db.prepare('SELECT DISTINCT place, place_id, restaurant_type FROM likes WHERE user_id = ?').all(friendId);
-  res.json({ likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type })) });
+  const likes = db.prepare('SELECT DISTINCT place, place_id, restaurant_type, address, photo_ref FROM likes WHERE user_id = ?').all(friendId);
+  res.json({ likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address, photo_ref: r.photo_ref })) });
 });
 
 app.delete('/api/friends/:id', auth, (req, res) => {
@@ -1712,7 +1784,7 @@ app.get('/api/common-places', auth, (req, res) => {
   if (!friendship) return res.status(403).json({ error: 'Not friends with this user' });
   const common = db.prepare(`
     SELECT DISTINCT l1.place FROM likes l1
-    JOIN likes l2 ON l2.place = l1.place
+    JOIN likes l2 ON (l2.place = l1.place OR (l1.place_id IS NOT NULL AND l1.place_id != '' AND l2.place_id = l1.place_id))
     WHERE l1.user_id = ? AND l2.user_id = ?
   `).all(req.user.id, friend.id);
   res.json({ common: common.map(r => r.place) });
@@ -2079,8 +2151,9 @@ app.get('/api/plans/:id', auth, (req, res) => {
       FROM want_to_try wt
       JOIN users u ON u.id = wt.user_id
       WHERE wt.user_id IN (${placeholders})
-        AND wt.place IN (SELECT place FROM session_suggestions WHERE session_id = ?)
-    `).all(...memberIds, planId);
+        AND (wt.place IN (SELECT place FROM session_suggestions WHERE session_id = ?)
+             OR (wt.place_id IS NOT NULL AND wt.place_id != '' AND wt.place_id IN (SELECT place_id FROM session_suggestions WHERE session_id = ? AND place_id IS NOT NULL)))
+    `).all(...memberIds, planId, planId);
     wantToTryRows.forEach(row => {
       if (!wantToTryMap[row.place]) wantToTryMap[row.place] = [];
       wantToTryMap[row.place].push({ user_id: row.user_id, username: row.username, display_name: row.display_name, profile_pic: row.profile_pic });
