@@ -10,3 +10,5 @@ services:
     volumes:
       - ./public:/usr/src/app/public
       - ./data:/usr/src/app/data
+      - ./tests:/usr/src/app/tests
+      - ./server.js:/usr/src/app/server.js

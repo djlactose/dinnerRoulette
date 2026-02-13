@@ -572,6 +572,34 @@ label {
   flex-shrink: 0;
 }
 
+.dietary-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-lg);
+  background: var(--success);
+  color: white;
+  white-space: nowrap;
+}
+.plan-dietary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.dietary-tags-create {
+  margin-top: 0.5rem;
+}
+.dietary-tags-create label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+.dietary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
 .reviews-link {
   font-size: var(--text-sm);
   padding: 0.3rem 0.6rem;
@@ -2715,6 +2743,283 @@ img.avatar-pic {
 }
 .reaction-picker-btn:hover {
   background: var(--border-light);
+}
+
+/* ── Chat Message Actions ─────────────────────────────────────────────── */
+.chat-msg-actions {
+  position: absolute;
+  top: 0;
+  right: -48px;
+  opacity: 0;
+  display: flex;
+  gap: 2px;
+  transition: opacity 0.15s;
+}
+.chat-message.own .chat-msg-actions {
+  right: auto;
+  left: -48px;
+}
+.chat-message:hover .chat-msg-actions {
+  opacity: 1;
+}
+.chat-edited {
+  font-style: italic;
+  opacity: 0.6;
+  font-size: 0.7rem;
+}
+.chat-edit-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.chat-edit-input {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: var(--text-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.chat-edit-actions {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+.chat-edit-save, .chat-edit-cancel {
+  font-size: var(--text-xs);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  min-width: auto;
+}
+.chat-edit-save {
+  background: var(--accent);
+  color: white;
+}
+.chat-edit-cancel {
+  background: var(--border-light);
+  color: var(--text-secondary);
+}
+
+/* ── Typing Indicator ─────────────────────────────────────────────────── */
+.typing-indicator {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 0.2rem 0.75rem;
+}
+
+/* ── GIF Preview ──────────────────────────────────────────────────────── */
+.gif-preview-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  border-radius: var(--radius-md);
+}
+.gif-preview-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 280px;
+}
+.gif-preview-img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+.gif-preview-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* ── Read Receipts ────────────────────────────────────────────────────── */
+.chat-seen-by {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  padding: 0 0.5rem;
+  opacity: 0.7;
+}
+.chat-message.own .chat-seen-by {
+  text-align: right;
+}
+
+/* ── Leaderboard ──────────────────────────────────────────────────────── */
+.leaderboard-section, .activity-feed-section {
+  margin-top: 1rem;
+}
+.leaderboard-metrics {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.leaderboard-self {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-card));
+}
+.leaderboard-rank {
+  font-weight: 700;
+  color: var(--text-secondary);
+  min-width: 1.5rem;
+  text-align: center;
+}
+.leaderboard-name {
+  flex: 1;
+  font-size: var(--text-sm);
+}
+.leaderboard-score {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ── Activity Feed ────────────────────────────────────────────────────── */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.activity-content {
+  display: flex;
+  flex-direction: column;
+}
+.activity-text {
+  font-size: var(--text-sm);
+}
+.activity-time {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* ── Enhanced Stats ───────────────────────────────────────────────────── */
+.adventure-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+.adventure-gauge {
+  position: relative;
+  width: 120px;
+  height: 60px;
+}
+.adventure-svg {
+  width: 100%;
+  height: 100%;
+}
+.adventure-value {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--accent);
+}
+.adventure-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.monthly-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 80px;
+  padding: 0.5rem 0;
+}
+.monthly-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.monthly-bar {
+  width: 100%;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  min-height: 4px;
+}
+.monthly-label {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+}
+.stat-extra {
+  margin-top: 0.5rem;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.stat-extra-label {
+  margin-right: 0.3rem;
+}
+
+/* ── Explore Nearby ───────────────────────────────────────────────────── */
+.nearby-section {
+  margin-bottom: 1rem;
+}
+.nearby-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.nearby-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+}
+.nearby-card-info {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.nearby-card-address {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0.25rem 0;
+}
+.nearby-rating {
+  font-size: var(--text-sm);
+  color: var(--warning);
+}
+.nearby-card-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.nearby-card-actions button {
+  font-size: var(--text-xs);
+  padding: 0.2rem 0.5rem;
 }
 
 /* ── Map View ────────────────────────────────────────────────────────────── */

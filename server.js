@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcrypt');
@@ -230,6 +231,13 @@ db.exec(`
     paused INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS message_reads (
+    session_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    last_read_message_id INTEGER NOT NULL DEFAULT 0,
+    read_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(session_id, user_id)
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -272,6 +280,8 @@ try { db.exec('ALTER TABLE sessions ADD COLUMN meal_type TEXT'); } catch (e) { /
 try { db.exec('ALTER TABLE session_suggestions ADD COLUMN meal_types TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN display_name TEXT'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN profile_pic TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE session_messages ADD COLUMN edited_at TEXT'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN dietary_tags TEXT'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -588,6 +598,9 @@ app.post('/api/profile', auth, express.json({ limit: '500kb' }), (req, res) => {
     if (profilePic !== null && (typeof profilePic !== 'string' || !profilePic.startsWith('data:image/'))) {
       return res.status(400).json({ error: 'Invalid profile picture format' });
     }
+    if (profilePic && profilePic.length > 266000) {
+      return res.status(400).json({ error: 'Profile picture too large (max 200KB)' });
+    }
     db.prepare('UPDATE users SET profile_pic = ? WHERE id = ?').run(profilePic || null, req.user.id);
   }
   const user = db.prepare('SELECT display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
@@ -675,11 +688,38 @@ app.get('/api/stats', auth, (req, res) => {
   const dislikesCount = db.prepare('SELECT COUNT(*) AS c FROM dislikes WHERE user_id = ?').get(uid).c;
   const wantToTryCount = db.prepare('SELECT COUNT(*) AS c FROM want_to_try WHERE user_id = ?').get(uid).c;
 
+  // Monthly activity (last 12 months)
+  const monthlyActivity = db.prepare(`
+    SELECT strftime('%Y-%m', s.created_at) AS month,
+           COUNT(DISTINCT s.id) AS plans_count,
+           COUNT(DISTINCT CASE WHEN s.winner_place IS NOT NULL THEN s.winner_place END) AS restaurants_visited
+    FROM session_members sm
+    JOIN sessions s ON s.id = sm.session_id
+    WHERE sm.user_id = ? AND s.created_at >= datetime('now', '-12 months')
+    GROUP BY month ORDER BY month
+  `).all(uid);
+
+  // Adventure score (unique cuisine types tried / total available)
+  const uniqueCuisines = db.prepare('SELECT COUNT(DISTINCT restaurant_type) AS c FROM likes WHERE user_id = ? AND restaurant_type IS NOT NULL').get(uid).c;
+  const totalCuisines = db.prepare('SELECT COUNT(DISTINCT restaurant_type) AS c FROM likes WHERE restaurant_type IS NOT NULL').get().c || 1;
+  const adventureScore = Math.round((uniqueCuisines / totalCuisines) * 100);
+
+  // Average group size
+  const avgGroupSize = db.prepare(`
+    SELECT ROUND(AVG(cnt), 1) AS avg FROM (
+      SELECT COUNT(*) AS cnt FROM session_members sm
+      JOIN sessions s ON s.id = sm.session_id
+      JOIN session_members sm2 ON sm2.session_id = s.id AND sm2.user_id = ?
+      GROUP BY sm.session_id
+    )
+  `).get(uid)?.avg || 0;
+
   res.json({
     restaurantsVisited, plansJoined, plansCreated, totalSuggested, suggestionsWon, winRate,
     topCuisines, topCompanions,
     upvotes, downvotes, vetoes,
     likesCount, dislikesCount, wantToTryCount,
+    monthlyActivity, adventureScore, avgGroupSize,
   });
 });
 
@@ -787,6 +827,79 @@ app.get('/api/badges/:userId', auth, (req, res) => {
   res.json(computeBadges(targetId));
 });
 
+// ── Friend Leaderboard ──────────────────────────────────────────────────────
+app.get('/api/friends/leaderboard', auth, (req, res) => {
+  const uid = req.user.id;
+  const friendIds = db.prepare(`
+    SELECT friend_id AS id FROM friends WHERE user_id = ? AND status = 'accepted'
+    UNION
+    SELECT user_id AS id FROM friends WHERE friend_id = ? AND status = 'accepted'
+  `).all(uid, uid).map(r => r.id);
+  friendIds.push(uid); // Include self
+
+  const leaderboard = friendIds.map(fid => {
+    const user = db.prepare('SELECT id, username, display_name, profile_pic FROM users WHERE id = ?').get(fid);
+    if (!user) return null;
+    const plans = db.prepare('SELECT COUNT(*) AS c FROM session_members WHERE user_id = ?').get(fid).c;
+    const totalSuggested = db.prepare('SELECT COUNT(*) AS c FROM session_suggestions WHERE user_id = ?').get(fid).c;
+    const suggestionsWon = db.prepare(`
+      SELECT COUNT(*) AS c FROM session_suggestions ss
+      JOIN sessions s ON s.id = ss.session_id
+      WHERE ss.user_id = ? AND s.status = 'closed' AND s.winner_place = ss.place
+    `).get(fid).c;
+    const winRate = totalSuggested > 0 ? Math.round((suggestionsWon / totalSuggested) * 100) : 0;
+    const restaurantsVisited = db.prepare(`
+      SELECT COUNT(DISTINCT s.winner_place) AS c FROM sessions s
+      JOIN session_members sm ON sm.session_id = s.id
+      WHERE sm.user_id = ? AND s.status = 'closed' AND s.winner_place IS NOT NULL
+    `).get(fid).c;
+    return { ...user, plans, winRate, suggestionsWon, restaurantsVisited, is_self: fid === uid };
+  }).filter(Boolean);
+
+  res.json(leaderboard);
+});
+
+// ── Activity Feed ───────────────────────────────────────────────────────────
+app.get('/api/activity', auth, (req, res) => {
+  const uid = req.user.id;
+  const friendIds = db.prepare(`
+    SELECT friend_id AS id FROM friends WHERE user_id = ? AND status = 'accepted'
+    UNION
+    SELECT user_id AS id FROM friends WHERE friend_id = ? AND status = 'accepted'
+  `).all(uid, uid).map(r => r.id);
+  if (friendIds.length === 0) return res.json([]);
+
+  const placeholders = friendIds.map(() => '?').join(',');
+  const activities = [];
+
+  // Recent likes by friends (last 7 days)
+  const recentLikes = db.prepare(`
+    SELECT l.place, l.restaurant_type, l.created_at, u.username, u.display_name, u.profile_pic, u.id AS user_id
+    FROM likes l JOIN users u ON u.id = l.user_id
+    WHERE l.user_id IN (${placeholders}) AND l.created_at >= datetime('now', '-7 days')
+    ORDER BY l.created_at DESC LIMIT 20
+  `).all(...friendIds);
+  recentLikes.forEach(l => activities.push({ type: 'like', ...l }));
+
+  // Plans created/closed by friends (last 7 days)
+  const recentPlans = db.prepare(`
+    SELECT s.name, s.status, s.winner_place, s.created_at, s.picked_at, u.username, u.display_name, u.profile_pic, u.id AS user_id
+    FROM sessions s JOIN users u ON u.id = s.creator_id
+    WHERE s.creator_id IN (${placeholders}) AND s.created_at >= datetime('now', '-7 days')
+    ORDER BY s.created_at DESC LIMIT 20
+  `).all(...friendIds);
+  recentPlans.forEach(p => activities.push({ type: p.status === 'closed' ? 'plan_closed' : 'plan_created', ...p }));
+
+  // Sort by date and limit
+  activities.sort((a, b) => {
+    const da = a.picked_at || a.created_at || '';
+    const db2 = b.picked_at || b.created_at || '';
+    return db2.localeCompare(da);
+  });
+
+  res.json(activities.slice(0, 50));
+});
+
 app.post('/api/change-password', auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
@@ -801,6 +914,86 @@ app.post('/api/change-password', auth, async (req, res) => {
   const hash = await bcrypt.hash(newPassword, 10);
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, req.user.id);
   res.json({ success: true });
+});
+
+// ── Data Export ──────────────────────────────────────────────────────────────
+app.get('/api/account/export', auth, (req, res) => {
+  try {
+  const uid = req.user.id;
+  const user = db.prepare('SELECT username, email, display_name, accent_color, created_at FROM users WHERE id = ?').get(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred, meal_types FROM likes WHERE user_id = ?').all(uid);
+  const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address FROM dislikes WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred, meal_types FROM want_to_try WHERE user_id = ?').all(uid);
+  const friends = db.prepare(`
+    SELECT u.username, u.display_name, f.status
+    FROM friends f JOIN users u ON u.id = f.friend_id
+    WHERE f.user_id = ? AND f.status = 'accepted'
+  `).all(uid);
+  const plansCreated = db.prepare('SELECT id, name, code, status, winner_place, meal_type, dietary_tags, created_at, picked_at FROM sessions WHERE creator_id = ?').all(uid);
+  const plansJoined = db.prepare(`
+    SELECT s.id, s.name, s.status, s.winner_place, s.meal_type, s.created_at, s.picked_at
+    FROM session_members sm JOIN sessions s ON s.id = sm.session_id
+    WHERE sm.user_id = ? AND s.creator_id != ?
+  `).all(uid, uid);
+  const messages = db.prepare(`
+    SELECT sm.message, sm.message_type, sm.created_at, s.name AS plan_name
+    FROM session_messages sm JOIN sessions s ON s.id = sm.session_id
+    WHERE sm.user_id = ?
+  `).all(uid);
+  const suggestions = db.prepare(`
+    SELECT ss.place, s.name AS plan_name, ss.restaurant_type
+    FROM session_suggestions ss JOIN sessions s ON s.id = ss.session_id
+    WHERE ss.user_id = ?
+  `).all(uid);
+
+  const exportData = {
+    export_date: new Date().toISOString(),
+    user: { username: user.username, email: user.email, display_name: user.display_name, accent_color: user.accent_color, account_created: user.created_at },
+    places: { likes, dislikes, want_to_try: wantToTry },
+    social: { friends },
+    plans: { created: plansCreated, participated: plansJoined },
+    activity: { messages_sent: messages, suggestions_made: suggestions }
+  };
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="dinner-roulette-export-${Date.now()}.json"`);
+  res.json(exportData);
+  } catch (e) { console.error('Export error:', e.message); res.status(500).json({ error: 'Export failed: ' + e.message }); }
+});
+
+// ── Calendar Export ──────────────────────────────────────────────────────────
+app.get('/api/plans/:id/calendar', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+  const plan = db.prepare('SELECT * FROM sessions WHERE id = ?').get(planId);
+  if (!plan || !plan.winner_place) return res.status(400).json({ error: 'Plan has no winner yet' });
+
+  const winnerLike = db.prepare('SELECT place, address FROM likes WHERE place = ? LIMIT 1').get(plan.winner_place);
+  const winnerAddress = winnerLike?.address || null;
+
+  const dt = plan.picked_at ? new Date(plan.picked_at + (plan.picked_at.includes('Z') ? '' : 'Z')) : new Date();
+  const fmt = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const endDt = new Date(dt.getTime() + 2 * 60 * 60 * 1000); // 2 hours
+
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Dinner Roulette//EN',
+    'BEGIN:VEVENT',
+    `DTSTART:${fmt(dt)}`,
+    `DTEND:${fmt(endDt)}`,
+    `SUMMARY:${plan.name} - ${plan.winner_place}`,
+    winnerAddress ? `LOCATION:${winnerAddress}` : '',
+    `DESCRIPTION:Winner picked via Dinner Roulette`,
+    `UID:dinner-roulette-${plan.id}@app`,
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].filter(Boolean).join('\r\n');
+
+  res.setHeader('Content-Type', 'text/calendar');
+  res.setHeader('Content-Disposition', `attachment; filename="dinner-${plan.code}.ics"`);
+  res.send(ics);
 });
 
 app.post('/api/delete-account', auth, async (req, res) => {
@@ -1193,6 +1386,29 @@ app.delete('/api/admin/plans/:id', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// ── Admin Backup ─────────────────────────────────────────────────────────────────
+app.post('/api/admin/backup', adminAuth, async (req, res) => {
+  try {
+    const backupDir = path.join(path.dirname(DB_PATH), 'backups');
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFile = path.join(backupDir, `db-backup-${timestamp}.sqlite`);
+    await db.backup(backupFile);
+    // Rotate: keep last 7 backups
+    const files = fs.readdirSync(backupDir)
+      .filter(f => f.startsWith('db-backup-') && f.endsWith('.sqlite'))
+      .sort()
+      .reverse();
+    for (const old of files.slice(7)) {
+      fs.unlinkSync(path.join(backupDir, old));
+    }
+    res.json({ success: true, file: path.basename(backupFile), count: Math.min(files.length, 7) });
+  } catch (e) {
+    console.error('Backup failed:', e);
+    res.status(500).json({ error: 'Backup failed' });
+  }
+});
+
 // ── Places Routes ───────────────────────────────────────────────────────────────
 app.get('/api/autocomplete', auth, async (req, res) => {
   if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
@@ -1260,6 +1476,41 @@ app.get('/api/place-details', auth, async (req, res) => {
     res.json({ result, status: 'OK' });
   } catch (e) {
     console.error('Place details proxy error:', e.message);
+    res.status(500).json({ error: 'Proxy error' });
+  }
+});
+
+// ── Explore Nearby ──────────────────────────────────────────────────────────
+app.get('/api/places/nearby', auth, async (req, res) => {
+  if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
+  const { lat, lng } = req.query;
+  if (!lat || !lng) return res.status(400).json({ error: 'Missing lat/lng' });
+  try {
+    const r = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': API_KEY, 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.types,places.rating,places.priceLevel,places.photos,places.location' },
+      body: JSON.stringify({
+        includedPrimaryTypes: ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway'],
+        maxResultCount: 20,
+        locationRestriction: { circle: { center: { latitude: parseFloat(lat), longitude: parseFloat(lng) }, radius: 2000.0 } }
+      }),
+    });
+    const data = await r.json();
+    if (data.error) return res.status(data.error.code || 500).json({ error: data.error.message });
+    const places = (data.places || []).map(p => ({
+      place_id: p.id,
+      name: p.displayName?.text || '',
+      address: p.formattedAddress || '',
+      types: (p.types || []).map(t => t.toLowerCase()),
+      rating: p.rating,
+      price_level: p.priceLevel ? ['FREE', 'INEXPENSIVE', 'MODERATE', 'EXPENSIVE', 'VERY_EXPENSIVE'].indexOf(p.priceLevel) : null,
+      photo_ref: p.photos?.[0]?.name || null,
+      lat: p.location?.latitude,
+      lng: p.location?.longitude,
+    }));
+    res.json({ places });
+  } catch (e) {
+    console.error('Nearby search error:', e.message);
     res.status(500).json({ error: 'Proxy error' });
   }
 });
@@ -1680,14 +1931,15 @@ app.post('/api/recurring-plans/:id/skip', auth, (req, res) => {
 
 // ── Plan Routes ──────────────────────────────────────────────────────────────
 app.post('/api/plans', auth, (req, res) => {
-  const { name, veto_limit, meal_type } = req.body;
+  const { name, veto_limit, meal_type, dietary_tags } = req.body;
   const code = generatePlanCode();
   const vetoLimit = (veto_limit != null && veto_limit >= 0) ? veto_limit : 1;
+  const dietaryStr = Array.isArray(dietary_tags) ? dietary_tags.join(',') : (dietary_tags || null);
   try {
-    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit, meal_type) VALUES (?, ?, ?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan', vetoLimit, meal_type || null);
+    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit, meal_type, dietary_tags) VALUES (?, ?, ?, ?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan', vetoLimit, meal_type || null, dietaryStr);
     const planId = result.lastInsertRowid;
     db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, req.user.id);
-    res.json({ id: planId, code, name: name || 'Dinner Plan', meal_type: meal_type || null });
+    res.json({ id: planId, code, name: name || 'Dinner Plan', meal_type: meal_type || null, dietary_tags: dietaryStr });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create plan' });
   }
@@ -2178,7 +2430,7 @@ app.get('/api/plans/:id/messages', auth, (req, res) => {
   if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
   const messages = db.prepare(`
-    SELECT sm.id, sm.message, sm.message_type, sm.created_at, sm.user_id, u.username, u.display_name, u.profile_pic
+    SELECT sm.id, sm.message, sm.message_type, sm.created_at, sm.edited_at, sm.user_id, u.username, u.display_name, u.profile_pic
     FROM session_messages sm
     JOIN users u ON u.id = sm.user_id
     WHERE sm.session_id = ?
@@ -2301,11 +2553,73 @@ app.delete('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
   res.json({ success: true });
 });
 
+// Delete a chat message (author or admin)
+app.delete('/api/plans/:id/messages/:messageId', auth, (req, res) => {
+  const planId = req.params.id;
+  const messageId = req.params.messageId;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+  const msg = db.prepare('SELECT user_id FROM session_messages WHERE id = ? AND session_id = ?').get(messageId, planId);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+  const isAdmin = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.user.id)?.is_admin;
+  if (msg.user_id !== req.user.id && !isAdmin) return res.status(403).json({ error: 'Permission denied' });
+  db.prepare('DELETE FROM message_reactions WHERE message_id = ?').run(messageId);
+  db.prepare('DELETE FROM session_messages WHERE id = ?').run(messageId);
+  io.to(`plan:${planId}`).emit('plan:message-deleted', { message_id: Number(messageId) });
+  res.json({ success: true });
+});
+
+// Edit a chat message (author only)
+app.patch('/api/plans/:id/messages/:messageId', auth, (req, res) => {
+  const planId = req.params.id;
+  const messageId = req.params.messageId;
+  const { message } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+  if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+  const msg = db.prepare('SELECT user_id, message_type FROM session_messages WHERE id = ? AND session_id = ?').get(messageId, planId);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+  if (msg.user_id !== req.user.id) return res.status(403).json({ error: 'Only the author can edit a message' });
+  if (msg.message_type === 'gif') return res.status(400).json({ error: 'Cannot edit GIF messages' });
+  db.prepare('UPDATE session_messages SET message = ?, edited_at = datetime(\'now\') WHERE id = ?').run(message.trim(), messageId);
+  io.to(`plan:${planId}`).emit('plan:message-edited', { message_id: Number(messageId), message: message.trim(), edited_at: new Date().toISOString() });
+  res.json({ success: true });
+});
+
+// ── Read Receipts ───────────────────────────────────────────────────────────
+app.post('/api/plans/:id/messages/read', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+  const lastMsg = db.prepare('SELECT MAX(id) AS max_id FROM session_messages WHERE session_id = ?').get(planId);
+  if (!lastMsg?.max_id) return res.json({ success: true });
+  db.prepare('INSERT INTO message_reads (session_id, user_id, last_read_message_id, read_at) VALUES (?, ?, ?, datetime(\'now\')) ON CONFLICT(session_id, user_id) DO UPDATE SET last_read_message_id = ?, read_at = datetime(\'now\')').run(planId, req.user.id, lastMsg.max_id, lastMsg.max_id);
+  const user = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(req.user.id);
+  io.to(`plan:${planId}`).emit('plan:messages-read', { user_id: req.user.id, username: user.username, display_name: user.display_name, last_read_message_id: lastMsg.max_id });
+  res.json({ success: true });
+});
+
+app.get('/api/plans/:id/messages/reads', auth, (req, res) => {
+  const planId = req.params.id;
+  const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
+  const reads = db.prepare(`
+    SELECT mr.user_id, mr.last_read_message_id, u.username, u.display_name
+    FROM message_reads mr JOIN users u ON u.id = mr.user_id
+    WHERE mr.session_id = ?
+  `).all(planId);
+  res.json(reads);
+});
+
 // ── Giphy GIF Proxy ──────────────────────────────────────────────────────────
 let GIPHY_API_KEY = getSetting('giphy_api_key');
 if (!GIPHY_API_KEY && process.env.GIPHY_API_KEY) {
   GIPHY_API_KEY = process.env.GIPHY_API_KEY;
   setSetting('giphy_api_key', GIPHY_API_KEY);
+}
+if (!GIPHY_API_KEY) {
+  console.warn('WARNING: Giphy API key not set — configure via admin panel.');
 }
 
 app.get('/api/giphy/search', auth, async (req, res) => {
@@ -2390,6 +2704,17 @@ io.on('connection', (socket) => {
 
   socket.on('leave-plan', (planId) => {
     socket.leave(`plan:${planId}`);
+  });
+
+  socket.on('typing-start', (planId) => {
+    const membership = db.prepare('SELECT 1 FROM session_members WHERE session_id = ? AND user_id = ?').get(planId, socket.user.id);
+    if (!membership) return;
+    const user = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(socket.user.id);
+    socket.to(`plan:${planId}`).emit('user-typing', { user_id: socket.user.id, username: user.username, display_name: user.display_name });
+  });
+
+  socket.on('typing-stop', (planId) => {
+    socket.to(`plan:${planId}`).emit('user-stopped-typing', { user_id: socket.user.id });
   });
 });
 

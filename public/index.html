@@ -38,7 +38,7 @@
     <!-- Confirm Modal -->
     <div class="confirm-overlay" x-show="confirmModal.visible" x-transition.opacity.duration.200ms
          @click.self="confirmModal.onCancel()">
-      <div class="confirm-modal" x-show="confirmModal.visible" x-transition.scale.origin.center>
+      <div class="confirm-modal" x-show="confirmModal.visible" x-transition.scale.origin.center role="dialog" aria-modal="true">
         <p x-text="confirmModal.message"></p>
         <div class="confirm-modal-actions">
           <button class="back-btn" @click="confirmModal.onCancel()">Cancel</button>
@@ -50,8 +50,8 @@
     <!-- QR Code Modal -->
     <div class="qr-overlay" x-show="qrModal.visible" x-transition.opacity.duration.200ms
          @click.self="qrModal.visible = false">
-      <div class="qr-modal" x-show="qrModal.visible" x-transition.scale.origin.center>
-        <h3>Scan to Join</h3>
+      <div class="qr-modal" x-show="qrModal.visible" x-transition.scale.origin.center role="dialog" aria-modal="true" aria-labelledby="qr-modal-title">
+        <h3 id="qr-modal-title">Scan to Join</h3>
         <p class="qr-plan-name" x-text="activePlan?.plan?.name"></p>
         <div class="qr-code-container">
           <img :src="qrModal.dataUrl" alt="QR code for plan invite" x-show="qrModal.dataUrl" />
@@ -332,6 +332,32 @@
               <button class="filter-chip" :class="{ active: placeMealTypeFilter === mt }"
                       @click="placeMealTypeFilter = mt" x-text="mt"></button>
             </template>
+          </div>
+
+          <!-- Explore Nearby -->
+          <div class="nearby-section">
+            <button class="account-btn" @click="exploreNearby()" :disabled="nearbyLoading">
+              <span x-show="!nearbyLoading">Explore Nearby</span>
+              <span x-show="nearbyLoading">Searching...</span>
+            </button>
+            <div x-show="nearbyError" class="warning-text" x-text="nearbyError"></div>
+            <div x-show="nearbyPlaces.length > 0" class="nearby-grid">
+              <template x-for="place in nearbyPlaces" :key="place.place_id">
+                <div class="nearby-card">
+                  <div class="nearby-card-info">
+                    <strong x-text="place.name"></strong>
+                    <span class="type-badge" x-show="place.types && place.types[0]" x-text="place.types[0]"></span>
+                    <span x-show="place.rating" class="nearby-rating" x-text="'★ ' + place.rating"></span>
+                  </div>
+                  <div class="nearby-card-address" x-text="place.address"></div>
+                  <div class="nearby-card-actions">
+                    <button class="suggest-btn" @click="addNearbyToList(place, 'like')">Like</button>
+                    <button class="back-btn" @click="addNearbyToList(place, 'want_to_try')">Want to Try</button>
+                    <button class="remove-btn" @click="addNearbyToList(place, 'dislike')">Dislike</button>
+                  </div>
+                </div>
+              </template>
+            </div>
           </div>
 
           <!-- Quick Pick -->
@@ -761,6 +787,50 @@
               <p class="empty-state-hint">Enter a username above and send a friend request.</p>
             </div>
           </div>
+
+          <!-- Leaderboard -->
+          <div x-show="friends.length > 0" class="leaderboard-section">
+            <div class="section-header-inline">
+              <h4>Leaderboard</h4>
+              <button class="suggest-btn" @click="loadLeaderboard()" x-show="leaderboard.length === 0">Load</button>
+            </div>
+            <div x-show="leaderboard.length > 0">
+              <div class="leaderboard-metrics">
+                <button class="filter-chip" :class="{ active: leaderboardMetric === 'plans' }" @click="switchLeaderboardMetric('plans')">Plans</button>
+                <button class="filter-chip" :class="{ active: leaderboardMetric === 'winRate' }" @click="switchLeaderboardMetric('winRate')">Win Rate</button>
+                <button class="filter-chip" :class="{ active: leaderboardMetric === 'restaurantsVisited' }" @click="switchLeaderboardMetric('restaurantsVisited')">Visited</button>
+              </div>
+              <div class="leaderboard-list">
+                <template x-for="(entry, idx) in leaderboard" :key="entry.id">
+                  <div class="leaderboard-row" :class="{ 'leaderboard-self': entry.is_self }">
+                    <span class="leaderboard-rank" x-text="idx + 1"></span>
+                    <span class="avatar avatar-xs" :class="{ 'avatar-pic': entry.profile_pic }" :style="avatarStyle(entry)" x-text="entry.profile_pic ? '' : getInitials(entry.display_name || entry.username)"></span>
+                    <span class="leaderboard-name" x-text="entry.display_name || entry.username"></span>
+                    <span class="leaderboard-score" x-text="leaderboardMetric === 'winRate' ? entry[leaderboardMetric] + '%' : entry[leaderboardMetric]"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Activity Feed -->
+          <div x-show="friends.length > 0" class="activity-feed-section">
+            <div class="section-header-inline">
+              <h4>Friend Activity</h4>
+              <button class="suggest-btn" @click="loadActivityFeed()" x-show="activityFeed.length === 0">Load</button>
+            </div>
+            <div x-show="activityFeed.length > 0" class="activity-feed">
+              <template x-for="(item, idx) in activityFeed" :key="idx">
+                <div class="activity-item">
+                  <span class="avatar avatar-xxs" :class="{ 'avatar-pic': item.profile_pic }" :style="avatarStyle(item)" x-text="item.profile_pic ? '' : getInitials(item.display_name || item.username)"></span>
+                  <div class="activity-content">
+                    <span class="activity-text" x-text="activityText(item)"></span>
+                    <span class="activity-time" x-text="activityTime(item)"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
         </section>
 
         <!-- ═══ PLANS TAB ═══ -->
@@ -788,6 +858,16 @@
                       <option :value="mt" x-text="mt"></option>
                     </template>
                   </select>
+                </div>
+              </div>
+              <div class="dietary-tags-create" x-show="planDietaryTags !== undefined">
+                <label>Dietary restrictions:</label>
+                <div class="dietary-chips">
+                  <template x-for="tag in dietaryOptions" :key="tag">
+                    <button class="filter-chip" :class="{ active: planDietaryTags.includes(tag) }"
+                            @click="planDietaryTags.includes(tag) ? planDietaryTags = planDietaryTags.filter(t => t !== tag) : planDietaryTags.push(tag)"
+                            x-text="tag" type="button"></button>
+                  </template>
                 </div>
               </div>
               <div class="inline-input" style="margin-top: 0.5rem;">
@@ -910,6 +990,7 @@
                           <a class="mini-reservation-link opentable" :href="openTableUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="OpenTable">OT</a>
                           <a class="mini-reservation-link yelp" :href="yelpUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Yelp">Y</a>
                           <a class="mini-reservation-link google" :href="reservationSearchUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Reservations">R</a>
+                          <button class="mini-reservation-link calendar" @click.stop="exportCalendar(s.id)" title="Add to Calendar" aria-label="Add to calendar">Cal</button>
                         </span>
                         <button class="remove-btn" x-show="s.creator_id === userId"
                                 @click.stop="deletePlan(s.id)" aria-label="Delete plan">Delete</button>
@@ -988,6 +1069,11 @@
                 </select>
                 <span class="type-badge" x-show="activePlan?.plan?.meal_type && activePlan?.plan?.status !== 'open'"
                       x-text="activePlan?.plan?.meal_type"></span>
+                <div class="plan-dietary-tags" x-show="activePlan?.plan?.dietary_tags">
+                  <template x-for="tag in (activePlan?.plan?.dietary_tags || '').split(',').filter(t => t)" :key="tag">
+                    <span class="dietary-badge" x-text="tag"></span>
+                  </template>
+                </div>
                 <button class="share-invite-btn" @click="sharePlanInvite()"
                         x-show="activePlan?.plan?.status === 'open'" aria-label="Share invite"><svg class="icon" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg></button>
                 <button class="share-invite-btn" @click="showQrCode()"
@@ -1586,6 +1672,38 @@
                   <span class="stat-pie-legend-item"><span class="stat-pie-dot" style="background: var(--warning);"></span> Want to Try: <strong x-text="userStats?.wantToTryCount || 0"></strong></span>
                 </div>
               </div>
+
+              <!-- Adventure Score -->
+              <h4>Adventure Score</h4>
+              <div class="adventure-score">
+                <div class="adventure-gauge">
+                  <svg viewBox="0 0 100 50" class="adventure-svg">
+                    <path d="M 10 45 A 40 40 0 0 1 90 45" fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round" />
+                    <path d="M 10 45 A 40 40 0 0 1 90 45" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"
+                          :stroke-dasharray="(userStats?.adventureScore || 0) * 1.26 + ' 126'" />
+                  </svg>
+                  <span class="adventure-value" x-text="(userStats?.adventureScore || 0) + '%'"></span>
+                </div>
+                <span class="adventure-label">Cuisine variety explored</span>
+              </div>
+
+              <!-- Monthly Activity -->
+              <h4 x-show="userStats?.monthlyActivity?.length > 0">Monthly Activity</h4>
+              <div class="monthly-chart" x-show="userStats?.monthlyActivity?.length > 0">
+                <template x-for="m in (userStats?.monthlyActivity || [])" :key="m.month">
+                  <div class="monthly-bar-col">
+                    <div class="monthly-bar" :style="{ height: Math.max(m.plans_count * 15, 4) + 'px' }"
+                         :title="m.plans_count + ' plans'"></div>
+                    <span class="monthly-label" x-text="m.month.split('-')[1]"></span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Average Group Size -->
+              <div class="stat-extra" x-show="userStats?.avgGroupSize">
+                <span class="stat-extra-label">Avg Group Size:</span>
+                <strong x-text="userStats?.avgGroupSize"></strong>
+              </div>
             </div>
           </div>
 
@@ -1648,7 +1766,11 @@
 
           <!-- Danger Zone Sub-tab -->
           <div x-show="accountTab === 'danger'">
-            <h4 class="danger-zone">Delete Account</h4>
+            <h4>Export Data</h4>
+            <p class="warning-text">Download all your data as a JSON file.</p>
+            <button class="account-btn" @click="exportData()">Export My Data</button>
+
+            <h4 class="danger-zone" style="margin-top: 1.5rem;">Delete Account</h4>
             <p class="warning-text">This will permanently delete your account and all data.</p>
             <input type="password" x-model="accountForm.deletePassword" placeholder="Enter password to confirm" aria-label="Password to confirm deletion" />
             <button class="remove-btn" @click="deleteAccount()">Delete My Account</button>
@@ -1705,6 +1827,11 @@
                 <span class="admin-status-indicator" :class="adminStats?.vapid_source !== 'none' ? 'configured' : 'not-configured'"></span>
                 <span x-text="adminStats?.vapid_source ? ('Source: ' + adminStats.vapid_source) : 'Not configured'"
                       :style="{ color: adminStats?.vapid_source && adminStats.vapid_source !== 'none' ? 'var(--success)' : 'var(--danger)' }"></span>
+              </div>
+              <div style="margin-top: 1rem;">
+                <button class="btn btn-primary" @click="adminBackup()" :disabled="adminBackingUp" aria-label="Create database backup">
+                  <span x-text="adminBackingUp ? 'Backing up...' : 'Backup Database'"></span>
+                </button>
               </div>
             </div>
           </div>
@@ -1931,15 +2058,35 @@
         <div x-show="chatMessages.length === 0" class="chat-empty">
           No messages yet. Start the conversation!
         </div>
-        <template x-for="msg in chatMessages" :key="msg.id">
+        <template x-for="(msg, msgIdx) in chatMessages" :key="msg.id">
           <div class="chat-message" :class="{ own: msg.user_id === userId }">
             <span class="chat-avatar avatar avatar-xs" :class="{ 'avatar-pic': msg.profile_pic }" :style="avatarStyle(msg)" x-text="msg.profile_pic ? '' : getInitials(msg.display_name || msg.username)"></span>
             <div class="chat-bubble-wrapper">
               <div class="chat-bubble" :class="{ 'chat-bubble-gif': msg.message_type === 'gif' }">
                 <div class="chat-bubble-name" x-show="msg.user_id !== userId" x-text="msg.display_name || msg.username"></div>
-                <div x-show="msg.message_type !== 'gif'" x-html="formatMessageWithMentions(msg.message)"></div>
-                <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" referrerpolicy="no-referrer" />
-                <div class="chat-bubble-time" x-text="formatChatTime(msg.created_at)"></div>
+                <template x-if="editingMessageId === msg.id">
+                  <div class="chat-edit-inline">
+                    <input type="text" x-model="editingMessageText" @keydown.enter="saveMessageEdit()" @keydown.escape="cancelEditMessage()" class="chat-edit-input" />
+                    <div class="chat-edit-actions">
+                      <button class="chat-edit-save" @click="saveMessageEdit()" aria-label="Save edit">Save</button>
+                      <button class="chat-edit-cancel" @click="cancelEditMessage()" aria-label="Cancel edit">Cancel</button>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="editingMessageId !== msg.id">
+                  <div>
+                    <div x-show="msg.message_type !== 'gif'" x-html="formatMessageWithMentions(msg.message)"></div>
+                    <img x-show="msg.message_type === 'gif'" :src="msg.message" alt="GIF" class="chat-gif" referrerpolicy="no-referrer" />
+                    <div class="chat-bubble-time">
+                      <span x-text="formatChatTime(msg.created_at)"></span>
+                      <span x-show="msg.edited_at" class="chat-edited">(edited)</span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div class="chat-msg-actions" x-show="msg.user_id === userId || isAdmin">
+                <button class="react-trigger" x-show="msg.user_id === userId && msg.message_type !== 'gif'" @click="editChatMessage(msg)" title="Edit" aria-label="Edit message">&#9998;</button>
+                <button class="react-trigger" @click="deleteChatMessage(msg.id)" title="Delete" aria-label="Delete message">&times;</button>
               </div>
               <div class="chat-reactions" x-show="msg.reactions && msg.reactions.length > 0">
                 <template x-for="group in groupedReactions(msg.reactions)" :key="group.emoji">
@@ -1951,7 +2098,7 @@
                   </button>
                 </template>
               </div>
-              <button class="react-trigger" @click.stop="openReactionPicker(msg.id)" title="React">+</button>
+              <button class="react-trigger" @click.stop="openReactionPicker(msg.id)" title="React" aria-label="Add reaction">+</button>
               <div class="reaction-picker" x-show="reactionPickerMessageId === msg.id"
                    @click.outside="reactionPickerMessageId = null">
                 <template x-for="e in ['👍','❤️','😂','😮','😢','🎉','🍕','🔥']" :key="e">
@@ -1959,6 +2106,7 @@
                 </template>
               </div>
             </div>
+            <div class="chat-seen-by" x-show="isLastReadForSomeone(msg.id, msgIdx)" x-text="seenBy(msg.id)"></div>
           </div>
         </template>
       </div>
@@ -1987,14 +2135,27 @@
         <div x-show="gifError" class="chat-empty" x-text="gifError" style="color: var(--danger)"></div>
         <div class="gif-grid" x-show="!gifLoading && !gifError">
           <template x-for="gif in gifResults" :key="gif.id">
-            <img :src="gif.preview" @click="sendGif(gif.url)" alt="GIF"
+            <img :src="gif.preview" @click="gifPreview = gif.url" alt="GIF"
                  class="gif-thumb" referrerpolicy="no-referrer" />
           </template>
           <div x-show="gifResults.length === 0 && gifSearchQuery" class="chat-empty">No GIFs found</div>
         </div>
         <div x-show="gifLoading" class="chat-empty">Loading...</div>
         <div class="giphy-attribution">Powered by GIPHY</div>
+        <!-- GIF Preview -->
+        <div class="gif-preview-overlay" x-show="gifPreview" x-transition @click.self="gifPreview = null">
+          <div class="gif-preview-card">
+            <img :src="gifPreview" alt="GIF preview" class="gif-preview-img" referrerpolicy="no-referrer" />
+            <div class="gif-preview-actions">
+              <button class="back-btn" @click="gifPreview = null">Cancel</button>
+              <button class="suggest-btn" @click="sendGif(gifPreview); gifPreview = null">Send</button>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Typing Indicator -->
+      <div class="typing-indicator" x-show="typingUsers.length > 0" x-text="typingText" x-transition></div>
 
       <!-- Chat Input Row -->
       <div class="chat-input-wrapper">
@@ -2023,11 +2184,11 @@
           </template>
         </div>
         <button class="chat-action-btn" @click="toggleEmojiPicker()" title="Emoji"
-                :class="{ active: emojiPickerVisible }">😀</button>
+                :class="{ active: emojiPickerVisible }" aria-label="Open emoji picker">😀</button>
         <button class="chat-action-btn" @click="toggleGifSearch()" title="GIF"
-                :class="{ active: gifSearchVisible }">GIF</button>
+                :class="{ active: gifSearchVisible }" aria-label="Search GIFs">GIF</button>
         <input x-ref="chatInputField" x-model="chatInput" placeholder="Type a message... (@mention)"
-               maxlength="500" @input="onChatInput()" @keydown="onMentionKeydown($event)"
+               maxlength="500" @input="onChatInput(); handleChatTyping()" @keydown="onMentionKeydown($event)"
                @keydown.enter="if (!mentionDropdownVisible) sendChatMessage()"
                aria-label="Chat message" />
         <button class="suggest-btn" @click="sendChatMessage()" :disabled="!chatInput.trim()" aria-label="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>

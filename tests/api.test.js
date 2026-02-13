@@ -1722,3 +1722,334 @@ describe('Password Reset', () => {
     expect(reuse.body.valid).toBe(false);
   });
 });
+
+// ── Profile Photo Validation Tests ──────────────────────────────────────────
+
+describe('Profile Photo Validation', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('photovaluser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('POST /api/profile — rejects invalid format profile picture', async () => {
+    const res = await request(app).post('/api/profile').set('Cookie', cookie)
+      .send({ profilePic: 'not-a-data-uri' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Invalid profile picture/);
+  });
+
+  test('POST /api/profile — accepts valid-sized profile picture', async () => {
+    const small = 'data:image/jpeg;base64,' + 'A'.repeat(1000);
+    const res = await request(app).post('/api/profile').set('Cookie', cookie)
+      .send({ profilePic: small });
+    expect(res.status).toBe(200);
+  });
+
+  test('POST /api/profile — accepts null to remove picture', async () => {
+    const res = await request(app).post('/api/profile').set('Cookie', cookie)
+      .send({ profilePic: null });
+    expect(res.status).toBe(200);
+  });
+});
+
+// ── Message Deletion Tests ──────────────────────────────────────────────────
+
+describe('Message Deletion', () => {
+  let cookie1, cookie2, cookie3, planId, messageId;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('msgdeluser1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('msgdeluser2', 'password123');
+    cookie2 = r2.cookie;
+    const r3 = await registerUser('msgdeluser3', 'password123');
+    cookie3 = r3.cookie;
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'Delete Msg Plan' });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+    const msgRes = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'To be deleted' });
+    messageId = msgRes.body.message.id;
+  });
+
+  test('DELETE /api/plans/:id/messages/:messageId — author can delete', async () => {
+    // Send another message for this test
+    const msg = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'Author will delete this' });
+    const res = await request(app).delete(`/api/plans/${planId}/messages/${msg.body.message.id}`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('DELETE /api/plans/:id/messages/:messageId — non-author gets 403', async () => {
+    const res = await request(app).delete(`/api/plans/${planId}/messages/${messageId}`).set('Cookie', cookie2);
+    expect(res.status).toBe(403);
+  });
+
+  test('DELETE /api/plans/:id/messages/:messageId — non-member gets 403', async () => {
+    const res = await request(app).delete(`/api/plans/${planId}/messages/${messageId}`).set('Cookie', cookie3);
+    expect(res.status).toBe(403);
+  });
+
+  test('DELETE /api/plans/:id/messages/:messageId — admin can delete others messages', async () => {
+    // Make msgdeluser2 admin
+    const me2 = await request(app).get('/api/me').set('Cookie', cookie2);
+    db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(me2.body.id);
+    const loginRes = await request(app).post('/api/login')
+      .send({ username: 'msgdeluser2', password: 'password123' });
+    const adminCookie = loginRes.headers['set-cookie'];
+
+    const res = await request(app).delete(`/api/plans/${planId}/messages/${messageId}`).set('Cookie', adminCookie);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ── Message Editing Tests ───────────────────────────────────────────────────
+
+describe('Message Editing', () => {
+  let cookie1, cookie2, planId, messageId;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('msgedituser1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('msgedituser2', 'password123');
+    cookie2 = r2.cookie;
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'Edit Msg Plan' });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+    const msgRes = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'Original text' });
+    messageId = msgRes.body.message.id;
+  });
+
+  test('PATCH /api/plans/:id/messages/:messageId — author can edit', async () => {
+    const res = await request(app).patch(`/api/plans/${planId}/messages/${messageId}`).set('Cookie', cookie1)
+      .send({ message: 'Edited text' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    // Verify the message was updated
+    const msgs = await request(app).get(`/api/plans/${planId}/messages`).set('Cookie', cookie1);
+    const msg = msgs.body.messages.find(m => m.id === messageId);
+    expect(msg.message).toBe('Edited text');
+    expect(msg.edited_at).toBeDefined();
+  });
+
+  test('PATCH /api/plans/:id/messages/:messageId — non-author gets 403', async () => {
+    const res = await request(app).patch(`/api/plans/${planId}/messages/${messageId}`).set('Cookie', cookie2)
+      .send({ message: 'Hacked text' });
+    expect(res.status).toBe(403);
+  });
+
+  test('PATCH /api/plans/:id/messages/:messageId — empty message rejected', async () => {
+    const res = await request(app).patch(`/api/plans/${planId}/messages/${messageId}`).set('Cookie', cookie1)
+      .send({ message: '   ' });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /api/plans/:id/messages/:messageId — cannot edit GIF messages', async () => {
+    const gif = await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'https://media0.giphy.com/media/test/giphy.gif', message_type: 'gif' });
+    const res = await request(app).patch(`/api/plans/${planId}/messages/${gif.body.message.id}`).set('Cookie', cookie1)
+      .send({ message: 'Try to edit gif' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/GIF/);
+  });
+});
+
+// ── Data Export Tests ───────────────────────────────────────────────────────
+
+describe('Data Export', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('exportuser', 'password123', 'export@test.com');
+    cookie = result.cookie;
+    // Add some data
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ type: 'likes', place: 'Export Cafe', place_id: 'ec001' });
+  });
+
+  test('GET /api/account/export — returns user data', async () => {
+    const res = await request(app).get('/api/account/export').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.user.username).toBe('exportuser');
+    expect(res.body.user.email).toBe('export@test.com');
+    expect(res.body.places.likes.some(p => p.place === 'Export Cafe')).toBe(true);
+    expect(res.body.export_date).toBeDefined();
+  });
+
+  test('GET /api/account/export — does not include password hash', async () => {
+    const res = await request(app).get('/api/account/export').set('Cookie', cookie);
+    expect(JSON.stringify(res.body)).not.toMatch(/password/i);
+  });
+
+  test('GET /api/account/export — has Content-Disposition header', async () => {
+    const res = await request(app).get('/api/account/export').set('Cookie', cookie);
+    expect(res.headers['content-disposition']).toMatch(/attachment/);
+  });
+
+  test('GET /api/account/export — 401 without auth', async () => {
+    const res = await request(app).get('/api/account/export');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Calendar Export Tests ───────────────────────────────────────────────────
+
+describe('Calendar Export', () => {
+  let cookie, planId;
+
+  beforeAll(async () => {
+    const result = await registerUser('caluser', 'password123');
+    cookie = result.cookie;
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie)
+      .send({ name: 'Calendar Plan' });
+    planId = sess.body.id;
+    await request(app).post(`/api/plans/${planId}/suggest`).set('Cookie', cookie)
+      .send({ place: 'Calendar Restaurant' });
+    await request(app).post(`/api/plans/${planId}/pick`).set('Cookie', cookie)
+      .send({ mode: 'random' });
+  });
+
+  test('GET /api/plans/:id/calendar — returns valid .ics content', async () => {
+    const res = await request(app).get(`/api/plans/${planId}/calendar`).set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/calendar/);
+    expect(res.text).toContain('BEGIN:VCALENDAR');
+    expect(res.text).toContain('Calendar Restaurant');
+    expect(res.text).toContain('END:VCALENDAR');
+  });
+
+  test('GET /api/plans/:id/calendar — plan without winner returns 400', async () => {
+    const sess2 = await request(app).post('/api/plans').set('Cookie', cookie)
+      .send({ name: 'No Winner Plan' });
+    const res = await request(app).get(`/api/plans/${sess2.body.id}/calendar`).set('Cookie', cookie);
+    expect(res.status).toBe(400);
+  });
+});
+
+// ── Dietary Tags Tests ──────────────────────────────────────────────────────
+
+describe('Dietary Tags', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('dietuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('POST /api/plans — create plan with dietary tags', async () => {
+    const res = await request(app).post('/api/plans').set('Cookie', cookie)
+      .send({ name: 'Vegan Night', dietary_tags: ['vegan', 'gluten-free'] });
+    expect(res.status).toBe(200);
+    expect(res.body.dietary_tags).toBe('vegan,gluten-free');
+  });
+
+  test('GET /api/plans/:id — plan detail includes dietary tags', async () => {
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie)
+      .send({ name: 'Diet Detail', dietary_tags: ['vegetarian'] });
+    const res = await request(app).get(`/api/plans/${sess.body.id}`).set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.plan.dietary_tags).toBe('vegetarian');
+  });
+
+  test('POST /api/plans — plan without dietary tags works', async () => {
+    const res = await request(app).post('/api/plans').set('Cookie', cookie)
+      .send({ name: 'No Tags' });
+    expect(res.status).toBe(200);
+    expect(res.body.dietary_tags).toBeNull();
+  });
+});
+
+// ── Leaderboard Tests ───────────────────────────────────────────────────────
+
+describe('Leaderboard', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('leaderuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('GET /api/friends/leaderboard — returns data including self', async () => {
+    const res = await request(app).get('/api/friends/leaderboard').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.some(u => u.is_self === true)).toBe(true);
+  });
+
+  test('GET /api/friends/leaderboard — 401 without auth', async () => {
+    const res = await request(app).get('/api/friends/leaderboard');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Activity Feed Tests ─────────────────────────────────────────────────────
+
+describe('Activity Feed', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const result = await registerUser('activityuser', 'password123');
+    cookie = result.cookie;
+  });
+
+  test('GET /api/activity — returns array (empty for user with no friends)', async () => {
+    const res = await request(app).get('/api/activity').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(0);
+  });
+
+  test('GET /api/activity — 401 without auth', async () => {
+    const res = await request(app).get('/api/activity');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Read Receipts Tests ─────────────────────────────────────────────────────
+
+describe('Read Receipts', () => {
+  let cookie1, cookie2, planId;
+
+  beforeAll(async () => {
+    const r1 = await registerUser('readuser1', 'password123');
+    cookie1 = r1.cookie;
+    const r2 = await registerUser('readuser2', 'password123');
+    cookie2 = r2.cookie;
+    const sess = await request(app).post('/api/plans').set('Cookie', cookie1)
+      .send({ name: 'Read Receipt Plan' });
+    planId = sess.body.id;
+    await request(app).post('/api/plans/join').set('Cookie', cookie2)
+      .send({ code: sess.body.code });
+    await request(app).post(`/api/plans/${planId}/messages`).set('Cookie', cookie1)
+      .send({ message: 'Read this!' });
+  });
+
+  test('POST /api/plans/:id/messages/read — marks messages as read', async () => {
+    const res = await request(app).post(`/api/plans/${planId}/messages/read`).set('Cookie', cookie2);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('GET /api/plans/:id/messages/reads — returns read receipt data', async () => {
+    const res = await request(app).get(`/api/plans/${planId}/messages/reads`).set('Cookie', cookie1);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.some(r => r.username === 'readuser2')).toBe(true);
+    expect(res.body.find(r => r.username === 'readuser2').last_read_message_id).toBeGreaterThan(0);
+  });
+
+  test('POST /api/plans/:id/messages/read — non-member gets 403', async () => {
+    const r3 = await registerUser('readoutsider', 'password123');
+    const res = await request(app).post(`/api/plans/${planId}/messages/read`).set('Cookie', r3.cookie);
+    expect(res.status).toBe(403);
+  });
+});

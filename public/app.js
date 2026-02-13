@@ -7,6 +7,8 @@ function urlBase64ToUint8Array(base64String) {
 
 function dinnerRoulette() {
   return {
+    // ── State ────────────────────────────────────────────────────────────────
+
     // Auth
     loggedIn: false,
     username: '',
@@ -96,8 +98,14 @@ function dinnerRoulette() {
     // Meal Type Tags
     MEAL_TYPES: ['Breakfast', 'Brunch', 'Lunch', 'Dinner', 'Late Night', 'Dessert/Coffee'],
     placeMealTypeFilter: '',
+    nearbyPlaces: [],
+    nearbyLoading: false,
+    nearbyError: '',
 
     // Friends
+    leaderboard: [],
+    leaderboardMetric: 'plans',
+    activityFeed: [],
     friendUsername: '',
     friends: [],
     friendRequests: [],
@@ -139,6 +147,8 @@ function dinnerRoulette() {
     planSuggestSort: 'votes',
     planVetoLimitInput: 1,
     planMealType: '',
+    planDietaryTags: [],
+    dietaryOptions: ['Vegetarian', 'Vegan', 'Gluten-Free', 'Halal', 'Kosher', 'Nut-Free', 'Dairy-Free'],
     planMealTypeFilter: '',
     planSuggestionMealFilter: '',
     planLikesMealFilter: '',
@@ -192,6 +202,12 @@ function dinnerRoulette() {
     gifLoading: false,
     gifError: '',
     reactionPickerMessageId: null,
+    editingMessageId: null,
+    editingMessageText: '',
+    gifPreview: null,
+    typingUsers: [],
+    typingTimeout: null,
+    messageReads: [],
 
     // Mentions
     mentionDropdownVisible: false,
@@ -243,8 +259,9 @@ function dinnerRoulette() {
     adminEditForm: { username: '', email: '' },
     adminTestEmail: '',
     adminPlans: [],
+    adminBackingUp: false,
 
-    // ── Helpers ──
+    // ── Helpers ──────────────────────────────────────────────────────────────
     getInitials(username) {
       if (!username) return '?';
       const parts = username.trim().split(/\s+/);
@@ -284,6 +301,7 @@ function dinnerRoulette() {
         const dataUri = await this.resizeImage(file, 128);
         this.profileForm.profilePicPreview = dataUri;
         this.profileForm.profilePicData = dataUri;
+        await this.updateProfile();
       } catch (e) {
         this.showToast('Failed to process image', 'error');
       }
@@ -302,7 +320,9 @@ function dinnerRoulette() {
           const sx = (img.width - min) / 2;
           const sy = (img.height - min) / 2;
           ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+          const dataUri = canvas.toDataURL('image/jpeg', 0.8);
+          if (dataUri.length > 266000) { reject(new Error('Image too large after compression')); return; }
+          resolve(dataUri);
         };
         img.onerror = reject;
         img.src = URL.createObjectURL(file);
@@ -335,9 +355,10 @@ function dinnerRoulette() {
       this.profileSaving = false;
     },
 
-    removeProfilePic() {
+    async removeProfilePic() {
       this.profileForm.profilePicPreview = null;
       this.profileForm.profilePicData = null;
+      await this.updateProfile();
     },
 
     createConfetti() {
@@ -423,7 +444,7 @@ function dinnerRoulette() {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
     },
 
-    // ── Computed ──
+    // ── Computed ─────────────────────────────────────────────────────────────
     get uniqueRestaurantTypes() {
       const types = new Set();
       this.likes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
@@ -557,7 +578,7 @@ function dinnerRoulette() {
       };
     },
 
-    // ── Init ──
+    // ── Init ─────────────────────────────────────────────────────────────────
     async init() {
       this.theme = document.cookie.replace(/(?:(?:^|.*;\s*)theme\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'auto';
       document.documentElement.setAttribute('data-theme', this.theme);
@@ -574,6 +595,19 @@ function dinnerRoulette() {
       document.addEventListener('click', (e) => {
         const btn = e.target.closest('button:not(.tab-btn):not(.theme-toggle):not([disabled]):not(.accent-swatch)');
         if (btn) this.createRipple(e);
+      });
+
+      // Global Escape key handler for modals/drawers
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          if (this.confirmModal.visible) this.confirmModal.onCancel();
+          else if (this.qrModal.visible) this.qrModal.visible = false;
+          else if (this.chatDrawerOpen) this.chatDrawerOpen = false;
+          else if (this.emojiPickerVisible) this.emojiPickerVisible = false;
+          else if (this.gifSearchVisible) this.gifSearchVisible = false;
+          else if (this.reactionPickerMessageId) this.reactionPickerMessageId = null;
+          else if (this.editingMessageId) this.cancelEditMessage();
+        }
       });
 
       // Detect invite URL (/invite/CODE)
@@ -599,6 +633,11 @@ function dinnerRoulette() {
         let h = window.location.hash.replace('#', '');
         if (h === 'sessions') h = 'plans';
         if (validTabs.includes(h)) this.activeTab = h;
+      });
+
+      window.addEventListener('beforeunload', () => {
+        if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
+        if (this.socket) { this.socket.close(); this.socket = null; }
       });
 
       try {
@@ -650,7 +689,7 @@ function dinnerRoulette() {
       ]);
     },
 
-    // ── Socket.IO ──
+    // ── Socket.IO ────────────────────────────────────────────────────────────
     connectSocket() {
       if (this.socket) return;
       this.socket = io({ withCredentials: true });
@@ -782,6 +821,39 @@ function dinnerRoulette() {
         }
       });
 
+      this.socket.on('plan:message-deleted', (data) => {
+        if (!this.activePlan) return;
+        this.chatMessages = this.chatMessages.filter(m => m.id !== data.message_id);
+      });
+
+      this.socket.on('plan:message-edited', (data) => {
+        if (!this.activePlan) return;
+        const msg = this.chatMessages.find(m => m.id === data.message_id);
+        if (msg) { msg.message = data.message; msg.edited_at = data.edited_at; }
+      });
+
+      this.socket.on('user-typing', (data) => {
+        if (!this.activePlan) return;
+        if (!this.typingUsers.find(u => u.user_id === data.user_id)) {
+          this.typingUsers.push(data);
+        }
+        setTimeout(() => {
+          this.typingUsers = this.typingUsers.filter(u => u.user_id !== data.user_id);
+        }, 3000);
+      });
+
+      this.socket.on('user-stopped-typing', (data) => {
+        if (!this.activePlan) return;
+        this.typingUsers = this.typingUsers.filter(u => u.user_id !== data.user_id);
+      });
+
+      this.socket.on('plan:messages-read', (data) => {
+        if (!this.activePlan) return;
+        const existing = this.messageReads.find(r => r.user_id === data.user_id);
+        if (existing) { existing.last_read_message_id = data.last_read_message_id; }
+        else { this.messageReads.push(data); }
+      });
+
       this.socket.on('user:profile-updated', (data) => {
         const { userId, username, display_name, profile_pic } = data;
         const update = (obj) => {
@@ -837,7 +909,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Toast ──
+    // ── Toast ────────────────────────────────────────────────────────────────
     showToast(message, type = 'success', actionLabel = null, actionCallback = null) {
       if (this.toastTimer) clearTimeout(this.toastTimer);
       const action = actionLabel ? { label: actionLabel, callback: actionCallback } : null;
@@ -857,7 +929,7 @@ function dinnerRoulette() {
       });
     },
 
-    // ── Tabs ──
+    // ── Tabs ─────────────────────────────────────────────────────────────────
     switchTab(tab) {
       const tabs = ['places', 'friends', 'plans', 'account', 'admin'];
       const oldIdx = tabs.indexOf(this.activeTab);
@@ -868,7 +940,7 @@ function dinnerRoulette() {
       window.location.hash = tab;
     },
 
-    // ── Tab Swipe ──
+    // ── Tab Swipe ────────────────────────────────────────────────────────────
     tabSwipeStartX: 0,
     tabSwipeStartY: 0,
 
@@ -877,7 +949,7 @@ function dinnerRoulette() {
       this.tabSwipeStartY = e.touches[0].clientY;
     },
 
-    // ── Pull to Refresh ──
+    // ── Pull to Refresh ──────────────────────────────────────────────────────
     pullStartY: 0,
     pullDistance: 0,
     pulling: false,
@@ -956,7 +1028,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Theme ──
+    // ── Theme ────────────────────────────────────────────────────────────────
     toggleTheme() {
       const order = ['auto', 'light', 'dark'];
       this.theme = order[(order.indexOf(this.theme) + 1) % order.length];
@@ -1022,7 +1094,7 @@ function dinnerRoulette() {
       ripple.addEventListener('animationend', () => ripple.remove());
     },
 
-    // ── Auth ──
+    // ── Auth ─────────────────────────────────────────────────────────────────
     async register() {
       this.authError = '';
       if (this.authForm.password !== this.authForm.confirmPassword) {
@@ -1209,7 +1281,7 @@ function dinnerRoulette() {
       this.winner = null;
     },
 
-    // ── API Helper ──
+    // ── API Helper ───────────────────────────────────────────────────────────
     async api(url, opts = {}) {
       opts.credentials = 'same-origin';
       opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -1221,7 +1293,7 @@ function dinnerRoulette() {
       return resp;
     },
 
-    // ── Places ──
+    // ── Places ───────────────────────────────────────────────────────────────
     async searchPlaces() {
       this.highlightedIndex = -1;
       const q = this.placeSearch.trim();
@@ -1452,7 +1524,40 @@ function dinnerRoulette() {
       window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`, '_blank');
     },
 
-    // ── Quick Pick ──
+    // ── Explore Nearby ───────────────────────────────────────────────────────
+    async exploreNearby() {
+      this.nearbyLoading = true;
+      this.nearbyError = '';
+      this.nearbyPlaces = [];
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+        });
+        const resp = await this.api(`/api/places/nearby?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        // Filter out places already in likes/dislikes/want-to-try
+        const existingIds = new Set([...this.likes, ...this.dislikes, ...this.wantToTry].map(p => p.place_id));
+        this.nearbyPlaces = (data.places || []).filter(p => !existingIds.has(p.place_id));
+      } catch (e) {
+        this.nearbyError = e.message === 'User denied Geolocation' ? 'Location access denied' : (e.message || 'Failed to find nearby places');
+      }
+      this.nearbyLoading = false;
+    },
+
+    async addNearbyToList(place, list) {
+      try {
+        await this.api('/api/places', {
+          method: 'POST',
+          body: JSON.stringify({ name: place.name, place_id: place.place_id, type: list, restaurant_type: (place.types || []).find(t => !['restaurant','food','point_of_interest','establishment'].includes(t)) || 'Restaurant', address: place.address, photo_ref: place.photo_ref }),
+        });
+        this.nearbyPlaces = this.nearbyPlaces.filter(p => p.place_id !== place.place_id);
+        await this.loadPlaces();
+        this.showToast(`Added to ${list === 'like' ? 'likes' : list === 'dislike' ? 'dislikes' : 'want to try'}`);
+      } catch (e) { this.showToast('Failed to add place', 'error'); }
+    },
+
+    // ── Quick Pick ───────────────────────────────────────────────────────────
     async quickPick() {
       if (this.quickPicking || this.likes.length === 0) return;
       this.quickPicking = true;
@@ -1484,7 +1589,7 @@ function dinnerRoulette() {
       this.quickPicking = false;
     },
 
-    // ── Mood Pick ──
+    // ── Mood Pick ────────────────────────────────────────────────────────────
     async moodPick(cuisineType) {
       if (this.moodPicking) return;
       let pool = this.likes.filter(p => p.restaurant_type === cuisineType);
@@ -1530,7 +1635,7 @@ function dinnerRoulette() {
       this.moodPickType = '';
     },
 
-    // ── Meal Type Tags ──
+    // ── Meal Type Tags ───────────────────────────────────────────────────────
     hasMealType(place, mealType) {
       return (place.meal_types || []).includes(mealType);
     },
@@ -1551,7 +1656,7 @@ function dinnerRoulette() {
       } catch (e) { /* ignore */ }
     },
 
-    // ── Notes ──
+    // ── Notes ────────────────────────────────────────────────────────────────
     startEditNote(place) {
       this.editingNote = place.name;
       this.noteText = place.notes || '';
@@ -1577,7 +1682,7 @@ function dinnerRoulette() {
       this.noteText = '';
     },
 
-    // ── Star/Favorites ──
+    // ── Star/Favorites ───────────────────────────────────────────────────────
     async toggleStar(type, placeName) {
       try {
         const resp = await this.api(`/api/places/${type}/star`, {
@@ -1609,7 +1714,7 @@ function dinnerRoulette() {
       ];
     },
 
-    // ── Recurring Plans ──
+    // ── Recurring Plans ──────────────────────────────────────────────────────
     async loadRecurringPlans() {
       this.recurringLoading = true;
       try {
@@ -1675,7 +1780,7 @@ function dinnerRoulette() {
       return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     },
 
-    // ── History Timeline ──
+    // ── History Timeline ─────────────────────────────────────────────────────
     async loadHistory() {
       this.historyLoading = true;
       try {
@@ -1694,7 +1799,7 @@ function dinnerRoulette() {
       return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     },
 
-    // ── Friend Groups ──
+    // ── Friend Groups ────────────────────────────────────────────────────────
     async loadFriendGroups() {
       try {
         const resp = await this.api('/api/friend-groups');
@@ -1756,7 +1861,7 @@ function dinnerRoulette() {
       } catch (e) { this.showToast('Failed to invite group', 'error'); }
     },
 
-    // ── Friends ──
+    // ── Friends ──────────────────────────────────────────────────────────────
     async inviteFriend() {
       if (!this.friendUsername.trim()) return;
       try {
@@ -1965,7 +2070,7 @@ function dinnerRoulette() {
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     },
 
-    // ── Plans ──
+    // ── Plans ────────────────────────────────────────────────────────────────
     async loadPlans() {
       this.loading.plans = true;
       try {
@@ -1980,15 +2085,17 @@ function dinnerRoulette() {
       const name = this.newPlanName.trim() || 'Dinner Plan';
       const veto_limit = parseInt(this.planVetoLimitInput) || 1;
       const meal_type = this.planMealType || null;
+      const dietary_tags = this.planDietaryTags.length > 0 ? this.planDietaryTags : null;
       try {
         const resp = await this.api('/api/plans', {
           method: 'POST',
-          body: JSON.stringify({ name, veto_limit, meal_type }),
+          body: JSON.stringify({ name, veto_limit, meal_type, dietary_tags }),
         });
         const data = await resp.json();
         this.newPlanName = '';
         this.planVetoLimitInput = 1;
         this.planMealType = '';
+        this.planDietaryTags = [];
         this.showToast(`Plan created! Code: ${data.code}`);
         await this.loadPlans();
       } catch (e) {
@@ -2183,7 +2290,7 @@ function dinnerRoulette() {
       } catch (e) { /* ignore */ }
     },
 
-    // ── Plan Suggest ──
+    // ── Plan Suggest ─────────────────────────────────────────────────────────
     async searchPlanPlaces() {
       this.planHighlightedIndex = -1;
       const q = this.planPlaceSearch.trim();
@@ -2245,7 +2352,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Voting ──
+    // ── Voting ───────────────────────────────────────────────────────────────
     async toggleVote(suggestion) {
       if (!this.activePlan) return;
       const endpoint = suggestion.user_voted ? 'unvote' : 'vote';
@@ -2304,7 +2411,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Random Pick ──
+    // ── Random Pick ──────────────────────────────────────────────────────────
     async randomPick() {
       if (!this.activePlan || this.picking) return;
       this.picking = true;
@@ -2390,9 +2497,6 @@ function dinnerRoulette() {
         const finalAngle = ((Math.PI * 1.5 - winnerIdx * segAngle - segAngle / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
         const extraSpins = 5 + Math.floor(Math.random() * 4);
         const totalRotation = Math.PI * 2 * extraSpins + finalAngle;
-        console.log('Wheel debug:', { winnerName, winnerIdx, names, finalAngle, totalRotation,
-          segIdxAtEnd: Math.floor(((Math.PI * 1.5 - finalAngle + Math.PI * 2) % (Math.PI * 2)) / segAngle) });
-
         let startTime = null;
         const duration = 4000;
         let lastSegIdx = -1;
@@ -2511,7 +2615,7 @@ function dinnerRoulette() {
       });
     },
 
-    // ── Closest Pick ──
+    // ── Closest Pick ─────────────────────────────────────────────────────────
     async closestPick() {
       if (!this.activePlan || this.picking) return;
       this.picking = true;
@@ -2565,7 +2669,7 @@ function dinnerRoulette() {
       this.picking = false;
     },
 
-    // ── Swipe Gestures ──
+    // ── Swipe Gestures ───────────────────────────────────────────────────────
     onTouchStart(event, placeName) {
       if (!this.touchEnabled) return;
       this.swipeState = { name: placeName, startX: event.touches[0].clientX, currentX: 0, swiping: true };
@@ -2603,7 +2707,7 @@ function dinnerRoulette() {
       return '';
     },
 
-    // ── Share ──
+    // ── Share ────────────────────────────────────────────────────────────────
     async shareWinner() {
       if (!this.winner) return;
       const text = `We picked ${this.winner.place}! -- from Dinner Roulette`;
@@ -2615,7 +2719,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Recent Suggestions ──
+    // ── Recent Suggestions ───────────────────────────────────────────────────
     async loadRecentSuggestions() {
       try {
         const resp = await this.api('/api/suggestions/recent');
@@ -2624,7 +2728,7 @@ function dinnerRoulette() {
       } catch (e) { /* ignore */ }
     },
 
-    // ── Invite Non-App Users ──
+    // ── Invite Non-App Users ─────────────────────────────────────────────────
     async autoJoinInvite() {
       if (!this.pendingInviteCode) return;
       const code = this.pendingInviteCode;
@@ -2683,7 +2787,7 @@ function dinnerRoulette() {
       a.click();
     },
 
-    // ── Deadline ──
+    // ── Deadline ─────────────────────────────────────────────────────────────
     async setDeadline() {
       if (!this.deadlineInput || !this.activePlan) return;
       try {
@@ -2747,11 +2851,13 @@ function dinnerRoulette() {
       this.deadlineTimer = setInterval(update, 1000);
     },
 
-    // ── Chat ──
+    // ── Chat ─────────────────────────────────────────────────────────────────
     toggleChatDrawer() {
       this.chatDrawerOpen = !this.chatDrawerOpen;
       if (this.chatDrawerOpen) {
         this.unreadChatCount = 0;
+        this.markMessagesRead();
+        this.loadMessageReads();
         this.$nextTick(() => {
           const el = document.getElementById('chat-messages');
           if (el) el.scrollTop = el.scrollHeight;
@@ -2761,6 +2867,40 @@ function dinnerRoulette() {
         this.gifSearchVisible = false;
         this.reactionPickerMessageId = null;
       }
+    },
+
+    async markMessagesRead() {
+      if (!this.activePlan || !this.chatDrawerOpen) return;
+      try {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/messages/read`, { method: 'POST', body: '{}' });
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadMessageReads() {
+      if (!this.activePlan) return;
+      try {
+        const resp = await this.api(`/api/plans/${this.activePlan.plan.id}/messages/reads`);
+        this.messageReads = await resp.json();
+      } catch (e) { this.messageReads = []; }
+    },
+
+    seenBy(msgId) {
+      const readers = this.messageReads.filter(r => r.last_read_message_id >= msgId && r.user_id !== this.userId);
+      if (readers.length === 0) return '';
+      const names = readers.map(r => r.display_name || r.username);
+      if (names.length <= 2) return 'Seen by ' + names.join(' and ');
+      return `Seen by ${names[0]} and ${names.length - 1} others`;
+    },
+
+    isLastReadForSomeone(msgId, idx) {
+      // Show "seen by" only on the last message that each reader has read
+      if (idx < this.chatMessages.length - 1) {
+        const nextMsgId = this.chatMessages[idx + 1]?.id;
+        const readersHere = this.messageReads.filter(r => r.last_read_message_id >= msgId && r.last_read_message_id < nextMsgId && r.user_id !== this.userId);
+        return readersHere.length > 0;
+      }
+      // Last message — show all readers
+      return this.messageReads.some(r => r.last_read_message_id >= msgId && r.user_id !== this.userId);
     },
 
     async loadChatMessages() {
@@ -2785,13 +2925,69 @@ function dinnerRoulette() {
       }
     },
 
+    async deleteChatMessage(messageId) {
+      if (!this.activePlan) return;
+      this.confirmModal = {
+        visible: true,
+        message: 'Delete this message?',
+        onConfirm: async () => {
+          this.confirmModal.visible = false;
+          try {
+            await this.api(`/api/plans/${this.activePlan.plan.id}/messages/${messageId}`, { method: 'DELETE' });
+          } catch (e) { this.showToast('Failed to delete message', 'error'); }
+        },
+        onCancel: () => { this.confirmModal.visible = false; }
+      };
+    },
+
+    editChatMessage(msg) {
+      this.editingMessageId = msg.id;
+      this.editingMessageText = msg.message;
+    },
+
+    cancelEditMessage() {
+      this.editingMessageId = null;
+      this.editingMessageText = '';
+    },
+
+    async saveMessageEdit() {
+      if (!this.activePlan || !this.editingMessageId) return;
+      const text = this.editingMessageText.trim();
+      if (!text) return;
+      try {
+        await this.api(`/api/plans/${this.activePlan.plan.id}/messages/${this.editingMessageId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ message: text }),
+        });
+        this.editingMessageId = null;
+        this.editingMessageText = '';
+      } catch (e) { this.showToast('Failed to edit message', 'error'); }
+    },
+
+    handleChatTyping() {
+      if (!this.socket || !this.activePlan) return;
+      this.socket.emit('typing-start', this.activePlan.plan.id);
+      clearTimeout(this.typingTimeout);
+      this.typingTimeout = setTimeout(() => {
+        if (this.socket && this.activePlan) this.socket.emit('typing-stop', this.activePlan.plan.id);
+      }, 1000);
+    },
+
+    get typingText() {
+      if (this.typingUsers.length === 0) return '';
+      const names = this.typingUsers.map(u => u.display_name || u.username);
+      if (names.length === 1) return `${names[0]} is typing...`;
+      if (names.length === 2) return `${names[0]} and ${names[1]} are typing...`;
+      return `${names.length} people are typing...`;
+    },
+
     formatChatTime(dateStr) {
       if (!dateStr) return '';
       const d = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z'));
       return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     },
 
-    // ── Mentions ──
+    // ── Mentions ─────────────────────────────────────────────────────────────
     formatMessageWithMentions(text) {
       if (!text) return '';
       const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -2877,7 +3073,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Emoji Picker ──
+    // ── Emoji Picker ─────────────────────────────────────────────────────────
     emojiCategories() {
       return {
         'Smileys': ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😊','😇','🥰','😍','🤩','😘','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐'],
@@ -2911,7 +3107,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── GIF Search ──
+    // ── GIF Search ───────────────────────────────────────────────────────────
     toggleGifSearch() {
       this.gifSearchVisible = !this.gifSearchVisible;
       this.emojiPickerVisible = false;
@@ -2971,7 +3167,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Reactions ──
+    // ── Reactions ────────────────────────────────────────────────────────────
     openReactionPicker(messageId) {
       this.reactionPickerMessageId = this.reactionPickerMessageId === messageId ? null : messageId;
     },
@@ -3011,7 +3207,7 @@ function dinnerRoulette() {
       return Object.values(map);
     },
 
-    // ── Map View ──
+    // ── Map View ─────────────────────────────────────────────────────────────
     async loadMapsApi() {
       if (this.mapsLoaded || window.google?.maps) { this.mapsLoaded = true; return; }
       try {
@@ -3081,7 +3277,7 @@ function dinnerRoulette() {
       else if (withCoords.length === 1) this.mapInstance.setCenter(withCoords[0]);
     },
 
-    // ── Notifications ──
+    // ── Notifications ────────────────────────────────────────────────────────
     async enableNotifications() {
       if (!this.notificationsSupported) return;
       const permission = await Notification.requestPermission();
@@ -3133,7 +3329,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Stats ──
+    // ── Stats ────────────────────────────────────────────────────────────────
     async loadStats() {
       if (this.statsLoading) return;
       this.statsLoading = true;
@@ -3144,7 +3340,7 @@ function dinnerRoulette() {
       this.statsLoading = false;
     },
 
-    // ── Badges ──
+    // ── Badges ───────────────────────────────────────────────────────────────
     async loadBadges() {
       if (this.badgesLoading) return;
       this.badgesLoading = true;
@@ -3171,7 +3367,51 @@ function dinnerRoulette() {
       return this.badges.filter(b => !b.earned);
     },
 
-    // ── Account ──
+    // ── Leaderboard ──────────────────────────────────────────────────────────
+    async loadLeaderboard() {
+      try {
+        const resp = await this.api('/api/friends/leaderboard');
+        const data = await resp.json();
+        this.leaderboard = this.sortLeaderboard(data);
+      } catch (e) { this.leaderboard = []; }
+    },
+
+    sortLeaderboard(data) {
+      const key = this.leaderboardMetric;
+      return [...data].sort((a, b) => (b[key] || 0) - (a[key] || 0));
+    },
+
+    switchLeaderboardMetric(metric) {
+      this.leaderboardMetric = metric;
+      this.leaderboard = this.sortLeaderboard(this.leaderboard);
+    },
+
+    // ── Activity Feed ────────────────────────────────────────────────────────
+    async loadActivityFeed() {
+      try {
+        const resp = await this.api('/api/activity');
+        this.activityFeed = await resp.json();
+      } catch (e) { this.activityFeed = []; }
+    },
+
+    activityText(item) {
+      const name = item.display_name || item.username;
+      if (item.type === 'like') return `${name} liked ${item.place}`;
+      if (item.type === 'plan_created') return `${name} created "${item.name}"`;
+      if (item.type === 'plan_closed') return `${name}'s plan "${item.name}" picked ${item.winner_place || 'a winner'}`;
+      return `${name} did something`;
+    },
+
+    activityTime(item) {
+      const d = new Date((item.picked_at || item.created_at) + (item.created_at?.includes('Z') ? '' : 'Z'));
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+      return `${Math.floor(diff / 86400000)}d ago`;
+    },
+
+    // ── Account ──────────────────────────────────────────────────────────────
     async changePassword() {
       if (this.accountForm.newPassword !== this.accountForm.confirmNewPassword) {
         this.showToast('New passwords do not match', 'error');
@@ -3223,6 +3463,27 @@ function dinnerRoulette() {
       }
     },
 
+    exportCalendar(planId) {
+      window.open(`/api/plans/${planId}/calendar`, '_blank');
+    },
+
+    async exportData() {
+      try {
+        const resp = await fetch('/api/account/export', { credentials: 'same-origin' });
+        if (!resp.ok) throw new Error('Export failed');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dinner-roulette-export-${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        this.showToast('Data exported successfully');
+      } catch (e) { this.showToast('Failed to export data', 'error'); }
+    },
+
     async deleteAccount() {
       if (!await this.showConfirm('Are you sure? This cannot be undone.')) return;
       try {
@@ -3243,7 +3504,7 @@ function dinnerRoulette() {
       }
     },
 
-    // ── Onboarding ──
+    // ── Onboarding ───────────────────────────────────────────────────────────
     startOnboarding() {
       if (localStorage.getItem('onboarding-done')) return;
       this.onboarding = { active: true, step: 0 };
@@ -3271,7 +3532,7 @@ function dinnerRoulette() {
       localStorage.setItem('onboarding-done', 'true');
     },
 
-    // ── Post-Login Prompts ────────────────────────────────────────────────
+    // ── Post-Login Prompts ───────────────────────────────────────────────────
     async runPostLoginPrompts() {
       await this.waitForOnboarding();
       if (!this.email) {
@@ -3369,7 +3630,7 @@ function dinnerRoulette() {
       });
     },
 
-    // ── Admin ──
+    // ── Admin ────────────────────────────────────────────────────────────────
     async switchAdminTab(tab) {
       this.adminTab = tab;
       if (tab === 'dashboard') {
@@ -3734,6 +3995,20 @@ function dinnerRoulette() {
         await this.loadAdminPlans();
       } catch (e) {
         this.showToast('Failed to delete plan', 'error');
+      }
+    },
+
+    async adminBackup() {
+      this.adminBackingUp = true;
+      try {
+        const resp = await this.api('/api/admin/backup', { method: 'POST' });
+        if (!resp.ok) { const err = await resp.json(); this.showToast(err.error || 'Backup failed', 'error'); return; }
+        const data = await resp.json();
+        this.showToast(`Backup created: ${data.file}`);
+      } catch (e) {
+        this.showToast('Backup failed', 'error');
+      } finally {
+        this.adminBackingUp = false;
       }
     },
   };
