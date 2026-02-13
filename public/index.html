@@ -904,6 +904,28 @@
           <div class="plan-subsection">
             <h3>Dinner Plans</h3>
             <div x-show="!activePlan">
+              <!-- Active Plans -->
+              <h4 x-show="activePlans.length > 0">Active Plans</h4>
+              <ul class="plan-list">
+                <template x-for="(s, pIdx) in activePlans" :key="s.id">
+                  <li @click="openPlan(s.id)" class="stagger-item" :style="{ animationDelay: (pIdx * 40) + 'ms' }">
+                    <div>
+                      <strong x-text="s.name"></strong>
+                      <span class="plan-code" x-text="s.code"></span>
+                      <span class="type-badge" x-show="s.meal_type" x-text="s.meal_type"></span>
+                      <span class="plan-creator">
+                        <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': s.creator_profile_pic }" :style="avatarStyle({ username: s.creator_username, profile_pic: s.creator_profile_pic, display_name: s.creator_display_name })" x-text="s.creator_profile_pic ? '' : getInitials(s.creator_display_name || s.creator_username)"></span>
+                        <span x-text="s.creator_display_name || s.creator_username"></span>
+                      </span>
+                    </div>
+                    <div>
+                      <span class="member-count" x-text="s.member_count + ' members'"></span>
+                      <span class="plan-status open">open</span>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+
               <div class="inline-input">
                 <input x-model="newPlanName" placeholder="Plan name (e.g., Friday Dinner)"
                        @keydown.enter="createPlan()" aria-label="Plan name" />
@@ -1005,28 +1027,6 @@
                           @click="planMealTypeFilter = mt" x-text="mt"></button>
                 </template>
               </div>
-
-              <!-- Active Plans -->
-              <h4 x-show="activePlans.length > 0">Active Plans</h4>
-              <ul class="plan-list">
-                <template x-for="(s, pIdx) in activePlans" :key="s.id">
-                  <li @click="openPlan(s.id)" class="stagger-item" :style="{ animationDelay: (pIdx * 40) + 'ms' }">
-                    <div>
-                      <strong x-text="s.name"></strong>
-                      <span class="plan-code" x-text="s.code"></span>
-                      <span class="type-badge" x-show="s.meal_type" x-text="s.meal_type"></span>
-                      <span class="plan-creator">
-                        <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': s.creator_profile_pic }" :style="avatarStyle({ username: s.creator_username, profile_pic: s.creator_profile_pic, display_name: s.creator_display_name })" x-text="s.creator_profile_pic ? '' : getInitials(s.creator_display_name || s.creator_username)"></span>
-                        <span x-text="s.creator_display_name || s.creator_username"></span>
-                      </span>
-                    </div>
-                    <div>
-                      <span class="member-count" x-text="s.member_count + ' members'"></span>
-                      <span class="plan-status open">open</span>
-                    </div>
-                  </li>
-                </template>
-              </ul>
 
               <!-- Plan History -->
               <div class="section-header" x-show="historyPlans.length > 0" @click="planHistoryVisible = !planHistoryVisible">
