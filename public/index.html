@@ -882,7 +882,10 @@
           <div x-show="friends.length > 0" class="activity-feed-section">
             <div class="section-header-inline">
               <h4>Friend Activity</h4>
-              <button class="suggest-btn" @click="loadActivityFeed()" x-show="activityFeed.length === 0">Load</button>
+              <button class="suggest-btn" @click="loadActivityFeed()" x-show="!activityFeedLoaded">Load</button>
+            </div>
+            <div x-show="activityFeedLoaded && activityFeed.length === 0" class="empty-state">
+              <p>No recent friend activity.</p>
             </div>
             <div x-show="activityFeed.length > 0" class="activity-feed">
               <template x-for="(item, idx) in activityFeed" :key="idx">

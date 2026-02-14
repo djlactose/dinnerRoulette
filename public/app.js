@@ -108,6 +108,7 @@ function dinnerRoulette() {
     leaderboard: [],
     leaderboardMetric: 'plans',
     activityFeed: [],
+    activityFeedLoaded: false,
     friendUsername: '',
     friends: [],
     friendRequests: [],
@@ -3399,6 +3400,7 @@ function dinnerRoulette() {
         const resp = await this.api('/api/activity');
         this.activityFeed = await resp.json();
       } catch (e) { this.activityFeed = []; }
+      this.activityFeedLoaded = true;
     },
 
     activityText(item) {
