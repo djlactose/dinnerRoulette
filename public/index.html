@@ -64,6 +64,12 @@
       </div>
     </div>
 
+    <!-- Profile Pic Zoom -->
+    <div class="pic-zoom-overlay" x-show="profilePicZoom" x-transition.opacity.duration.200ms
+         @click.self="profilePicZoom = null">
+      <img class="pic-zoom-img" :src="profilePicZoom" alt="Profile picture" x-show="profilePicZoom" x-transition.scale.origin.center />
+    </div>
+
     <!-- Onboarding Walkthrough -->
     <div class="onboarding-overlay" x-show="onboarding.active" x-transition.opacity.duration.300ms>
       <div class="onboarding-tooltip">
@@ -1364,7 +1370,7 @@
               </div>
 
               <!-- Plan Suggestions with Votes -->
-              <h4>Suggestions <span class="vote-hint" x-show="activePlan?.suggestions?.length > 0">(click Vote to upvote)</span></h4>
+              <h4>Suggestions <span class="vote-hint" x-show="activePlan?.suggestions?.length > 0">(👍 upvote · 👎 downvote · ✕ veto)</span></h4>
 
               <!-- Cuisine / Meal / Price Filters (only when adding suggestions) -->
               <div x-show="suggestSectionOpen" x-collapse>
@@ -1463,22 +1469,21 @@
                               @click="toggleVote(s)"
                               :aria-label="s.user_voted ? 'Remove vote' : 'Vote for ' + s.place"
                               x-show="activePlan?.plan?.status === 'open' && (s.veto_count || 0) === 0">👍</button>
+                      <button class="downvote-btn" :class="{ downvoted: s.user_downvoted }"
+                              @click="toggleDownvote(s)"
+                              :aria-label="s.user_downvoted ? 'Remove downvote from ' + s.place : 'Downvote ' + s.place"
+                              x-show="activePlan?.plan?.status === 'open' && (s.veto_count || 0) === 0">👎</button>
+                      <button class="veto-btn" :class="{ vetoed: s.user_vetoed }"
+                              @click="toggleVeto(s)"
+                              :disabled="!s.user_vetoed && (activePlan?.vetoesRemaining || 0) <= 0"
+                              :aria-label="s.user_vetoed ? 'Remove veto from ' + s.place : 'Veto ' + s.place"
+                              :title="s.user_vetoed ? 'Remove veto' : (activePlan?.vetoesRemaining || 0) > 0 ? 'Veto (eliminates from pick)' : 'No vetoes remaining'"
+                              x-show="activePlan?.plan?.status === 'open' && (activePlan?.plan?.veto_limit ?? 1) > 0"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg></button>
                       <button class="overflow-toggle" @click.stop="toggleSuggestionMenu(s.id)" aria-label="More actions">···</button>
                       <button class="remove-btn btn-sm" @click="removeSuggestion(s)"
                               x-show="activePlan?.plan?.status === 'open' && s.suggested_by === username"
                               :aria-label="'Remove ' + s.place">✕</button>
                       <div class="overflow-menu" x-show="suggestionMenuOpen === s.id" @click.outside="closeSuggestionMenu()" x-collapse>
-                        <button class="downvote-btn" :class="{ downvoted: s.user_downvoted }"
-                                @click="toggleDownvote(s); closeSuggestionMenu()"
-                                :aria-label="s.user_downvoted ? 'Remove downvote from ' + s.place : 'Downvote ' + s.place"
-                                x-show="activePlan?.plan?.status === 'open' && (s.veto_count || 0) === 0">👎 <span x-text="s.user_downvoted ? 'Remove Downvote' : 'Downvote'"></span></button>
-                        <button class="veto-btn" :class="{ vetoed: s.user_vetoed }"
-                                @click="toggleVeto(s); closeSuggestionMenu()"
-                                :disabled="!s.user_vetoed && (activePlan?.vetoesRemaining || 0) <= 0"
-                                :aria-label="s.user_vetoed ? 'Remove veto from ' + s.place : 'Veto ' + s.place"
-                                :title="s.user_vetoed ? 'Remove veto' : (activePlan?.vetoesRemaining || 0) > 0 ? 'Veto (eliminates from pick)' : 'No vetoes remaining'"
-                                x-show="activePlan?.plan?.status === 'open' && (activePlan?.plan?.veto_limit ?? 1) > 0"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg> <span x-text="s.user_vetoed ? 'Remove Veto' : 'Veto (' + (activePlan?.vetoesRemaining || 0) + ' left)'"></span></button>
-                        <span class="overflow-divider"></span>
                         <a class="reviews-link" x-show="s.place_id" :href="googleReviewsUrl(s.place, s.place_id)"
                            target="_blank" rel="noopener" aria-label="View Google reviews">★ Reviews</a>
                         <button class="map-btn" @click="openMap(s.place)" aria-label="View on map"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg> Map</button>

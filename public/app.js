@@ -210,6 +210,7 @@ function dinnerRoulette() {
     editingMessageId: null,
     editingMessageText: '',
     gifPreview: null,
+    profilePicZoom: null,
     typingUsers: [],
     typingTimeout: null,
     messageReads: [],
@@ -603,10 +604,23 @@ function dinnerRoulette() {
         if (btn) this.createRipple(e);
       });
 
+      // Profile pic zoom on click (event delegation)
+      document.addEventListener('click', (e) => {
+        const avatar = e.target.closest('.avatar-pic');
+        if (!avatar) return;
+        const bg = avatar.style.backgroundImage || getComputedStyle(avatar).backgroundImage;
+        const match = bg.match(/url\(["']?(.+?)["']?\)/);
+        if (match && match[1] && match[1] !== 'none') {
+          e.stopPropagation();
+          this.profilePicZoom = match[1];
+        }
+      });
+
       // Global Escape key handler for modals/drawers
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-          if (this.confirmModal.visible) this.confirmModal.onCancel();
+          if (this.profilePicZoom) this.profilePicZoom = null;
+          else if (this.confirmModal.visible) this.confirmModal.onCancel();
           else if (this.qrModal.visible) this.qrModal.visible = false;
           else if (this.chatDrawerOpen) this.chatDrawerOpen = false;
           else if (this.emojiPickerVisible) this.emojiPickerVisible = false;
