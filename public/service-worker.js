@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dinner-v14';
+const CACHE_NAME = 'dinner-v15';
 
 // App shell: files to precache on install
 const APP_SHELL = [
@@ -34,6 +34,9 @@ self.addEventListener('fetch', event => {
 
   // Skip non-GET requests (POST, PUT, DELETE, etc.)
   if (event.request.method !== 'GET') return;
+
+  // Skip cross-origin requests (CDN scripts, fonts, etc.) — let the browser handle them
+  if (url.origin !== self.location.origin) return;
 
   // Skip Socket.IO, API calls, and auth endpoints — always go to network
   if (url.pathname.startsWith('/api/') ||
