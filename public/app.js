@@ -88,6 +88,7 @@ function dinnerRoulette() {
     suggestionMenuOpen: null,
 
     // Quick Pick
+    quickPickOpen: false,
     quickPickResult: null,
     quickPicking: false,
 

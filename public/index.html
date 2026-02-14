@@ -409,35 +409,43 @@
 
           <!-- Quick Pick -->
           <div x-show="likes.length > 0" class="quick-pick-section">
-            <div class="quick-pick-row">
-              <button class="quick-pick-btn" @click="quickPick()" :disabled="quickPicking || moodPicking">
-                🎲 Any
-              </button>
-              <template x-for="t in moodPickTypes" :key="t">
-                <button class="mood-chip" @click="moodPick(t)" :disabled="moodPicking || quickPicking"
-                        :class="{ active: moodPickType === t }" x-text="t"></button>
-              </template>
-              <button class="mood-chip surprise" @click="moodSurpriseMe()" :disabled="moodPicking || quickPicking">
-                Surprise Me!
-              </button>
+            <div class="section-header" @click="quickPickOpen = !quickPickOpen">
+              <h4>
+                <span class="section-collapse-icon" :class="{ open: quickPickOpen }">&#x25B6;</span>
+                Random Pick
+              </h4>
             </div>
-            <label class="mood-toggle" x-show="wantToTry.length > 0">
-              <input type="checkbox" x-model="moodIncludeWantToTry" />
-              Include Want to Try
-            </label>
-            <div x-show="quickPickResult && !moodPickResult" class="quick-pick-result">
-              <span x-text="quickPickResult?.name"></span>
-              <span class="type-badge" x-show="quickPickResult?.restaurant_type" x-text="quickPickResult?.restaurant_type"></span>
-              <a :href="quickPickMapUrl" target="_blank" rel="noopener">View on Map</a>
-            </div>
-            <div x-show="moodPickResult" class="quick-pick-result" x-transition.scale.origin.top>
-              <strong x-text="moodPickResult?.name"></strong>
-              <span class="type-badge" x-show="moodPickResult?.restaurant_type" x-text="moodPickResult?.restaurant_type"></span>
-              <span class="mood-result-address" x-show="moodPickResult?.address" x-text="moodPickResult?.address"></span>
-              <div class="mood-result-actions">
-                <a class="mood-go-btn" :href="moodPickMapUrl" target="_blank" rel="noopener">View on Map</a>
-                <button class="mood-reroll-btn" @click="moodPick(moodPickType)" :disabled="moodPicking">Pick Again</button>
-                <button class="mood-dismiss-btn" @click="clearMoodPick()">Dismiss</button>
+            <div x-show="quickPickOpen" x-collapse>
+              <div class="quick-pick-row">
+                <button class="quick-pick-btn" @click="quickPick()" :disabled="quickPicking || moodPicking">
+                  🎲 Any
+                </button>
+                <template x-for="t in moodPickTypes" :key="t">
+                  <button class="mood-chip" @click="moodPick(t)" :disabled="moodPicking || quickPicking"
+                          :class="{ active: moodPickType === t }" x-text="t"></button>
+                </template>
+                <button class="mood-chip surprise" @click="moodSurpriseMe()" :disabled="moodPicking || quickPicking">
+                  Surprise Me!
+                </button>
+              </div>
+              <label class="mood-toggle" x-show="wantToTry.length > 0">
+                <input type="checkbox" x-model="moodIncludeWantToTry" />
+                Include Want to Try
+              </label>
+              <div x-show="quickPickResult && !moodPickResult" class="quick-pick-result">
+                <span x-text="quickPickResult?.name"></span>
+                <span class="type-badge" x-show="quickPickResult?.restaurant_type" x-text="quickPickResult?.restaurant_type"></span>
+                <a :href="quickPickMapUrl" target="_blank" rel="noopener">View on Map</a>
+              </div>
+              <div x-show="moodPickResult" class="quick-pick-result" x-transition.scale.origin.top>
+                <strong x-text="moodPickResult?.name"></strong>
+                <span class="type-badge" x-show="moodPickResult?.restaurant_type" x-text="moodPickResult?.restaurant_type"></span>
+                <span class="mood-result-address" x-show="moodPickResult?.address" x-text="moodPickResult?.address"></span>
+                <div class="mood-result-actions">
+                  <a class="mood-go-btn" :href="moodPickMapUrl" target="_blank" rel="noopener">View on Map</a>
+                  <button class="mood-reroll-btn" @click="moodPick(moodPickType)" :disabled="moodPicking">Pick Again</button>
+                  <button class="mood-dismiss-btn" @click="clearMoodPick()">Dismiss</button>
+                </div>
               </div>
             </div>
           </div>
