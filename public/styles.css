@@ -381,6 +381,19 @@ label {
 .remove-btn:hover {
   background-color: var(--danger-hover);
 }
+.close-plan-btn {
+  font-size: var(--text-sm);
+  padding: 0.25rem 0.6rem;
+  background: var(--danger);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.close-plan-btn:hover {
+  background: var(--danger-hover);
+}
 
 .suggest-btn {
   background-color: var(--success);

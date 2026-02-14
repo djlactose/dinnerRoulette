@@ -1130,6 +1130,9 @@
                     <span class="dietary-badge" x-text="tag"></span>
                   </template>
                 </div>
+                <button class="close-plan-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'open' && !closingPlan"
+                        @click="closePlan()">Close Plan</button>
+                <button class="back-btn" x-show="closingPlan" @click="cancelClose()">Cancel Close</button>
                 <button class="overflow-toggle" @click.stop="planHeaderMenuOpen = !planHeaderMenuOpen" aria-label="Plan options">···</button>
               </div>
               <div class="plan-header-overflow" x-show="planHeaderMenuOpen" @click.outside="planHeaderMenuOpen = false" x-collapse>
@@ -1145,9 +1148,6 @@
                         x-show="activePlan?.plan?.status === 'open'" aria-label="Share invite"><svg class="icon" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg> Share Invite</button>
                 <button class="share-invite-btn" @click="showQrCode(); planHeaderMenuOpen = false"
                         x-show="activePlan?.plan?.status === 'open'" title="Show QR code" aria-label="Show QR code"><svg class="icon" viewBox="0 0 24 24"><path d="M3 11h2V9H3v2zm0-4h2V3H3v4zm4 4h2V7H7v4zm0-8v2h2V3H7zM3 15h2v-2H3v2zm8-12h2v4h-2V3zm-4 12h2v-2H7v2zM3 19h2v-2H3v2zm4 0h2v-2H7v2zm4-4h2v-2h-2v2zm0 4h2v-2h-2v2zm0-8h2V7h-2v4zm4 8h2v-4h-2v4zm0-12h2V3h-2v4zm0 4h2V7h-2v4zm4 4h2v-4h-2v4zm0 4h2v-2h-2v2zm0-12h2V3h-2v4zm0 4h2V7h-2v4z"/></svg> Show QR Code</button>
-                <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'open' && !closingPlan"
-                        @click="closePlan()">Close Plan</button>
-                <button class="back-btn" x-show="closingPlan" @click="cancelClose()">Cancel Close</button>
                 <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'closed'"
                         @click="deletePlan(activePlan.plan.id)">Delete Plan</button>
               </div>
