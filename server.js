@@ -47,6 +47,7 @@ app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json({ limit: '50kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public'), {
+  dotfiles: 'allow',
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('CDN-Cache-Control', 'no-store');
