@@ -10,6 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Dinner Roulette" />
   <link rel="manifest" href="/manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="icon" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
@@ -20,7 +23,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
-  <div x-data="dinnerRoulette()" x-init="init()">
+  <!-- Splash screen (visible before Alpine.js initializes) -->
+  <div id="splash" class="splash-screen">
+    <img src="icon-192.png" alt="" class="splash-logo" />
+    <span class="splash-title">Dinner Roulette</span>
+  </div>
+
+  <div x-cloak x-data="dinnerRoulette()" x-init="init()">
 
     <!-- Toast -->
     <div class="toast" x-show="toast.visible" x-transition.opacity.duration.300ms
@@ -189,8 +198,13 @@
             <input id="auth-username" x-model="authForm.username" placeholder="Username"
                    @keydown.enter="$refs.loginPass.focus()" aria-label="Username" />
             <label for="auth-password">Password</label>
-            <input id="auth-password" x-ref="loginPass" x-model="authForm.password" type="password"
-                   placeholder="Password" @keydown.enter="login()" aria-label="Password" />
+            <div class="password-wrapper">
+              <input id="auth-password" x-ref="loginPass" x-model="authForm.password" :type="showLoginPw ? 'text' : 'password'"
+                     placeholder="Password" @keydown.enter="login()" aria-label="Password" />
+              <button type="button" class="password-toggle" @click="showLoginPw = !showLoginPw"
+                      :aria-label="showLoginPw ? 'Hide password' : 'Show password'"
+                      x-text="showLoginPw ? '🙈' : '👁️'"></button>
+            </div>
             <div class="remember-wrapper">
               <label for="remember-me">
                 <input type="checkbox" id="remember-me" x-model="authForm.remember" />
@@ -344,9 +358,9 @@
             <div x-show="selectedPlace" x-transition class="search-actions">
               <span class="selected-place-name" x-text="selectedPlace?.name"></span>
               <div class="search-action-btns">
-                <button class="action-like" @click="likePlace()" aria-label="Like this place">👍</button>
-                <button class="action-dislike" @click="dislikePlace()" aria-label="Dislike this place">👎</button>
-                <button class="action-wtt" @click="wantToTryPlace()" aria-label="Add to want to try list">📌</button>
+                <button class="action-like" @click="likePlace()" aria-label="Like this place" title="Like">👍<span class="action-label">Like</span></button>
+                <button class="action-dislike" @click="dislikePlace()" aria-label="Dislike this place" title="Dislike">👎<span class="action-label">Nope</span></button>
+                <button class="action-wtt" @click="wantToTryPlace()" aria-label="Add to want to try list" title="Want to try">📌<span class="action-label">Try</span></button>
               </div>
             </div>
           </div>
@@ -1096,9 +1110,9 @@
                         </div>
                         <div class="timeline-actions" @click.stop>
                           <span x-show="entry.winner_place" class="mini-reservation-links">
-                            <a class="mini-reservation-link opentable" :href="openTableUrl(entry.winner_place)" target="_blank" rel="noopener" title="OpenTable">OT</a>
-                            <a class="mini-reservation-link yelp" :href="yelpUrl(entry.winner_place)" target="_blank" rel="noopener" title="Yelp">Y</a>
-                            <a class="mini-reservation-link google" :href="reservationSearchUrl(entry.winner_place)" target="_blank" rel="noopener" title="Reservations">R</a>
+                            <a class="mini-reservation-link opentable" :href="openTableUrl(entry.winner_place)" target="_blank" rel="noopener" title="Book on OpenTable">OpenTable</a>
+                            <a class="mini-reservation-link yelp" :href="yelpUrl(entry.winner_place)" target="_blank" rel="noopener" title="View on Yelp">Yelp</a>
+                            <a class="mini-reservation-link google" :href="reservationSearchUrl(entry.winner_place)" target="_blank" rel="noopener" title="Find reservations">Reserve</a>
                             <button class="mini-reservation-link calendar" @click="exportCalendar(entry.id)" title="Add to Calendar" aria-label="Add to calendar">Cal</button>
                           </span>
                           <button class="remove-btn" x-show="entry.creator_id === userId"
@@ -1156,6 +1170,17 @@
                         x-show="activePlan?.plan?.status === 'open'" title="Show QR code" aria-label="Show QR code"><svg class="icon" viewBox="0 0 24 24"><path d="M3 11h2V9H3v2zm0-4h2V3H3v4zm4 4h2V7H7v4zm0-8v2h2V3H7zM3 15h2v-2H3v2zm8-12h2v4h-2V3zm-4 12h2v-2H7v2zM3 19h2v-2H3v2zm4 0h2v-2H7v2zm4-4h2v-2h-2v2zm0 4h2v-2h-2v2zm0-8h2V7h-2v4zm4 8h2v-4h-2v4zm0-12h2V3h-2v4zm0 4h2V7h-2v4zm4 4h2v-4h-2v4zm0 4h2v-2h-2v2zm0-12h2V3h-2v4zm0 4h2V7h-2v4z"/></svg> Show QR Code</button>
                 <button class="remove-btn" x-show="activePlan?.plan?.creator_id === userId && activePlan?.plan?.status === 'closed'"
                         @click="deletePlan(activePlan.plan.id)">Delete Plan</button>
+              </div>
+
+              <!-- Plan Status Banner -->
+              <div class="plan-status-banner open" x-show="activePlan?.plan?.status === 'open' && !deadlinePassed">
+                Voting is open
+              </div>
+              <div class="plan-status-banner deadline-passed" x-show="activePlan?.plan?.status === 'open' && deadlinePassed">
+                Deadline has passed
+              </div>
+              <div class="plan-status-banner closed" x-show="activePlan?.plan?.status === 'closed'">
+                This plan is closed
               </div>
 
               <!-- Members with Avatars -->

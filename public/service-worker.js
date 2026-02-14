@@ -1,24 +1,74 @@
-const CACHE_NAME = 'dinner-v12';
+const CACHE_NAME = 'dinner-v13';
 
-// On install: skip waiting and clear all old caches
+// App shell: files to precache on install
+const APP_SHELL = [
+  '/',
+  '/styles.css',
+  '/app.js?v=18',
+  '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png',
+];
+
+// On install: precache app shell, then skip waiting
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
   );
 });
 
-// On activate: claim clients immediately
+// On activate: claim clients and remove old caches
 self.addEventListener('activate', event => {
   self.clients.claim();
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
   );
 });
 
-// Fetch: pass through to network (no caching)
+// Fetch: network-first for API/navigation, cache-first for static assets
 self.addEventListener('fetch', event => {
-  // Let the browser handle it normally
+  const url = new URL(event.request.url);
+
+  // Skip non-GET requests (POST, PUT, DELETE, etc.)
+  if (event.request.method !== 'GET') return;
+
+  // Skip Socket.IO, API calls, and auth endpoints — always go to network
+  if (url.pathname.startsWith('/api/') ||
+      url.pathname.startsWith('/socket.io/')) {
+    return;
+  }
+
+  // For navigation requests (HTML pages): network-first with cache fallback
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // For static assets: cache-first with network fallback
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request).then(response => {
+        // Only cache successful same-origin responses
+        if (response.ok && url.origin === self.location.origin) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      });
+    })
+  );
 });
 
 // Push: show notification from server payload

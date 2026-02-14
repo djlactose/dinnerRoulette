@@ -35,6 +35,14 @@
   --text-sm: 0.9rem;
   --text-base: 1rem;
   --text-lg: 1.1rem;
+
+  /* Spacing scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.5rem;
+  --space-2xl: 2rem;
 }
 
 [data-theme="dark"] {
@@ -91,9 +99,47 @@
   }
 }
 
+/* ── Alpine Cloak (prevents FOUC) ─────────────────────────────────────────── */
+[x-cloak] { display: none !important; }
+
+/* ── Splash Screen ────────────────────────────────────────────────────────── */
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  z-index: 9999;
+  transition: opacity 0.3s ease;
+}
+.splash-screen.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+.splash-logo {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  margin-bottom: 1rem;
+  animation: splashPulse 1.5s ease-in-out infinite;
+}
+.splash-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+@keyframes splashPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.85; }
+}
+
 /* ── Base ──────────────────────────────────────────────────────────────────── */
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   margin: 0;
   padding: 0;
   background-color: var(--bg-primary);
@@ -1192,18 +1238,18 @@ a {
 }
 .meal-type-create select {
   padding: 0.25rem 0.4rem;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-size: var(--text-sm);
 }
 .plan-meal-type-select {
   padding: 0.2rem 0.35rem;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-size: var(--text-xs);
 }
 .meal-type-filter-chips.compact {
@@ -4876,4 +4922,245 @@ button {
   gap: 0.3rem;
   align-items: center;
   flex-shrink: 0;
+}
+
+/* ── Accessibility: Reduced Motion ───────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .splash-logo { animation: none; }
+}
+
+/* ── Accessibility: Screen Reader Only ───────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Custom Scrollbars ───────────────────────────────────────────────────── */
+.chat-messages::-webkit-scrollbar,
+.autocomplete-list::-webkit-scrollbar,
+.admin-sub-tabs::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.chat-messages::-webkit-scrollbar-track,
+.autocomplete-list::-webkit-scrollbar-track,
+.admin-sub-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-messages::-webkit-scrollbar-thumb,
+.autocomplete-list::-webkit-scrollbar-thumb,
+.admin-sub-tabs::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.chat-messages::-webkit-scrollbar-thumb:hover,
+.autocomplete-list::-webkit-scrollbar-thumb:hover,
+.admin-sub-tabs::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ── Touch Targets ───────────────────────────────────────────────────────── */
+.vote-btn, .downvote-btn, .veto-btn, .overflow-toggle,
+.filter-chip, .sort-btn, .tab-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* ── Card Hover / Press Effects ──────────────────────────────────────────── */
+.plan-list li,
+.nearby-card,
+.admin-plan-card,
+.badge-card,
+.stat-card,
+.admin-stat-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.3s;
+}
+.plan-list li:hover,
+.nearby-card:hover,
+.badge-card:hover,
+.stat-card:hover,
+.admin-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-md);
+}
+.plan-list li:active {
+  transform: translateY(0);
+}
+
+/* ── Vote Button Micro-Interaction ───────────────────────────────────────── */
+.vote-btn:active, .downvote-btn:active, .veto-btn:active {
+  transform: scale(1.2);
+}
+.vote-btn.voted, .downvote-btn.downvoted, .veto-btn.vetoed {
+  transform: scale(1.05);
+}
+.vote-count {
+  transition: transform 0.15s ease;
+}
+.vote-count-clickable:hover {
+  transform: scale(1.05);
+}
+
+/* ── Scrollable Sub-Tabs ─────────────────────────────────────────────────── */
+.admin-sub-tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+/* ── Compact Header on Mobile ────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  header { padding: 0.5rem; }
+  .logo { width: 36px; height: 36px; }
+  h1 { font-size: 1.1rem; }
+  main { padding: 1rem 0.75rem; }
+
+  /* Mobile typography scaling */
+  body { font-size: 0.95rem; }
+  section h3 { font-size: 1.05rem; }
+}
+@media (max-width: 400px) {
+  body { font-size: 0.9rem; }
+  section h3 { font-size: 1rem; }
+  .stat-card { padding: 0.75rem 0.5rem; }
+}
+
+/* ── Plan Status Banner ──────────────────────────────────────────────────── */
+.plan-status-banner {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+.plan-status-banner.open {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+.plan-status-banner.closed {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.plan-status-banner.deadline-passed {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+/* ── Search Action Labels ────────────────────────────────────────────────── */
+.search-action-btns button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 56px;
+}
+.action-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Mention Dropdown Focus ──────────────────────────────────────────────── */
+.mention-option.active,
+.mention-option:focus {
+  background: var(--accent);
+  color: white;
+}
+
+/* ── Contextual Confirm Modal ────────────────────────────────────────────── */
+.confirm-modal.danger {
+  border-top: 3px solid var(--danger);
+}
+.confirm-modal.danger .confirm-modal-actions .remove-btn {
+  font-weight: 700;
+}
+
+/* ── Password Visibility Toggle ──────────────────────────────────────────── */
+.password-wrapper {
+  position: relative;
+}
+.password-wrapper input {
+  padding-right: 2.5rem;
+}
+.password-toggle {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  min-width: auto;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.password-toggle:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+/* ── Pull-to-Refresh Enhancement ─────────────────────────────────────────── */
+.pull-indicator {
+  transition: transform 0.15s ease;
+}
+.pull-spinner {
+  display: inline-block;
+  animation: spinnerRotate 0.6s linear infinite;
+}
+
+/* ── Utility Classes (replacing inline styles) ───────────────────────────── */
+.text-hint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.text-hint-sm {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.mt-sm { margin-top: var(--space-sm); }
+.mt-md { margin-top: var(--space-md); }
+.mt-lg { margin-top: var(--space-lg); }
+.mt-xl { margin-top: var(--space-xl); }
+.flex-row-center {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* ── Admin Status Indicators (accessible) ────────────────────────────────── */
+.admin-status-indicator::after {
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 10px;
+  text-align: center;
+  display: block;
+  color: white;
+}
+.admin-status-indicator.configured::after {
+  content: "\2713";
+}
+.admin-status-indicator.not-configured::after {
+  content: "\00D7";
 }

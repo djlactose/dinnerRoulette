@@ -22,6 +22,7 @@ function dinnerRoulette() {
     authMode: 'login',
     authForm: { username: '', password: '', confirmPassword: '', email: '', remember: false },
     authError: '',
+    showLoginPw: false,
     resetMode: false,
     resetEmail: '',
     resetToken: '',
@@ -192,6 +193,7 @@ function dinnerRoulette() {
     // Deadline
     deadlineInput: '',
     deadlineCountdown: '',
+    deadlinePassed: false,
     deadlineTimer: null,
 
     // Chat
@@ -693,6 +695,13 @@ function dinnerRoulette() {
         }
       } catch (e) {
         // Not logged in
+      }
+
+      // Dismiss splash screen
+      const splash = document.getElementById('splash');
+      if (splash) {
+        splash.classList.add('fade-out');
+        setTimeout(() => splash.remove(), 300);
       }
     },
 
@@ -2227,6 +2236,7 @@ function dinnerRoulette() {
       });
       this.closingPlan = false;
       this.winner = { place };
+      this.createConfetti();
       this.showToast(`Plan closed! Winner: ${place}`);
       await this.refreshPlan();
     },
@@ -2846,6 +2856,7 @@ function dinnerRoulette() {
     startDeadlineCountdown() {
       if (this.deadlineTimer) { clearInterval(this.deadlineTimer); this.deadlineTimer = null; }
       this.deadlineCountdown = '';
+      this.deadlinePassed = false;
       const deadline = this.activePlan?.plan?.voting_deadline;
       if (!deadline) return;
 
@@ -2855,6 +2866,7 @@ function dinnerRoulette() {
         const diff = end - now;
         if (diff <= 0) {
           this.deadlineCountdown = 'Deadline passed!';
+          this.deadlinePassed = true;
           clearInterval(this.deadlineTimer);
           this.deadlineTimer = null;
           return;
