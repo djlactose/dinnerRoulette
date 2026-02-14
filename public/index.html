@@ -788,8 +788,11 @@
                                 :title="activePlan?.members?.some(m => m.username === f.username) ? 'Already in plan' : 'Invite to plan'"
                                 aria-label="Invite to plan"
                                 x-text="activePlan?.members?.some(m => m.username === f.username) ? 'In Plan' : 'Invite'"></button>
-                        <button class="remove-btn" @click="removeFriend(f.id)" aria-label="Remove friend">✕</button>
+                        <button class="overflow-toggle" @click.stop="cardMenuOpen = cardMenuOpen === 'friend-'+f.id ? null : 'friend-'+f.id" aria-label="More actions">···</button>
                       </span>
+                      <div class="card-overflow-menu" x-show="cardMenuOpen === 'friend-'+f.id" @click.outside="cardMenuOpen = null" x-collapse>
+                        <button class="remove-btn" @click="removeFriend(f.id); cardMenuOpen = null" aria-label="Remove friend">✕ Remove Friend</button>
+                      </div>
                     </div>
 
                     <!-- Liked Places (collapsible) -->
