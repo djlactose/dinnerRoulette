@@ -1833,7 +1833,7 @@ app.get('/api/history', auth, (req, res) => {
   const { from, to, member } = req.query;
   let query = `
     SELECT s.id, s.name, s.winner_place, s.created_at, s.picked_at,
-           ss.restaurant_type AS winner_type
+           s.creator_id, ss.restaurant_type AS winner_type
     FROM sessions s
     JOIN session_members sm ON sm.session_id = s.id AND sm.user_id = ?
     LEFT JOIN session_suggestions ss ON ss.session_id = s.id AND ss.place = s.winner_place

@@ -4746,6 +4746,13 @@ button {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
+.timeline-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
 
 /* ── Recurring Plans ───────────────────────────────────────────────────────── */
 .recurring-form {

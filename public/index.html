@@ -976,41 +976,8 @@
               </div>
 
               <!-- Recurring Plans -->
-              <div class="section-header" @click="showRecurringForm = !showRecurringForm" x-show="friends.length > 0">
-                <h4>
-                  <span class="section-collapse-icon" :class="{ open: showRecurringForm || recurringPlans.length > 0 }">&#x25B6;</span>
-                  Recurring Plans
-                  <span class="section-count" x-text="recurringPlans.length" x-show="recurringPlans.length > 0"></span>
-                </h4>
-              </div>
-              <div x-show="showRecurringForm || recurringPlans.length > 0" x-collapse>
-                <!-- Recurring form -->
-                <div x-show="showRecurringForm" class="recurring-form">
-                  <input type="text" x-model="recurringForm.name" placeholder="Plan name" aria-label="Recurring plan name" />
-                  <div class="recurring-form-row">
-                    <select x-model="recurringForm.frequency" aria-label="Frequency">
-                      <option value="weekly">Weekly</option>
-                      <option value="biweekly">Biweekly</option>
-                      <option value="monthly">Monthly</option>
-                    </select>
-                    <label>Vetoes: <input type="number" min="0" max="10" x-model.number="recurringForm.vetoLimit" style="width: 3rem;" /></label>
-                  </div>
-                  <p style="font-size: var(--text-sm); color: var(--text-secondary); margin: 0.3rem 0;">Members:</p>
-                  <div class="group-member-select">
-                    <template x-for="f in friends" :key="f.id">
-                      <label class="group-member-option" @click="toggleRecurringMember(f.id)">
-                        <input type="checkbox" :checked="recurringForm.members.includes(f.id)" />
-                        <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': f.profile_pic }" :style="avatarStyle(f)" x-text="f.profile_pic ? '' : getInitials(f.display_name || f.username)"></span>
-                        <span x-text="f.display_name || f.username"></span>
-                      </label>
-                    </template>
-                  </div>
-                  <div class="recurring-form-actions">
-                    <button class="suggest-btn" @click="createRecurringPlan()">Create</button>
-                    <button class="back-btn" @click="showRecurringForm = false">Cancel</button>
-                  </div>
-                </div>
-                <!-- Recurring plan list -->
+              <div x-show="friends.length > 0 && (recurringPlans.length > 0 || showRecurringForm)">
+                <h4>Recurring Plans</h4>
                 <template x-for="rp in recurringPlans" :key="rp.id">
                   <div class="recurring-plan-card">
                     <div class="recurring-plan-info">
@@ -1028,6 +995,37 @@
                     </div>
                   </div>
                 </template>
+                <button class="add-suggestion-btn" @click="showRecurringForm = !showRecurringForm"
+                        :class="{ active: showRecurringForm }" x-show="!showRecurringForm" style="margin-top: 0.5rem;">
+                  <span>+ New Recurring Plan</span>
+                </button>
+                <div x-show="showRecurringForm" x-collapse>
+                  <div class="recurring-form">
+                    <input type="text" x-model="recurringForm.name" placeholder="Plan name" aria-label="Recurring plan name" />
+                    <div class="recurring-form-row">
+                      <select x-model="recurringForm.frequency" aria-label="Frequency">
+                        <option value="weekly">Weekly</option>
+                        <option value="biweekly">Biweekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                      <label>Vetoes: <input type="number" min="0" max="10" x-model.number="recurringForm.vetoLimit" style="width: 3rem;" /></label>
+                    </div>
+                    <p style="font-size: var(--text-sm); color: var(--text-secondary); margin: 0.3rem 0;">Members:</p>
+                    <div class="group-member-select">
+                      <template x-for="f in friends" :key="f.id">
+                        <label class="group-member-option" @click="toggleRecurringMember(f.id)">
+                          <input type="checkbox" :checked="recurringForm.members.includes(f.id)" />
+                          <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': f.profile_pic }" :style="avatarStyle(f)" x-text="f.profile_pic ? '' : getInitials(f.display_name || f.username)"></span>
+                          <span x-text="f.display_name || f.username"></span>
+                        </label>
+                      </template>
+                    </div>
+                    <div class="recurring-form-actions">
+                      <button class="suggest-btn" @click="createRecurringPlan()">Create</button>
+                      <button class="back-btn" @click="showRecurringForm = false">Cancel</button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- Meal Type Filter for Plans -->
@@ -1040,48 +1038,12 @@
                 </template>
               </div>
 
-              <!-- Plan History -->
-              <div class="section-header" x-show="historyPlans.length > 0" @click="planHistoryVisible = !planHistoryVisible">
-                <h4>
-                  <span class="section-collapse-icon" :class="{ open: planHistoryVisible }">&#x25B6;</span>
-                  Plan History
-                  <span class="section-count" x-text="historyPlans.length"></span>
-                </h4>
-              </div>
-              <div x-show="planHistoryVisible" x-collapse>
-                <ul class="plan-list">
-                  <template x-for="s in historyPlans" :key="s.id">
-                    <li @click="openPlan(s.id)">
-                      <div>
-                        <strong x-text="s.name"></strong>
-                        <span class="plan-creator">
-                          <span class="avatar avatar-xs avatar-inline" :class="{ 'avatar-pic': s.creator_profile_pic }" :style="avatarStyle({ username: s.creator_username, profile_pic: s.creator_profile_pic, display_name: s.creator_display_name })" x-text="s.creator_profile_pic ? '' : getInitials(s.creator_display_name || s.creator_username)"></span>
-                          <span x-text="s.creator_display_name || s.creator_username"></span>
-                        </span>
-                        <span class="plan-date" x-text="formatDate(s.picked_at || s.created_at)"></span>
-                      </div>
-                      <div>
-                        <span class="member-count" x-text="s.member_count + ' members'"></span>
-                        <span x-show="s.winner_place" class="plan-winner" x-text="'Winner: ' + s.winner_place"></span>
-                        <span x-show="s.winner_place" class="mini-reservation-links">
-                          <a class="mini-reservation-link opentable" :href="openTableUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="OpenTable">OT</a>
-                          <a class="mini-reservation-link yelp" :href="yelpUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Yelp">Y</a>
-                          <a class="mini-reservation-link google" :href="reservationSearchUrl(s.winner_place)" target="_blank" rel="noopener" @click.stop title="Reservations">R</a>
-                          <button class="mini-reservation-link calendar" @click.stop="exportCalendar(s.id)" title="Add to Calendar" aria-label="Add to calendar">Cal</button>
-                        </span>
-                        <button class="remove-btn" x-show="s.creator_id === userId"
-                                @click.stop="deletePlan(s.id)" aria-label="Delete plan">Delete</button>
-                      </div>
-                    </li>
-                  </template>
-                </ul>
-              </div>
-
-              <!-- Dining Timeline -->
+              <!-- Plan History / Dining Timeline (combined) -->
               <div class="section-header" @click="historyVisible = !historyVisible; if (historyVisible && historyTimeline.length === 0) loadHistory()">
                 <h4>
                   <span class="section-collapse-icon" :class="{ open: historyVisible }">&#x25B6;</span>
-                  Dining Timeline
+                  Plan History
+                  <span class="section-count" x-show="historyPlans.length > 0" x-text="historyPlans.length"></span>
                 </h4>
               </div>
               <div x-show="historyVisible" x-collapse>
@@ -1111,6 +1073,16 @@
                             <span class="avatar avatar-xxs avatar-inline" :class="{ 'avatar-pic': m.profile_pic }" :style="avatarStyle(m)" :title="m.display_name || m.username" x-text="m.profile_pic ? '' : getInitials(m.display_name || m.username)"></span>
                           </template>
                           <span x-show="entry.members.length > 5" class="timeline-more" x-text="'+' + (entry.members.length - 5)"></span>
+                        </div>
+                        <div class="timeline-actions" @click.stop>
+                          <span x-show="entry.winner_place" class="mini-reservation-links">
+                            <a class="mini-reservation-link opentable" :href="openTableUrl(entry.winner_place)" target="_blank" rel="noopener" title="OpenTable">OT</a>
+                            <a class="mini-reservation-link yelp" :href="yelpUrl(entry.winner_place)" target="_blank" rel="noopener" title="Yelp">Y</a>
+                            <a class="mini-reservation-link google" :href="reservationSearchUrl(entry.winner_place)" target="_blank" rel="noopener" title="Reservations">R</a>
+                            <button class="mini-reservation-link calendar" @click="exportCalendar(entry.id)" title="Add to Calendar" aria-label="Add to calendar">Cal</button>
+                          </span>
+                          <button class="remove-btn" x-show="entry.creator_id === userId"
+                                  @click="deletePlan(entry.id)" aria-label="Delete plan">Delete</button>
                         </div>
                       </div>
                     </div>

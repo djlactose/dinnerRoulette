@@ -125,7 +125,6 @@ function dinnerRoulette() {
     historyFilterTo: '',
     historyFilterMember: '',
     historyVisible: false,
-    planHistoryVisible: false,
 
     // Recurring Plans
     recurringPlans: [],
@@ -2238,6 +2237,7 @@ function dinnerRoulette() {
           return;
         }
         this.plans = this.plans.filter(s => s.id !== planId);
+        this.historyTimeline = this.historyTimeline.filter(e => e.id !== planId);
         if (this.activePlan && this.activePlan.plan.id === planId) {
           this.activePlan = null;
           this.winner = null;
