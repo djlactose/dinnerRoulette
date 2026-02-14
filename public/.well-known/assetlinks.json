@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.djlactose.dine.twa",
+      "sha256_cert_fingerprints": [
+        "08:92:FD:90:C3:26:D6:93:B2:26:C5:EC:53:4F:EC:4F:30:48:FA:53:05:98:ED:E2:E9:4F:66:9A:38:EE:30:BD"
+      ]
+    }
+  }
+]

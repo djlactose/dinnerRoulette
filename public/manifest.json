@@ -4,11 +4,19 @@
   "description": "Collaboratively pick a restaurant with friends",
   "start_url": "/",
   "scope": "/",
+  "id": "/",
   "display": "standalone",
   "handle_links": "preferred",
-  "background_color": "#f8f8f8",
-  "theme_color": "#4a90e2",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "background_color": "#FDF6F0",
+  "theme_color": "#E07A5F",
   "orientation": "portrait",
+  "dir": "ltr",
+  "lang": "en",
+  "categories": ["food", "social", "lifestyle"],
+  "iarc_rating_id": "1d21619a-4984-406b-b1f9-4aecde0c4856",
   "icons": [
     {
       "src": "icon-192.png",
@@ -21,6 +29,91 @@
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-monochrome.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "My Places",
+      "short_name": "Places",
+      "url": "/#places",
+      "description": "View and manage your saved restaurants",
+      "icons": [{ "src": "shortcut-places.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Friends",
+      "short_name": "Friends",
+      "url": "/#friends",
+      "description": "View and manage your friends list",
+      "icons": [{ "src": "shortcut-friends.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Plans",
+      "short_name": "Plans",
+      "url": "/#plans",
+      "description": "View dinner plans and sessions",
+      "icons": [{ "src": "shortcut-plans.png", "sizes": "96x96", "type": "image/png" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshot-phone-places.png",
+      "sizes": "1440x2560",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Browse your saved places"
+    },
+    {
+      "src": "screenshot-phone-plans.png",
+      "sizes": "1440x2560",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Create dinner plans with friends"
+    },
+    {
+      "src": "screenshot-phone-winner.png",
+      "sizes": "1440x2560",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Vote and pick a winner"
+    },
+    {
+      "src": "screenshot-10inch-places.png",
+      "sizes": "2560x1440",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Browse your saved places"
+    },
+    {
+      "src": "screenshot-10inch-plans.png",
+      "sizes": "2560x1440",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Create dinner plans with friends"
+    },
+    {
+      "src": "screenshot-10inch-account.png",
+      "sizes": "2560x1440",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Customize your account settings"
     }
   ]
 }
