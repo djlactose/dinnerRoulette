@@ -904,6 +904,16 @@
           <div class="plan-subsection">
             <h3>Dinner Plans</h3>
             <div x-show="!activePlan">
+              <!-- Meal Type Filter for Plans -->
+              <div x-show="plans.length > 0" class="meal-type-filter-chips">
+                <button class="filter-chip" :class="{ active: planMealTypeFilter === '' }"
+                        @click="planMealTypeFilter = ''">All Meals</button>
+                <template x-for="mt in MEAL_TYPES" :key="mt">
+                  <button class="filter-chip" :class="{ active: planMealTypeFilter === mt }"
+                          @click="planMealTypeFilter = mt" x-text="mt"></button>
+                </template>
+              </div>
+
               <!-- Active Plans -->
               <h4 x-show="activePlans.length > 0">Active Plans</h4>
               <ul class="plan-list">
@@ -1026,16 +1036,6 @@
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <!-- Meal Type Filter for Plans -->
-              <div x-show="plans.length > 0" class="meal-type-filter-chips">
-                <button class="filter-chip" :class="{ active: planMealTypeFilter === '' }"
-                        @click="planMealTypeFilter = ''">All Meals</button>
-                <template x-for="mt in MEAL_TYPES" :key="mt">
-                  <button class="filter-chip" :class="{ active: planMealTypeFilter === mt }"
-                          @click="planMealTypeFilter = mt" x-text="mt"></button>
-                </template>
               </div>
 
               <!-- Plan History / Dining Timeline (combined) -->
