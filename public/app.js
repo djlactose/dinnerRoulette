@@ -99,6 +99,7 @@ function dinnerRoulette() {
     placesMapView: false,
     placesMapInstance: null,
     placesMapMarkers: [],
+    placesMapZoneCircles: [],
     placesInfoWindow: null,
 
     // Quick Pick
@@ -528,6 +529,7 @@ function dinnerRoulette() {
       return all;
     },
     get hasPlacesWithCoords() {
+      if (this.zones.length > 0) return true;
       const l = this.zoneFilterList(this.likes);
       const d = this.zoneFilterList(this.dislikes);
       const w = this.zoneFilterList(this.wantToTry);
@@ -3384,13 +3386,16 @@ function dinnerRoulette() {
       const container = document.getElementById('places-map');
       if (!container) return;
       const places = this.placesForMap;
-      if (places.length === 0) {
+      if (places.length === 0 && this.zones.length === 0) {
         this.showToast('No places with location data', 'error');
         this.placesMapView = false;
         return;
       }
+      const defaultCenter = places.length > 0
+        ? { lat: places[0].lat, lng: places[0].lng }
+        : { lat: this.zones[0].lat, lng: this.zones[0].lng };
       this.placesMapInstance = new google.maps.Map(container, {
-        center: { lat: places[0].lat, lng: places[0].lng },
+        center: defaultCenter,
         zoom: 13,
         mapTypeControl: false,
         streetViewControl: false,
@@ -3403,8 +3408,40 @@ function dinnerRoulette() {
       if (!this.placesMapInstance) return;
       this.placesMapMarkers.forEach(m => m.setMap(null));
       this.placesMapMarkers = [];
+      this.placesMapZoneCircles.forEach(c => c.setMap(null));
+      this.placesMapZoneCircles = [];
+
       const places = this.placesForMap;
       const bounds = new google.maps.LatLngBounds();
+
+      // Draw zone circles
+      const zoneColors = ['#4A90D9', '#5B9A6F', '#D4952B', '#8B6BB5', '#D4648A', '#6B8299'];
+      this.zones.forEach((z, i) => {
+        const color = zoneColors[i % zoneColors.length];
+        const circle = new google.maps.Circle({
+          map: this.placesMapInstance,
+          center: { lat: z.lat, lng: z.lng },
+          radius: z.radius_km * 1000,
+          fillColor: color,
+          fillOpacity: 0.06,
+          strokeColor: color,
+          strokeOpacity: 0.5,
+          strokeWeight: 2,
+          clickable: true,
+        });
+        circle.addListener('click', () => {
+          this.placesInfoWindow.setContent(
+            `<div style="padding:6px"><strong>${z.name}</strong>${z.is_default ? ' (Home)' : ''}<div style="margin-top:4px;color:#666">${z.radius_km} km radius</div></div>`
+          );
+          this.placesInfoWindow.setPosition({ lat: z.lat, lng: z.lng });
+          this.placesInfoWindow.open(this.placesMapInstance);
+        });
+        this.placesMapZoneCircles.push(circle);
+        bounds.extend(new google.maps.LatLng(z.lat + z.radius_km / 111, z.lng));
+        bounds.extend(new google.maps.LatLng(z.lat - z.radius_km / 111, z.lng));
+      });
+
+      // Draw place markers
       places.forEach(p => {
         const marker = new google.maps.Marker({
           position: { lat: p.lat, lng: p.lng },
@@ -3429,8 +3466,11 @@ function dinnerRoulette() {
         this.placesMapMarkers.push(marker);
         bounds.extend(marker.getPosition());
       });
-      if (places.length > 1) this.placesMapInstance.fitBounds(bounds);
-      else if (places.length === 1) {
+
+      const hasItems = places.length > 0 || this.zones.length > 0;
+      if (hasItems && (places.length > 1 || this.zones.length > 0)) {
+        this.placesMapInstance.fitBounds(bounds);
+      } else if (places.length === 1) {
         this.placesMapInstance.setCenter({ lat: places[0].lat, lng: places[0].lng });
         this.placesMapInstance.setZoom(15);
       }
