@@ -88,6 +88,13 @@ function dinnerRoulette() {
     suggestSectionOpen: false,
     suggestionMenuOpen: null,
 
+    // Zones
+    zones: [],
+    activeZoneId: null,
+    zoneModal: { visible: false, editing: null, name: '', lat: null, lng: null, radius_km: 25 },
+    travelModal: { visible: false, lat: null, lng: null, suggestedName: '' },
+    zoneFilterActive: true,
+
     // Places Map View
     placesMapView: false,
     placesMapInstance: null,
@@ -467,9 +474,17 @@ function dinnerRoulette() {
       this.wantToTry.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
       return [...types].sort();
     },
+    zoneFilterList(list) {
+      if (!this.zoneFilterActive || this.activeZoneId == null || this.zones.length === 0) return list;
+      return list.filter(p => p.zone_id === this.activeZoneId);
+    },
+    zoneName(zoneId) {
+      const z = this.zones.find(z => z.id === zoneId);
+      return z ? z.name : '';
+    },
     get filteredLikes() {
       const f = this.placeFilter.toLowerCase();
-      let list = f ? this.likes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.likes];
+      let list = this.zoneFilterList(f ? this.likes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.likes]);
       list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       if (this.placeMealTypeFilter) list = list.filter(p => (p.meal_types || []).includes(this.placeMealTypeFilter));
@@ -482,13 +497,13 @@ function dinnerRoulette() {
     },
     get filteredDislikes() {
       const f = this.placeFilter.toLowerCase();
-      let list = f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.dislikes];
+      let list = this.zoneFilterList(f ? this.dislikes.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.dislikes]);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
     get filteredWantToTry() {
       const f = this.placeFilter.toLowerCase();
-      let list = f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.wantToTry];
+      let list = this.zoneFilterList(f ? this.wantToTry.filter(p => p.name.toLowerCase().includes(f) || (p.address && p.address.toLowerCase().includes(f))) : [...this.wantToTry]);
       list = list.filter(p => !p.starred);
       if (this.placeTypeFilter) list = list.filter(p => p.restaurant_type === this.placeTypeFilter);
       if (this.placeMealTypeFilter) list = list.filter(p => (p.meal_types || []).includes(this.placeMealTypeFilter));
@@ -507,13 +522,16 @@ function dinnerRoulette() {
           all.push({ ...p, _listType: listType, _color: color });
         }
       };
-      addPlaces(this.likes, 'likes');
-      addPlaces(this.dislikes, 'dislikes');
-      addPlaces(this.wantToTry, 'want_to_try');
+      addPlaces(this.zoneFilterList(this.likes), 'likes');
+      addPlaces(this.zoneFilterList(this.dislikes), 'dislikes');
+      addPlaces(this.zoneFilterList(this.wantToTry), 'want_to_try');
       return all;
     },
     get hasPlacesWithCoords() {
-      return this.likes.some(p => p.lat != null) || this.dislikes.some(p => p.lat != null) || this.wantToTry.some(p => p.lat != null);
+      const l = this.zoneFilterList(this.likes);
+      const d = this.zoneFilterList(this.dislikes);
+      const w = this.zoneFilterList(this.wantToTry);
+      return l.some(p => p.lat != null) || d.some(p => p.lat != null) || w.some(p => p.lat != null);
     },
     get quickPickMapUrl() {
       if (!this.quickPickResult) return '#';
@@ -521,9 +539,9 @@ function dinnerRoulette() {
     },
     get moodPickTypes() {
       const types = new Set();
-      this.likes.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+      this.zoneFilterList(this.likes).forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
       if (this.moodIncludeWantToTry) {
-        this.wantToTry.forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
+        this.zoneFilterList(this.wantToTry).forEach(p => { if (p.restaurant_type) types.add(p.restaurant_type); });
       }
       return [...types].sort();
     },
@@ -660,7 +678,7 @@ function dinnerRoulette() {
       });
 
       // Update places map markers when filters change
-      for (const prop of ['placeFilter', 'placeTypeFilter', 'placeMealTypeFilter']) {
+      for (const prop of ['placeFilter', 'placeTypeFilter', 'placeMealTypeFilter', 'activeZoneId']) {
         this.$watch(prop, () => { if (this.placesMapView && this.placesMapInstance) this.updatePlacesMarkers(); });
       }
 
@@ -747,7 +765,10 @@ function dinnerRoulette() {
         this.loadRecentSuggestions(),
         this.loadFriendGroups(),
         this.loadRecurringPlans(),
+        this.loadZones(),
       ]);
+      this.restoreActiveZone();
+      if (this.zones.length > 0) this.detectCurrentZone();
     },
 
     // ── Socket.IO ────────────────────────────────────────────────────────────
@@ -1377,7 +1398,7 @@ function dinnerRoulette() {
       const restaurantType = this.formatPlaceType(pred.types);
       const mainText = pred.structured_formatting?.main_text || pred.description;
       const address = pred.structured_formatting?.secondary_text || null;
-      this.selectedPlace = { name: mainText, place_id: pred.place_id, restaurant_type: restaurantType, address, photo_ref: null };
+      this.selectedPlace = { name: mainText, place_id: pred.place_id, restaurant_type: restaurantType, address, photo_ref: null, lat: null, lng: null };
       this.placeSearch = pred.description;
       this.predictions = [];
       this.highlightedIndex = -1;
@@ -1394,11 +1415,15 @@ function dinnerRoulette() {
           if (data.result?.photo_reference) {
             this.selectedPlace.photo_ref = data.result.photo_reference;
           }
+          if (data.result?.geometry?.location) {
+            this.selectedPlace.lat = data.result.geometry.location.lat;
+            this.selectedPlace.lng = data.result.geometry.location.lng;
+          }
         } catch (e) { /* keep autocomplete type */ }
       }
       this.api('/api/place', {
         method: 'POST',
-        body: JSON.stringify({ place: mainText, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address, photo_ref: this.selectedPlace.photo_ref }),
+        body: JSON.stringify({ place: mainText, place_id: pred.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address, photo_ref: this.selectedPlace.photo_ref, lat: this.selectedPlace.lat, lng: this.selectedPlace.lng }),
       });
     },
 
@@ -1429,7 +1454,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null }),
+        body: JSON.stringify({ type: 'likes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null, active_zone_id: this.activeZoneId }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to likes!' : 'Place liked!');
@@ -1442,7 +1467,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null }),
+        body: JSON.stringify({ type: 'dislikes', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null, active_zone_id: this.activeZoneId }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'likes' ? 'Moved from likes to dislikes.' : 'Place disliked.');
@@ -1455,7 +1480,7 @@ function dinnerRoulette() {
       if (!this.selectedPlace) return;
       const resp = await this.api('/api/places', {
         method: 'POST',
-        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null }),
+        body: JSON.stringify({ type: 'want_to_try', place: this.selectedPlace.name, place_id: this.selectedPlace.place_id, restaurant_type: this.selectedPlace.restaurant_type || null, address: this.selectedPlace.address || null, photo_ref: this.selectedPlace.photo_ref || null, active_zone_id: this.activeZoneId }),
       });
       const data = await resp.json();
       this.showToast(data.movedFrom === 'dislikes' ? 'Moved from dislikes to want to try!' : 'Added to want to try!');
@@ -1559,7 +1584,7 @@ function dinnerRoulette() {
       try {
         await this.api('/api/places', {
           method: 'POST',
-          body: JSON.stringify({ type: toType, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type, address: place.address || null }),
+          body: JSON.stringify({ type: toType, place: place.name, place_id: place.place_id, restaurant_type: place.restaurant_type, address: place.address || null, photo_ref: place.photo_ref || null, active_zone_id: this.activeZoneId }),
         });
         this.showToast(`Moved "${place.name}" to ${labels[toList]}`);
       } catch (e) {
@@ -1621,7 +1646,8 @@ function dinnerRoulette() {
 
     // ── Quick Pick ───────────────────────────────────────────────────────────
     async quickPick() {
-      if (this.quickPicking || this.likes.length === 0) return;
+      const pool = this.zoneFilterList(this.likes);
+      if (this.quickPicking || pool.length === 0) return;
       this.quickPicking = true;
       this.quickPickResult = null;
       this.moodPickResult = null;
@@ -1633,7 +1659,7 @@ function dinnerRoulette() {
 
       await new Promise(resolve => {
         const spin = () => {
-          this.quickPickResult = this.likes[i % this.likes.length];
+          this.quickPickResult = pool[i % pool.length];
           i++;
           cycles--;
           if (cycles > 0) {
@@ -1647,16 +1673,16 @@ function dinnerRoulette() {
       });
 
       // Final random pick
-      this.quickPickResult = this.likes[Math.floor(Math.random() * this.likes.length)];
+      this.quickPickResult = pool[Math.floor(Math.random() * pool.length)];
       this.quickPicking = false;
     },
 
     // ── Mood Pick ────────────────────────────────────────────────────────────
     async moodPick(cuisineType) {
       if (this.moodPicking) return;
-      let pool = this.likes.filter(p => p.restaurant_type === cuisineType);
+      let pool = this.zoneFilterList(this.likes).filter(p => p.restaurant_type === cuisineType);
       if (this.moodIncludeWantToTry) {
-        pool = pool.concat(this.wantToTry.filter(p => p.restaurant_type === cuisineType));
+        pool = pool.concat(this.zoneFilterList(this.wantToTry).filter(p => p.restaurant_type === cuisineType));
       }
       if (pool.length === 0) return;
       this.moodPicking = true;
@@ -1771,8 +1797,8 @@ function dinnerRoulette() {
 
     get starredPlaces() {
       return [
-        ...this.likes.filter(p => p.starred).map(p => ({ ...p, _type: 'likes' })),
-        ...this.wantToTry.filter(p => p.starred).map(p => ({ ...p, _type: 'want_to_try' })),
+        ...this.zoneFilterList(this.likes).filter(p => p.starred).map(p => ({ ...p, _type: 'likes' })),
+        ...this.zoneFilterList(this.wantToTry).filter(p => p.starred).map(p => ({ ...p, _type: 'want_to_try' })),
       ];
     },
 
@@ -3410,6 +3436,219 @@ function dinnerRoulette() {
       }
     },
 
+    // ── Zones ─────────────────────────────────────────────────────────────────
+    async loadZones() {
+      try {
+        const resp = await this.api('/api/zones');
+        const data = await resp.json();
+        this.zones = data.zones || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    restoreActiveZone() {
+      const saved = localStorage.getItem('active-zone-id');
+      if (saved && this.zones.some(z => z.id === parseInt(saved))) {
+        this.activeZoneId = parseInt(saved);
+      } else if (this.zones.length > 0) {
+        const defaultZone = this.zones.find(z => z.is_default);
+        this.activeZoneId = defaultZone ? defaultZone.id : this.zones[0].id;
+      }
+    },
+
+    onZoneChange() {
+      if (this.activeZoneId != null) {
+        localStorage.setItem('active-zone-id', this.activeZoneId);
+      } else {
+        localStorage.removeItem('active-zone-id');
+      }
+    },
+
+    async detectCurrentZone() {
+      if (!navigator.geolocation) return;
+      if (localStorage.getItem('travel-detection-dismissed') === 'true') return;
+
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false,
+            timeout: 5000,
+            maximumAge: 300000,
+          });
+        });
+
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+
+        const resp = await this.api('/api/zones/detect', {
+          method: 'POST',
+          body: JSON.stringify({ lat, lng }),
+        });
+        const data = await resp.json();
+
+        if (data.zone) {
+          if (this.activeZoneId !== data.zone.id) {
+            this.activeZoneId = data.zone.id;
+            localStorage.setItem('active-zone-id', data.zone.id);
+            this.showToast(`Switched to ${data.zone.name} zone`);
+          }
+        } else if (data.distance_km !== null) {
+          // Outside all zones — offer to create a new one
+          try {
+            const geoResp = await this.api(`/api/zones/reverse-geocode?lat=${lat}&lng=${lng}`);
+            const geoData = await geoResp.json();
+            this.travelModal = { visible: true, lat, lng, suggestedName: geoData.name || '' };
+          } catch (e) {
+            this.travelModal = { visible: true, lat, lng, suggestedName: '' };
+          }
+        }
+      } catch (e) {
+        // Geolocation denied or failed — silently ignore
+      }
+    },
+
+    openZoneModal(editing) {
+      if (editing) {
+        this.zoneModal = { visible: true, editing: editing.id, name: editing.name, lat: editing.lat, lng: editing.lng, radius_km: editing.radius_km };
+      } else {
+        this.zoneModal = { visible: true, editing: null, name: '', lat: null, lng: null, radius_km: 25 };
+      }
+    },
+
+    async useCurrentLocationForZone() {
+      if (!navigator.geolocation) {
+        this.showToast('Location access not available', 'error');
+        return;
+      }
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 });
+        });
+        this.zoneModal.lat = position.coords.latitude;
+        this.zoneModal.lng = position.coords.longitude;
+        // Auto-suggest name if empty
+        if (!this.zoneModal.name) {
+          try {
+            const resp = await this.api(`/api/zones/reverse-geocode?lat=${this.zoneModal.lat}&lng=${this.zoneModal.lng}`);
+            const data = await resp.json();
+            if (data.name) this.zoneModal.name = data.name;
+          } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        this.showToast('Could not get your location', 'error');
+      }
+    },
+
+    async saveZone() {
+      const { editing, name, lat, lng, radius_km } = this.zoneModal;
+      if (!name.trim() || lat == null) return;
+
+      try {
+        if (editing) {
+          const resp = await this.api(`/api/zones/${editing}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name: name.trim(), lat, lng, radius_km }),
+          });
+          if (!resp.ok) {
+            const data = await resp.json();
+            this.showToast(data.error || 'Failed to update zone', 'error');
+            return;
+          }
+          this.showToast('Zone updated');
+        } else {
+          const isFirst = this.zones.length === 0;
+          const resp = await this.api('/api/zones', {
+            method: 'POST',
+            body: JSON.stringify({ name: name.trim(), lat, lng, radius_km, is_default: isFirst }),
+          });
+          if (!resp.ok) {
+            const data = await resp.json();
+            this.showToast(data.error || 'Failed to create zone', 'error');
+            return;
+          }
+          const data = await resp.json();
+          if (data.backfilled > 0) {
+            this.showToast(`Zone created! ${data.backfilled} places assigned.`);
+            await this.loadPlaces();
+          } else {
+            this.showToast('Zone created!');
+          }
+          this.activeZoneId = data.zone.id;
+          localStorage.setItem('active-zone-id', data.zone.id);
+        }
+        await this.loadZones();
+        this.zoneModal.visible = false;
+      } catch (e) {
+        this.showToast('Failed to save zone', 'error');
+      }
+    },
+
+    async deleteZone(zone) {
+      this.confirmModal = {
+        visible: true,
+        message: `Delete "${zone.name}" zone? Places will be moved to your default zone.`,
+        onConfirm: async () => {
+          this.confirmModal.visible = false;
+          try {
+            const resp = await this.api(`/api/zones/${zone.id}`, { method: 'DELETE' });
+            if (!resp.ok) {
+              const data = await resp.json();
+              this.showToast(data.error || 'Failed to delete zone', 'error');
+              return;
+            }
+            const data = await resp.json();
+            await this.loadZones();
+            await this.loadPlaces();
+            if (this.activeZoneId === zone.id) {
+              const def = this.zones.find(z => z.is_default);
+              this.activeZoneId = def ? def.id : (this.zones.length > 0 ? this.zones[0].id : null);
+              this.onZoneChange();
+            }
+            this.showToast(data.reassigned > 0 ? `Zone deleted. ${data.reassigned} places reassigned.` : 'Zone deleted.');
+          } catch (e) {
+            this.showToast('Failed to delete zone', 'error');
+          }
+        },
+        onCancel: () => { this.confirmModal.visible = false; },
+      };
+    },
+
+    async createTravelZone() {
+      const { lat, lng, suggestedName } = this.travelModal;
+      if (!suggestedName.trim()) {
+        this.showToast('Please enter a zone name', 'error');
+        return;
+      }
+      try {
+        const resp = await this.api('/api/zones', {
+          method: 'POST',
+          body: JSON.stringify({ name: suggestedName.trim(), lat, lng, radius_km: 25, is_default: false }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json();
+          this.showToast(data.error || 'Failed to create zone', 'error');
+          return;
+        }
+        const data = await resp.json();
+        await this.loadZones();
+        this.activeZoneId = data.zone.id;
+        localStorage.setItem('active-zone-id', data.zone.id);
+        this.travelModal.visible = false;
+        this.showToast(`${suggestedName.trim()} zone created!`);
+      } catch (e) {
+        this.showToast('Failed to create zone', 'error');
+      }
+    },
+
+    dismissTravelDetection() {
+      localStorage.setItem('travel-detection-dismissed', 'true');
+      this.travelModal.visible = false;
+    },
+
+    openHomeZoneSetup() {
+      this.zoneModal = { visible: true, editing: null, name: 'Home', lat: null, lng: null, radius_km: 25 };
+      this.useCurrentLocationForZone();
+    },
+
     // ── Notifications ────────────────────────────────────────────────────────
     async enableNotifications() {
       if (!this.notificationsSupported) return;
@@ -3689,6 +3928,10 @@ function dinnerRoulette() {
         localStorage.getItem('notifications-prompt-dismissed') !== 'true'
       ) {
         await this.showNotificationPrompt();
+      }
+      // Suggest zone setup if user has places but no zones
+      if (this.zones.length === 0 && (this.likes.length > 0 || this.wantToTry.length > 0)) {
+        this.showToast('Set up a Home Zone to organize places by location', 'info', 'Set Up', () => this.openHomeZoneSetup());
       }
     },
 

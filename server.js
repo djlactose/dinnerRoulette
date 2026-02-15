@@ -278,6 +278,18 @@ db.exec(`
     read_at TEXT DEFAULT (datetime('now')),
     UNIQUE(session_id, user_id)
   );
+  CREATE TABLE IF NOT EXISTS zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    radius_km REAL NOT NULL DEFAULT 25,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(user_id, name)
+  );
 `);
 
 // Migrate existing tables (add columns if missing)
@@ -330,6 +342,10 @@ try { db.exec('ALTER TABLE want_to_try ADD COLUMN lat REAL'); } catch (e) { /* a
 try { db.exec('ALTER TABLE want_to_try ADD COLUMN lng REAL'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE places ADD COLUMN lat REAL'); } catch (e) { /* already exists */ }
 try { db.exec('ALTER TABLE places ADD COLUMN lng REAL'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE likes ADD COLUMN zone_id INTEGER'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE dislikes ADD COLUMN zone_id INTEGER'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE want_to_try ADD COLUMN zone_id INTEGER'); } catch (e) { /* already exists */ }
+try { db.exec('ALTER TABLE places ADD COLUMN zone_id INTEGER'); } catch (e) { /* already exists */ }
 
 // Deduplicate likes and add unique index to prevent future duplicates
 try {
@@ -1089,6 +1105,7 @@ app.post('/api/delete-account', authLimiter, auth, async (req, res) => {
     db.prepare('DELETE FROM session_messages WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(uid);
+    db.prepare('DELETE FROM zones WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM users WHERE id = ?').run(uid);
   });
   deleteAll();
@@ -1230,6 +1247,7 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
     db.prepare('DELETE FROM session_messages WHERE user_id = ?').run(targetId);
     db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(targetId);
     db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM zones WHERE user_id = ?').run(targetId);
     db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
   });
   deleteAll();
@@ -1618,23 +1636,184 @@ app.get('/api/place-photo', auth, async (req, res) => {
 });
 
 app.post('/api/place', auth, (req, res) => {
-  const { place, place_id, restaurant_type, address, photo_ref } = req.body;
+  const { place, place_id, restaurant_type, address, photo_ref, lat, lng } = req.body;
   if (!place) return res.status(400).json({ error: 'Missing place' });
-  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null, address || null, photo_ref || null);
+  db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(req.user.id, place, place_id || null, restaurant_type || null, address || null, photo_ref || null, lat || null, lng || null);
   res.json({ success: true });
 });
 
+// ── Zones Routes ────────────────────────────────────────────────────────────────
+app.get('/api/zones', auth, (req, res) => {
+  const zones = db.prepare('SELECT * FROM zones WHERE user_id = ? ORDER BY is_default DESC, name ASC').all(req.user.id);
+  res.json({ zones });
+});
+
+app.post('/api/zones', auth, (req, res) => {
+  const { name, lat, lng, radius_km, is_default } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Zone name is required' });
+  if (lat == null || lng == null) return res.status(400).json({ error: 'Location is required' });
+  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'Invalid coordinates' });
+
+  const uid = req.user.id;
+  const radiusVal = radius_km || 25;
+  const isDefaultVal = is_default ? 1 : 0;
+  const existingZones = db.prepare('SELECT COUNT(*) AS c FROM zones WHERE user_id = ?').get(uid).c;
+
+  try {
+    const createZone = db.transaction(() => {
+      if (isDefaultVal) {
+        db.prepare('UPDATE zones SET is_default = 0 WHERE user_id = ?').run(uid);
+      }
+      const result = db.prepare(
+        'INSERT INTO zones (user_id, name, lat, lng, radius_km, is_default) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(uid, name.trim(), lat, lng, radiusVal, isDefaultVal);
+      return result.lastInsertRowid;
+    });
+
+    const zoneId = createZone();
+    let backfilled = 0;
+
+    // If first zone and it's the default, backfill all existing places
+    if (existingZones === 0 && isDefaultVal) {
+      for (const table of ['likes', 'dislikes', 'want_to_try', 'places']) {
+        const r = db.prepare(`UPDATE ${table} SET zone_id = ? WHERE user_id = ? AND zone_id IS NULL`).run(zoneId, uid);
+        backfilled += r.changes;
+      }
+    }
+
+    const zone = db.prepare('SELECT * FROM zones WHERE id = ?').get(zoneId);
+    res.json({ zone, backfilled });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint')) {
+      return res.status(409).json({ error: 'A zone with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create zone' });
+  }
+});
+
+app.put('/api/zones/:id', auth, (req, res) => {
+  const zoneId = Number(req.params.id);
+  const uid = req.user.id;
+  const zone = db.prepare('SELECT * FROM zones WHERE id = ? AND user_id = ?').get(zoneId, uid);
+  if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+  const { name, lat, lng, radius_km, is_default } = req.body;
+
+  try {
+    const updateZone = db.transaction(() => {
+      if (is_default) {
+        db.prepare('UPDATE zones SET is_default = 0 WHERE user_id = ?').run(uid);
+      }
+      const updates = [];
+      const params = [];
+      if (name !== undefined) { updates.push('name = ?'); params.push(name.trim()); }
+      if (lat !== undefined) { updates.push('lat = ?'); params.push(lat); }
+      if (lng !== undefined) { updates.push('lng = ?'); params.push(lng); }
+      if (radius_km !== undefined) { updates.push('radius_km = ?'); params.push(radius_km); }
+      if (is_default !== undefined) { updates.push('is_default = ?'); params.push(is_default ? 1 : 0); }
+      if (updates.length > 0) {
+        params.push(zoneId);
+        db.prepare(`UPDATE zones SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      }
+    });
+    updateZone();
+    const updated = db.prepare('SELECT * FROM zones WHERE id = ?').get(zoneId);
+    res.json({ zone: updated });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint')) {
+      return res.status(409).json({ error: 'A zone with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update zone' });
+  }
+});
+
+app.delete('/api/zones/:id', auth, (req, res) => {
+  const zoneId = Number(req.params.id);
+  const uid = req.user.id;
+  const zone = db.prepare('SELECT * FROM zones WHERE id = ? AND user_id = ?').get(zoneId, uid);
+  if (!zone) return res.status(404).json({ error: 'Zone not found' });
+
+  const totalZones = db.prepare('SELECT COUNT(*) AS c FROM zones WHERE user_id = ?').get(uid).c;
+  if (zone.is_default && totalZones > 1) {
+    return res.status(400).json({ error: 'Cannot delete the default zone while other zones exist. Set a different default first.' });
+  }
+
+  const deleteZone = db.transaction(() => {
+    let reassigned = 0;
+    if (totalZones === 1) {
+      for (const table of ['likes', 'dislikes', 'want_to_try', 'places']) {
+        db.prepare(`UPDATE ${table} SET zone_id = NULL WHERE user_id = ? AND zone_id = ?`).run(uid, zoneId);
+      }
+    } else {
+      const defaultZone = db.prepare('SELECT id FROM zones WHERE user_id = ? AND is_default = 1').get(uid);
+      if (defaultZone) {
+        for (const table of ['likes', 'dislikes', 'want_to_try', 'places']) {
+          const r = db.prepare(`UPDATE ${table} SET zone_id = ? WHERE user_id = ? AND zone_id = ?`).run(defaultZone.id, uid, zoneId);
+          reassigned += r.changes;
+        }
+      }
+    }
+    db.prepare('DELETE FROM zones WHERE id = ?').run(zoneId);
+    return reassigned;
+  });
+
+  const reassigned = deleteZone();
+  res.json({ success: true, reassigned });
+});
+
+app.post('/api/zones/detect', auth, (req, res) => {
+  const { lat, lng } = req.body;
+  if (lat == null || lng == null) return res.status(400).json({ error: 'Missing coordinates' });
+
+  const zones = db.prepare('SELECT * FROM zones WHERE user_id = ?').all(req.user.id);
+  if (zones.length === 0) return res.json({ zone: null, distance_km: null });
+
+  let closest = null, minDist = Infinity;
+  for (const z of zones) {
+    const dist = haversine(lat, lng, z.lat, z.lng);
+    if (dist < minDist) { minDist = dist; closest = z; }
+  }
+
+  if (closest && minDist <= closest.radius_km) {
+    res.json({ zone: closest, distance_km: Math.round(minDist * 10) / 10 });
+  } else {
+    res.json({ zone: null, distance_km: closest ? Math.round(minDist * 10) / 10 : null });
+  }
+});
+
+app.get('/api/zones/reverse-geocode', auth, async (req, res) => {
+  if (!API_KEY) return res.status(400).json({ error: 'Google API key not configured' });
+  const { lat, lng } = req.query;
+  if (!lat || !lng) return res.status(400).json({ error: 'Missing coordinates' });
+  try {
+    const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&result_type=locality|administrative_area_level_1&key=${API_KEY}`);
+    const data = await r.json();
+    if (data.results && data.results.length > 0) {
+      const components = data.results[0].address_components || [];
+      const locality = components.find(c => c.types.includes('locality'));
+      const area = components.find(c => c.types.includes('administrative_area_level_1'));
+      const name = locality ? locality.long_name : (area ? area.long_name : data.results[0].formatted_address);
+      res.json({ name, formatted: data.results[0].formatted_address });
+    } else {
+      res.json({ name: null, formatted: null });
+    }
+  } catch (e) {
+    res.status(500).json({ error: 'Geocoding failed' });
+  }
+});
+
+// ── Places Routes ───────────────────────────────────────────────────────────────
 app.get('/api/places', auth, (req, res) => {
   const uid = req.user.id;
-  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred, meal_types, photo_ref, lat, lng FROM likes WHERE user_id = ?').all(uid);
-  const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address, photo_ref, lat, lng FROM dislikes WHERE user_id = ?').all(uid);
-  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred, meal_types, photo_ref, lat, lng FROM want_to_try WHERE user_id = ?').all(uid);
-  const all = db.prepare('SELECT place, place_id, restaurant_type, address, photo_ref, lat, lng FROM places WHERE user_id = ?').all(uid);
+  const likes = db.prepare('SELECT place, place_id, restaurant_type, address, visited_at, notes, starred, meal_types, photo_ref, lat, lng, zone_id FROM likes WHERE user_id = ?').all(uid);
+  const dislikes = db.prepare('SELECT place, place_id, restaurant_type, address, photo_ref, lat, lng, zone_id FROM dislikes WHERE user_id = ?').all(uid);
+  const wantToTry = db.prepare('SELECT place, place_id, restaurant_type, address, starred, meal_types, photo_ref, lat, lng, zone_id FROM want_to_try WHERE user_id = ?').all(uid);
+  const all = db.prepare('SELECT place, place_id, restaurant_type, address, photo_ref, lat, lng, zone_id FROM places WHERE user_id = ?').all(uid);
   res.json({
-    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null })),
-    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null })),
-    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null })),
-    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null })),
+    likes: likes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, visited_at: r.visited_at || null, notes: r.notes || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null, zone_id: r.zone_id || null })),
+    dislikes: dislikes.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null, zone_id: r.zone_id || null })),
+    want_to_try: wantToTry.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, starred: !!r.starred, meal_types: r.meal_types ? r.meal_types.split(',') : [], photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null, zone_id: r.zone_id || null })),
+    all: all.map(r => ({ name: r.place, place_id: r.place_id, restaurant_type: r.restaurant_type, address: r.address || null, photo_ref: r.photo_ref || null, lat: r.lat || null, lng: r.lng || null, zone_id: r.zone_id || null })),
   });
   // Background backfill: fetch missing data from Google for places with a place_id
   if (API_KEY) {
@@ -1726,7 +1905,7 @@ app.post('/api/places/meal-types', auth, (req, res) => {
 });
 
 app.post('/api/places', auth, async (req, res) => {
-  const { type, place, place_id, remove, restaurant_type, address, photo_ref } = req.body;
+  const { type, place, place_id, remove, restaurant_type, address, photo_ref, active_zone_id } = req.body;
   const validTypes = ['likes', 'want_to_try', 'dislikes'];
   if (!place) return res.status(400).json({ error: 'Missing place' });
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'Invalid type' });
@@ -1758,10 +1937,27 @@ app.post('/api/places', auth, async (req, res) => {
     } catch (e) { /* continue with what we have */ }
   }
 
+  // Auto-assign zone_id based on coordinates or fallback to active zone
+  let finalZoneId = null;
+  if (!remove) {
+    const zones = db.prepare('SELECT * FROM zones WHERE user_id = ?').all(uid);
+    if (zones.length > 0 && finalLat != null && finalLng != null) {
+      let closest = null, minDist = Infinity;
+      for (const z of zones) {
+        const dist = haversine(finalLat, finalLng, z.lat, z.lng);
+        if (dist < minDist) { minDist = dist; closest = z; }
+      }
+      finalZoneId = closest.id;
+    } else if (zones.length > 0 && active_zone_id) {
+      const valid = zones.find(z => z.id === Number(active_zone_id));
+      if (valid) finalZoneId = valid.id;
+    }
+  }
+
   if (remove) {
     db.prepare(`DELETE FROM ${type} WHERE user_id = ? AND place = ?`).run(uid, place);
   } else {
-    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(uid, finalPlace, place_id || null, finalType || null, finalAddress || null, finalPhotoRef || null, finalLat, finalLng);
+    db.prepare('INSERT OR IGNORE INTO places (user_id, place, place_id, restaurant_type, address, photo_ref, lat, lng, zone_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(uid, finalPlace, place_id || null, finalType || null, finalAddress || null, finalPhotoRef || null, finalLat, finalLng, finalZoneId);
     const others = { likes: ['dislikes', 'want_to_try'], want_to_try: ['likes', 'dislikes'], dislikes: ['likes', 'want_to_try'] };
     for (const tbl of others[type]) {
       const del = db.prepare(`DELETE FROM ${tbl} WHERE user_id = ? AND place = ?`).run(uid, finalPlace);
@@ -1772,7 +1968,7 @@ app.post('/api/places', auth, async (req, res) => {
         if (del2.changes > 0 && !movedFrom) movedFrom = tbl;
       }
     }
-    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address, photo_ref, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(uid, finalPlace, place_id || null, finalType || null, finalAddress || null, finalPhotoRef || null, finalLat, finalLng);
+    db.prepare(`INSERT OR IGNORE INTO ${type} (user_id, place, place_id, restaurant_type, address, photo_ref, lat, lng, zone_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(uid, finalPlace, place_id || null, finalType || null, finalAddress || null, finalPhotoRef || null, finalLat, finalLng, finalZoneId);
   }
   res.json({ success: true, movedFrom });
 });

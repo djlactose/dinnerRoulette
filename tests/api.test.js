@@ -2053,3 +2053,187 @@ describe('Read Receipts', () => {
     expect(res.status).toBe(403);
   });
 });
+
+// ── Zone Tests ──────────────────────────────────────────────────────────────────
+
+describe('Zones', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const r = await registerUser('zoneuser', 'password123');
+    cookie = r.cookie;
+  });
+
+  test('GET /api/zones — empty list initially', async () => {
+    const res = await request(app).get('/api/zones').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.zones).toEqual([]);
+  });
+
+  test('POST /api/zones — create zone', async () => {
+    const res = await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ name: 'Home', lat: 40.7128, lng: -74.006, radius_km: 25, is_default: true });
+    expect(res.status).toBe(200);
+    expect(res.body.zone.name).toBe('Home');
+    expect(res.body.zone.is_default).toBe(1);
+    expect(res.body.zone.radius_km).toBe(25);
+  });
+
+  test('POST /api/zones — missing name rejected', async () => {
+    const res = await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ lat: 40, lng: -74 });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/zones — missing coordinates rejected', async () => {
+    const res = await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ name: 'Bad Zone' });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/zones — duplicate name rejected', async () => {
+    const res = await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ name: 'Home', lat: 41, lng: -75, radius_km: 20 });
+    expect(res.status).toBe(409);
+  });
+
+  test('POST /api/zones — create second zone', async () => {
+    const res = await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ name: 'Miami', lat: 25.7617, lng: -80.1918, radius_km: 30 });
+    expect(res.status).toBe(200);
+    expect(res.body.zone.name).toBe('Miami');
+    expect(res.body.zone.is_default).toBe(0);
+  });
+
+  test('GET /api/zones — lists all zones', async () => {
+    const res = await request(app).get('/api/zones').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.zones.length).toBe(2);
+    expect(res.body.zones[0].name).toBe('Home');
+    expect(res.body.zones[1].name).toBe('Miami');
+  });
+
+  test('PUT /api/zones/:id — update zone', async () => {
+    const zones = await request(app).get('/api/zones').set('Cookie', cookie);
+    const miamiZone = zones.body.zones.find(z => z.name === 'Miami');
+    const res = await request(app).put(`/api/zones/${miamiZone.id}`).set('Cookie', cookie)
+      .send({ name: 'South Beach', radius_km: 15 });
+    expect(res.status).toBe(200);
+    expect(res.body.zone.name).toBe('South Beach');
+    expect(res.body.zone.radius_km).toBe(15);
+  });
+
+  test('PUT /api/zones/:id — non-existent zone returns 404', async () => {
+    const res = await request(app).put('/api/zones/99999').set('Cookie', cookie)
+      .send({ name: 'Nope' });
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /api/zones/detect — inside zone returns match', async () => {
+    const res = await request(app).post('/api/zones/detect').set('Cookie', cookie)
+      .send({ lat: 40.72, lng: -74.01 });
+    expect(res.status).toBe(200);
+    expect(res.body.zone).not.toBeNull();
+    expect(res.body.zone.name).toBe('Home');
+    expect(res.body.distance_km).toBeLessThan(25);
+  });
+
+  test('POST /api/zones/detect — outside all zones returns null', async () => {
+    const res = await request(app).post('/api/zones/detect').set('Cookie', cookie)
+      .send({ lat: 51.5074, lng: -0.1278 });
+    expect(res.status).toBe(200);
+    expect(res.body.zone).toBeNull();
+  });
+
+  test('POST /api/zones/detect — missing coordinates rejected', async () => {
+    const res = await request(app).post('/api/zones/detect').set('Cookie', cookie)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  test('DELETE /api/zones/:id — cannot delete default while others exist', async () => {
+    const zones = await request(app).get('/api/zones').set('Cookie', cookie);
+    const homeZone = zones.body.zones.find(z => z.is_default);
+    const res = await request(app).delete(`/api/zones/${homeZone.id}`).set('Cookie', cookie);
+    expect(res.status).toBe(400);
+  });
+
+  test('DELETE /api/zones/:id — delete non-default zone', async () => {
+    const zones = await request(app).get('/api/zones').set('Cookie', cookie);
+    const nonDefault = zones.body.zones.find(z => !z.is_default);
+    const res = await request(app).delete(`/api/zones/${nonDefault.id}`).set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('DELETE /api/zones/:id — delete last zone clears zone_ids', async () => {
+    const zones = await request(app).get('/api/zones').set('Cookie', cookie);
+    expect(zones.body.zones.length).toBe(1);
+    const res = await request(app).delete(`/api/zones/${zones.body.zones[0].id}`).set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const zonesAfter = await request(app).get('/api/zones').set('Cookie', cookie);
+    expect(zonesAfter.body.zones.length).toBe(0);
+  });
+
+  test('DELETE /api/zones/:id — non-existent zone returns 404', async () => {
+    const res = await request(app).delete('/api/zones/99999').set('Cookie', cookie);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('Zone backfill and place auto-assignment', () => {
+  let cookie;
+
+  beforeAll(async () => {
+    const r = await registerUser('zoneplaceuser', 'password123');
+    cookie = r.cookie;
+    // Add a place before any zones exist
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ place: 'Pizza Palace', type: 'likes', restaurant_type: 'Italian', address: '123 Main St' });
+  });
+
+  test('Place added without zone has null zone_id', async () => {
+    const res = await request(app).get('/api/places').set('Cookie', cookie);
+    const place = res.body.likes.find(p => p.name === 'Pizza Palace');
+    expect(place).toBeDefined();
+    expect(place.zone_id).toBeNull();
+  });
+
+  test('Creating default zone backfills existing places', async () => {
+    const res = await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ name: 'Home', lat: 40.7128, lng: -74.006, radius_km: 25, is_default: true });
+    expect(res.status).toBe(200);
+    expect(res.body.backfilled).toBeGreaterThan(0);
+
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const place = places.body.likes.find(p => p.name === 'Pizza Palace');
+    expect(place.zone_id).toBe(res.body.zone.id);
+  });
+
+  test('Place with active_zone_id gets assigned to that zone', async () => {
+    const zones = await request(app).get('/api/zones').set('Cookie', cookie);
+    const homeId = zones.body.zones[0].id;
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ place: 'Sushi Spot', type: 'likes', restaurant_type: 'Japanese', address: '456 Broadway', active_zone_id: homeId });
+
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const sushi = places.body.likes.find(p => p.name === 'Sushi Spot');
+    expect(sushi).toBeDefined();
+    expect(sushi.zone_id).toBe(homeId);
+  });
+
+  test('Place without coords or active_zone_id has null zone_id when zone exists', async () => {
+    // Create a second zone so we have choice, but send no zone hint
+    await request(app).post('/api/zones').set('Cookie', cookie)
+      .send({ name: 'Vacation', lat: 25.76, lng: -80.19, radius_km: 20 });
+    await request(app).post('/api/places').set('Cookie', cookie)
+      .send({ place: 'Mystery Cafe', type: 'want_to_try', restaurant_type: 'Cafe' });
+
+    const places = await request(app).get('/api/places').set('Cookie', cookie);
+    const cafe = places.body.want_to_try.find(p => p.name === 'Mystery Cafe');
+    expect(cafe).toBeDefined();
+    // Without coords or active_zone_id, zone_id should be null
+    expect(cafe.zone_id).toBeNull();
+  });
+});

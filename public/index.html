@@ -56,6 +56,66 @@
       </div>
     </div>
 
+    <!-- Zone Management Modal -->
+    <div class="confirm-overlay" x-show="zoneModal.visible" x-transition.opacity.duration.200ms
+         @click.self="zoneModal.visible = false">
+      <div class="confirm-modal zone-modal" x-show="zoneModal.visible" x-transition.scale.origin.center role="dialog" aria-modal="true">
+        <h3 x-text="zoneModal.editing ? 'Edit Zone' : 'Create Zone'"></h3>
+
+        <label class="zone-form-label">Zone Name</label>
+        <input type="text" x-model="zoneModal.name" placeholder="e.g., Home, Miami Beach, NYC"
+               aria-label="Zone name" maxlength="40" class="zone-form-input" />
+
+        <label class="zone-form-label">Center Location</label>
+        <div class="zone-location-actions">
+          <button class="back-btn" @click="useCurrentLocationForZone()">Use My Location</button>
+          <span x-show="zoneModal.lat" class="zone-coords" x-text="zoneModal.lat?.toFixed(3) + ', ' + zoneModal.lng?.toFixed(3)"></span>
+        </div>
+
+        <label class="zone-form-label">Radius: <span x-text="zoneModal.radius_km + ' km'"></span></label>
+        <input type="range" min="5" max="100" step="5" x-model.number="zoneModal.radius_km" class="zone-radius-slider" />
+
+        <div class="confirm-modal-actions" style="margin-top: 1rem;">
+          <button class="back-btn" @click="zoneModal.visible = false">Cancel</button>
+          <button class="suggest-btn" @click="saveZone()"
+                  :disabled="!zoneModal.name.trim() || !zoneModal.lat">
+            <span x-text="zoneModal.editing ? 'Update' : 'Create'"></span>
+          </button>
+        </div>
+
+        <div x-show="zones.length > 0" class="zone-list-section">
+          <h4>Your Zones</h4>
+          <template x-for="z in zones" :key="z.id">
+            <div class="zone-list-item">
+              <span x-text="z.name"></span>
+              <span x-show="z.is_default" class="type-badge">Home</span>
+              <span class="zone-radius-info" x-text="z.radius_km + ' km'"></span>
+              <div class="zone-list-actions">
+                <button class="back-btn btn-sm" @click="openZoneModal(z)" aria-label="Edit zone">Edit</button>
+                <button class="remove-btn btn-sm" @click="deleteZone(z)" aria-label="Delete zone"
+                        x-show="!z.is_default || zones.length === 1">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Travel Detection Modal -->
+    <div class="confirm-overlay" x-show="travelModal.visible" x-transition.opacity.duration.200ms>
+      <div class="confirm-modal" x-show="travelModal.visible" x-transition.scale.origin.center role="dialog" aria-modal="true">
+        <h3>Looks like you're traveling!</h3>
+        <p style="margin-bottom: 0.75rem;">You're not near any of your saved zones. Create a zone for this area?</p>
+        <input type="text" x-model="travelModal.suggestedName" placeholder="Zone name (e.g., Miami Beach)"
+               aria-label="New zone name" class="zone-form-input" />
+        <div class="confirm-modal-actions" style="margin-top: 1rem; flex-direction: column; gap: 0.5rem;">
+          <button class="suggest-btn" @click="createTravelZone()" :disabled="!travelModal.suggestedName.trim()">Create Zone</button>
+          <button class="back-btn" @click="travelModal.visible = false">Not Now</button>
+          <button class="zone-dismiss-link" @click="dismissTravelDetection()">Don't ask again</button>
+        </div>
+      </div>
+    </div>
+
     <!-- QR Code Modal -->
     <div class="qr-overlay" x-show="qrModal.visible" x-transition.opacity.duration.200ms
          @click.self="qrModal.visible = false">
@@ -403,6 +463,19 @@
             </template>
           </div>
 
+          <!-- Zone Picker -->
+          <div x-show="zones.length > 0" class="zone-picker">
+            <select x-model.number="activeZoneId" @change="onZoneChange()" class="zone-select" aria-label="Filter by zone">
+              <option :value="null">All Zones</option>
+              <template x-for="z in zones" :key="z.id">
+                <option :value="z.id" x-text="z.name + (z.is_default ? ' (Home)' : '')"></option>
+              </template>
+            </select>
+            <button class="zone-manage-btn" @click="openZoneModal()" aria-label="Manage zones" title="Manage Zones">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M2.93 2.93l1.41 1.41M11.66 11.66l1.41 1.41M13.07 2.93l-1.41 1.41M4.34 11.66l-1.41 1.41"/></svg>
+            </button>
+          </div>
+
           <!-- Explore Nearby -->
           <div class="nearby-section">
             <button class="account-btn" @click="exploreNearby()" :disabled="nearbyLoading">
@@ -516,6 +589,7 @@
                         <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
                       </div>
                       <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                      <span class="zone-badge" x-show="activeZoneId == null && zones.length > 1 && place.zone_id" x-text="zoneName(place.zone_id)"></span>
                     </div>
                     <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
                       <span class="note-text" @click="startEditNote(place)" x-text="place.notes"></span>
@@ -583,6 +657,7 @@
                       <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
                     </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                    <span class="zone-badge" x-show="activeZoneId == null && zones.length > 1 && place.zone_id" x-text="zoneName(place.zone_id)"></span>
                   </div>
                   <div class="place-card-note" x-show="editingNote !== place.name && place.notes">
                     <span class="note-text" @click="startEditNote(place)" x-text="place.notes"></span>
@@ -651,6 +726,7 @@
                       <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
                     </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                    <span class="zone-badge" x-show="activeZoneId == null && zones.length > 1 && place.zone_id" x-text="zoneName(place.zone_id)"></span>
                   </div>
                   <div class="place-card-actions">
                     <button class="remove-btn" @click="removePlace('dislikes', place.name)" aria-label="Remove from dislikes">✕ Remove</button>
@@ -700,6 +776,7 @@
                       <span class="place-card-address" x-show="displayAddress(place)" x-text="displayAddress(place)"></span>
                     </div>
                     <span class="type-badge" x-show="place.restaurant_type" x-text="place.restaurant_type"></span>
+                    <span class="zone-badge" x-show="activeZoneId == null && zones.length > 1 && place.zone_id" x-text="zoneName(place.zone_id)"></span>
                   </div>
                   <div class="place-card-actions">
                     <button class="star-btn" @click="toggleStar('want_to_try', place.name)"
@@ -1392,9 +1469,16 @@
                   </template>
                 </div>
 
-                <div x-show="likes.length > 0" class="liked-suggest-grid">
+                <div x-show="zones.length > 0 && activeZoneId != null" class="zone-plan-toggle">
+                  <label>
+                    <input type="checkbox" x-model="zoneFilterActive" />
+                    <span x-text="'Show only places from ' + zoneName(activeZoneId)"></span>
+                  </label>
+                </div>
+
+                <div x-show="zoneFilterList(likes).length > 0" class="liked-suggest-grid">
                   <span class="grid-label">Quick suggest from likes:</span>
-                  <template x-for="place in likes.filter(p => !planLikesMealFilter || (p.meal_types || []).includes(planLikesMealFilter))" :key="place.name">
+                  <template x-for="place in zoneFilterList(likes).filter(p => !planLikesMealFilter || (p.meal_types || []).includes(planLikesMealFilter))" :key="place.name">
                     <button class="suggest-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
                             @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
@@ -1404,9 +1488,9 @@
                   </template>
                 </div>
 
-                <div x-show="wantToTry.length > 0" class="liked-suggest-grid">
+                <div x-show="zoneFilterList(wantToTry).length > 0" class="liked-suggest-grid">
                   <span class="grid-label">From your bucket list:</span>
-                  <template x-for="place in wantToTry.filter(p => !planLikesMealFilter || (p.meal_types || []).includes(planLikesMealFilter))" :key="place.name">
+                  <template x-for="place in zoneFilterList(wantToTry).filter(p => !planLikesMealFilter || (p.meal_types || []).includes(planLikesMealFilter))" :key="place.name">
                     <button class="want-to-try-quick-btn" :disabled="isAlreadySuggestedToPlan(place.name)"
                             @click="suggestToPlan(place.name, place.place_id, place.restaurant_type)"
                             :aria-label="'Suggest ' + place.name">
