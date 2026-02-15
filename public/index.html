@@ -1469,11 +1469,14 @@
                   </template>
                 </div>
 
-                <div x-show="zones.length > 0 && activeZoneId != null" class="zone-plan-toggle">
-                  <label>
-                    <input type="checkbox" x-model="zoneFilterActive" />
-                    <span x-text="'Show only places from ' + zoneName(activeZoneId)"></span>
-                  </label>
+                <div x-show="zones.length > 0" class="zone-plan-filter">
+                  <label class="zone-plan-label">Zone:</label>
+                  <select x-model.number="activeZoneId" @change="onZoneChange()" class="zone-plan-select" aria-label="Filter suggestions by zone">
+                    <option :value="null">All Zones</option>
+                    <template x-for="z in zones" :key="z.id">
+                      <option :value="z.id" x-text="z.name + (z.is_default ? ' (Home)' : '')"></option>
+                    </template>
+                  </select>
                 </div>
 
                 <div x-show="zoneFilterList(likes).length > 0" class="liked-suggest-grid">

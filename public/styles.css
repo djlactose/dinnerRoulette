@@ -5321,23 +5321,28 @@ button {
 }
 
 /* ── Zone Plan Toggle ─────────────────────────────────────────────────────── */
-.zone-plan-toggle {
-  margin-bottom: var(--space-sm);
-}
-
-.zone-plan-toggle label {
+.zone-plan-filter {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
+  margin-bottom: var(--space-sm);
 }
 
-.zone-plan-toggle input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 16px;
-  height: 16px;
+.zone-plan-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.zone-plan-select {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 

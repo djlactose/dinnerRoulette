@@ -93,7 +93,6 @@ function dinnerRoulette() {
     activeZoneId: null,
     zoneModal: { visible: false, editing: null, name: '', lat: null, lng: null, radius_km: 25 },
     travelModal: { visible: false, lat: null, lng: null, suggestedName: '' },
-    zoneFilterActive: true,
 
     // Places Map View
     placesMapView: false,
@@ -476,7 +475,7 @@ function dinnerRoulette() {
       return [...types].sort();
     },
     zoneFilterList(list) {
-      if (!this.zoneFilterActive || this.activeZoneId == null || this.zones.length === 0) return list;
+      if (this.activeZoneId == null || this.zones.length === 0) return list;
       return list.filter(p => p.zone_id === this.activeZoneId);
     },
     zoneName(zoneId) {
