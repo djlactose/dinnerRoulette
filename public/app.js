@@ -88,6 +88,12 @@ function dinnerRoulette() {
     suggestSectionOpen: false,
     suggestionMenuOpen: null,
 
+    // Places Map View
+    placesMapView: false,
+    placesMapInstance: null,
+    placesMapMarkers: [],
+    placesInfoWindow: null,
+
     // Quick Pick
     quickPickOpen: false,
     quickPickResult: null,
@@ -488,6 +494,27 @@ function dinnerRoulette() {
       if (this.placeMealTypeFilter) list = list.filter(p => (p.meal_types || []).includes(this.placeMealTypeFilter));
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
+    get placesForMap() {
+      const f = this.placeFilter.toLowerCase();
+      const all = [];
+      const addPlaces = (list, listType) => {
+        for (const p of list) {
+          if (p.lat == null || p.lng == null) continue;
+          if (f && !p.name.toLowerCase().includes(f) && !(p.address && p.address.toLowerCase().includes(f))) continue;
+          if (this.placeTypeFilter && p.restaurant_type !== this.placeTypeFilter) continue;
+          if (this.placeMealTypeFilter && !(p.meal_types || []).includes(this.placeMealTypeFilter)) continue;
+          const color = p.starred ? '#22c55e' : listType === 'likes' ? '#3b82f6' : listType === 'want_to_try' ? '#f59e0b' : '#ef4444';
+          all.push({ ...p, _listType: listType, _color: color });
+        }
+      };
+      addPlaces(this.likes, 'likes');
+      addPlaces(this.dislikes, 'dislikes');
+      addPlaces(this.wantToTry, 'want_to_try');
+      return all;
+    },
+    get hasPlacesWithCoords() {
+      return this.likes.some(p => p.lat != null) || this.dislikes.some(p => p.lat != null) || this.wantToTry.some(p => p.lat != null);
+    },
     get quickPickMapUrl() {
       if (!this.quickPickResult) return '#';
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(this.quickPickResult.name)}`;
@@ -631,6 +658,11 @@ function dinnerRoulette() {
           else if (this.editingMessageId) this.cancelEditMessage();
         }
       });
+
+      // Update places map markers when filters change
+      for (const prop of ['placeFilter', 'placeTypeFilter', 'placeMealTypeFilter']) {
+        this.$watch(prop, () => { if (this.placesMapView && this.placesMapInstance) this.updatePlacesMarkers(); });
+      }
 
       // Detect invite URL (/invite/CODE)
       const inviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9]{6})$/);
@@ -3310,6 +3342,72 @@ function dinnerRoulette() {
       });
       if (withCoords.length > 1) this.mapInstance.fitBounds(bounds);
       else if (withCoords.length === 1) this.mapInstance.setCenter(withCoords[0]);
+    },
+
+    // ── Places Map View ──────────────────────────────────────────────────────
+    async togglePlacesMapView() {
+      this.placesMapView = !this.placesMapView;
+      if (this.placesMapView) {
+        await this.loadMapsApi();
+        this.$nextTick(() => this.initPlacesMap());
+      }
+    },
+
+    initPlacesMap() {
+      if (!window.google?.maps) return;
+      const container = document.getElementById('places-map');
+      if (!container) return;
+      const places = this.placesForMap;
+      if (places.length === 0) {
+        this.showToast('No places with location data', 'error');
+        this.placesMapView = false;
+        return;
+      }
+      this.placesMapInstance = new google.maps.Map(container, {
+        center: { lat: places[0].lat, lng: places[0].lng },
+        zoom: 13,
+        mapTypeControl: false,
+        streetViewControl: false,
+      });
+      this.placesInfoWindow = new google.maps.InfoWindow();
+      this.updatePlacesMarkers();
+    },
+
+    updatePlacesMarkers() {
+      if (!this.placesMapInstance) return;
+      this.placesMapMarkers.forEach(m => m.setMap(null));
+      this.placesMapMarkers = [];
+      const places = this.placesForMap;
+      const bounds = new google.maps.LatLngBounds();
+      places.forEach(p => {
+        const marker = new google.maps.Marker({
+          position: { lat: p.lat, lng: p.lng },
+          map: this.placesMapInstance,
+          title: p.name,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: p._color,
+            fillOpacity: 0.9,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+            scale: 10,
+          },
+        });
+        const icon = p.starred ? '⭐' : p._listType === 'likes' ? '👍' : p._listType === 'want_to_try' ? '📌' : '👎';
+        const label = p.starred ? 'Favorite' : p._listType === 'likes' ? 'Liked' : p._listType === 'want_to_try' ? 'Want to Try' : 'Disliked';
+        const content = `<div style="padding:6px;max-width:240px"><strong>${p.name}</strong><div style="margin-top:4px;color:#666">${icon} ${label}</div>${p.restaurant_type ? `<div style="margin-top:4px"><small>${p.restaurant_type}</small></div>` : ''}${p.address ? `<div style="margin-top:4px"><small>${p.address}</small></div>` : ''}${p.notes ? `<div style="margin-top:6px;font-style:italic;color:#555">"${p.notes}"</div>` : ''}</div>`;
+        marker.addListener('click', () => {
+          this.placesInfoWindow.setContent(content);
+          this.placesInfoWindow.open(this.placesMapInstance, marker);
+        });
+        this.placesMapMarkers.push(marker);
+        bounds.extend(marker.getPosition());
+      });
+      if (places.length > 1) this.placesMapInstance.fitBounds(bounds);
+      else if (places.length === 1) {
+        this.placesMapInstance.setCenter({ lat: places[0].lat, lng: places[0].lng });
+        this.placesMapInstance.setZoom(15);
+      }
     },
 
     // ── Notifications ────────────────────────────────────────────────────────

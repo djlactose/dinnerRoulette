@@ -72,6 +72,18 @@
       "icons": [{ "src": "shortcut-plans.png", "sizes": "96x96", "type": "image/png" }]
     }
   ],
+  "prefer_related_applications": true,
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://dine.djlactose.com"
+    },
+    {
+      "platform": "play",
+      "url": "https://play.google.com/store/apps/details?id=com.djlactose.dine.twa",
+      "id": "com.djlactose.dine.twa"
+    }
+  ],
   "screenshots": [
     {
       "src": "screenshot-phone-places.png",

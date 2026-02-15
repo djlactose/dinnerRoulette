@@ -13,13 +13,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" />
-  <link rel="stylesheet" href="/styles.css?v=2" />
+  <link rel="stylesheet" href="/styles.css?v=3" />
   <link rel="icon" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="/app.js?v=19"></script>
+  <script defer src="/app.js?v=20"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -470,6 +470,26 @@
             </div>
           </div>
 
+          <!-- ── Places Map View Toggle ── -->
+          <div class="view-toggle" x-show="hasPlacesWithCoords">
+            <button :class="{ active: !placesMapView }" @click="placesMapView = false">List</button>
+            <button :class="{ active: placesMapView }" @click="togglePlacesMapView()">Map</button>
+          </div>
+
+          <!-- Map View -->
+          <div x-show="placesMapView">
+            <div id="places-map" class="plan-map"></div>
+            <div class="map-legend" style="margin-top:0.5rem">
+              <span class="map-legend-item"><span class="legend-dot" style="background:#22c55e"></span> Favorites</span>
+              <span class="map-legend-item"><span class="legend-dot" style="background:#3b82f6"></span> Liked</span>
+              <span class="map-legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Want to Try</span>
+              <span class="map-legend-item"><span class="legend-dot" style="background:#ef4444"></span> Disliked</span>
+            </div>
+          </div>
+
+          <!-- List View -->
+          <div x-show="!placesMapView">
+
           <!-- ── Favorites Section ── -->
           <div x-show="starredPlaces.length > 0">
             <div class="section-header" @click="togglePlaceSection('favorites')">
@@ -709,6 +729,7 @@
               <p class="empty-state-hint">Mark places you want to try!</p>
             </div>
           </div>
+          </div><!-- /List View -->
         </section>
 
         <!-- ═══ FRIENDS TAB ═══ -->
