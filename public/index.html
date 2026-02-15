@@ -122,8 +122,10 @@
 
     <header>
       <div class="header-content">
-        <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
-        <h1>Dinner Roulette</h1>
+        <a href="#" class="header-brand" @click.prevent="switchTab('places')">
+          <img src="icon-192.png" alt="Dinner Roulette Logo" class="logo" />
+          <h1>Dinner Roulette</h1>
+        </a>
         <div class="header-actions" x-show="loggedIn">
           <button class="theme-toggle" @click="toggleTheme()" :aria-label="theme === 'auto' ? 'Switch to light mode' : theme === 'light' ? 'Switch to dark mode' : 'Switch to auto mode'">
             <span x-text="theme === 'auto' ? '💻' : theme === 'light' ? '☀️' : '🌙'"></span>

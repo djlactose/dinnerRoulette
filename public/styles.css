@@ -171,6 +171,15 @@ header {
   gap: 0.5rem;
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
 .logo {
   width: 48px;
   height: 48px;
