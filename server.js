@@ -1644,7 +1644,15 @@ app.post('/api/place', auth, (req, res) => {
 
 // ── Zones Routes ────────────────────────────────────────────────────────────────
 app.get('/api/zones', auth, (req, res) => {
-  const zones = db.prepare('SELECT * FROM zones WHERE user_id = ? ORDER BY is_default DESC, name ASC').all(req.user.id);
+  const uid = req.user.id;
+  const zones = db.prepare('SELECT * FROM zones WHERE user_id = ? ORDER BY is_default DESC, name ASC').all(uid);
+  // Attach place counts per zone (across likes, dislikes, want_to_try)
+  for (const z of zones) {
+    const l = db.prepare('SELECT COUNT(*) AS c FROM likes WHERE user_id = ? AND zone_id = ?').get(uid, z.id).c;
+    const d = db.prepare('SELECT COUNT(*) AS c FROM dislikes WHERE user_id = ? AND zone_id = ?').get(uid, z.id).c;
+    const w = db.prepare('SELECT COUNT(*) AS c FROM want_to_try WHERE user_id = ? AND zone_id = ?').get(uid, z.id).c;
+    z.place_count = l + d + w;
+  }
   res.json({ zones });
 });
 
@@ -1762,6 +1770,32 @@ app.delete('/api/zones/:id', auth, (req, res) => {
   });
 
   const reassigned = deleteZone();
+  res.json({ success: true, reassigned });
+});
+
+app.post('/api/zones/reassign', auth, (req, res) => {
+  const uid = req.user.id;
+  const zones = db.prepare('SELECT * FROM zones WHERE user_id = ?').all(uid);
+  if (zones.length < 2) return res.status(400).json({ error: 'Need at least 2 zones to reassign' });
+
+  let reassigned = 0;
+  const reassignPlace = db.transaction(() => {
+    for (const table of ['likes', 'dislikes', 'want_to_try', 'places']) {
+      const rows = db.prepare(`SELECT rowid, lat, lng, zone_id FROM ${table} WHERE user_id = ? AND lat IS NOT NULL AND lng IS NOT NULL`).all(uid);
+      for (const row of rows) {
+        let closest = null, minDist = Infinity;
+        for (const z of zones) {
+          const dist = haversine(row.lat, row.lng, z.lat, z.lng);
+          if (dist < minDist) { minDist = dist; closest = z; }
+        }
+        if (closest && closest.id !== row.zone_id) {
+          db.prepare(`UPDATE ${table} SET zone_id = ? WHERE rowid = ? AND user_id = ?`).run(closest.id, row.rowid, uid);
+          reassigned++;
+        }
+      }
+    }
+  });
+  reassignPlace();
   res.json({ success: true, reassigned });
 });
 

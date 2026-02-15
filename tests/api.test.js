@@ -2236,4 +2236,28 @@ describe('Zone backfill and place auto-assignment', () => {
     // Without coords or active_zone_id, zone_id should be null
     expect(cafe.zone_id).toBeNull();
   });
+
+  test('GET /api/zones — includes place_count per zone', async () => {
+    const res = await request(app).get('/api/zones').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    const home = res.body.zones.find(z => z.name === 'Home');
+    expect(home).toBeDefined();
+    expect(typeof home.place_count).toBe('number');
+    expect(home.place_count).toBeGreaterThan(0);
+  });
+
+  test('POST /api/zones/reassign — reassigns places to nearest zone', async () => {
+    const res = await request(app).post('/api/zones/reassign').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.reassigned).toBe('number');
+  });
+
+  test('POST /api/zones/reassign — needs at least 2 zones', async () => {
+    // Create a fresh user with only 1 zone
+    const r = await registerUser('reassignuser', 'password123');
+    await request(app).post('/api/zones').set('Cookie', r.cookie)
+      .send({ name: 'Only', lat: 40, lng: -74, is_default: true });
+    const res = await request(app).post('/api/zones/reassign').set('Cookie', r.cookie);
+    expect(res.status).toBe(400);
+  });
 });

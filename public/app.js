@@ -1618,10 +1618,20 @@ function dinnerRoulette() {
       this.nearbyError = '';
       this.nearbyPlaces = [];
       try {
-        const pos = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
-        });
-        const resp = await this.api(`/api/places/nearby?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
+        let lat, lng;
+        const activeZone = this.activeZoneId != null ? this.zones.find(z => z.id === this.activeZoneId) : null;
+        if (activeZone) {
+          // Use the active zone's center for remote trip planning
+          lat = activeZone.lat;
+          lng = activeZone.lng;
+        } else {
+          const pos = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+          });
+          lat = pos.coords.latitude;
+          lng = pos.coords.longitude;
+        }
+        const resp = await this.api(`/api/places/nearby?lat=${lat}&lng=${lng}`);
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
         // Filter out places already in likes/dislikes/want-to-try
@@ -3649,6 +3659,23 @@ function dinnerRoulette() {
         },
         onCancel: () => { this.confirmModal.visible = false; },
       };
+    },
+
+    async reassignPlacesByLocation() {
+      try {
+        const resp = await this.api('/api/zones/reassign', { method: 'POST' });
+        if (!resp.ok) {
+          const data = await resp.json();
+          this.showToast(data.error || 'Failed to reassign', 'error');
+          return;
+        }
+        const data = await resp.json();
+        await this.loadPlaces();
+        await this.loadZones();
+        this.showToast(data.reassigned > 0 ? `${data.reassigned} places reassigned to nearest zone.` : 'All places are already in their nearest zone.');
+      } catch (e) {
+        this.showToast('Failed to reassign places', 'error');
+      }
     },
 
     async createTravelZone() {

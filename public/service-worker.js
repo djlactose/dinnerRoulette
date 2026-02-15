@@ -1,10 +1,10 @@
-const CACHE_NAME = 'dinner-v16';
+const CACHE_NAME = 'dinner-v17';
 
 // App shell: files to precache on install
 const APP_SHELL = [
   '/',
-  '/styles.css?v=3',
-  '/app.js?v=20',
+  '/styles.css?v=4',
+  '/app.js?v=21',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',

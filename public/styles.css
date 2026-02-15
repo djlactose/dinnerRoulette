@@ -5303,6 +5303,11 @@ button {
   margin-left: auto;
 }
 
+.zone-place-count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 .zone-list-actions {
   display: flex;
   gap: 0.3rem;

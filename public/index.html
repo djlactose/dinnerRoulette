@@ -13,13 +13,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" />
-  <link rel="stylesheet" href="/styles.css?v=3" />
+  <link rel="stylesheet" href="/styles.css?v=4" />
   <link rel="icon" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
   <script nonce="__CSP_NONCE__" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script nonce="__CSP_NONCE__" src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
   <script nonce="__CSP_NONCE__" defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script nonce="__CSP_NONCE__" defer src="/app.js?v=20"></script>
+  <script nonce="__CSP_NONCE__" defer src="/app.js?v=21"></script>
   <script nonce="__CSP_NONCE__" defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
@@ -89,6 +89,7 @@
             <div class="zone-list-item">
               <span x-text="z.name"></span>
               <span x-show="z.is_default" class="type-badge">Home</span>
+              <span class="zone-place-count" x-text="(z.place_count || 0) + ' places'"></span>
               <span class="zone-radius-info" x-text="z.radius_km + ' km'"></span>
               <div class="zone-list-actions">
                 <button class="back-btn btn-sm" @click="openZoneModal(z)" aria-label="Edit zone">Edit</button>
@@ -97,6 +98,10 @@
               </div>
             </div>
           </template>
+          <button class="back-btn btn-sm" x-show="zones.length >= 2" @click="reassignPlacesByLocation()"
+                  style="margin-top: 0.5rem;" aria-label="Re-assign places by location">
+            Re-assign places by location
+          </button>
         </div>
       </div>
     </div>
