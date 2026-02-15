@@ -54,7 +54,11 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       upgradeInsecureRequests: null,
     }
-  }
+  },
+  strictTransportSecurity: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+  },
 }));
 app.use(compression());
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
@@ -72,6 +76,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // Rate limiting (disabled in test mode)
+if (NODE_ENV === 'test') console.warn('WARNING: Rate limiting is disabled (NODE_ENV=test)');
 const noopLimiter = (req, res, next) => next();
 const authLimiter = NODE_ENV === 'test' ? noopLimiter : rateLimit({
   windowMs: 60 * 1000,
@@ -465,7 +470,13 @@ initConfig();
 // ── Admin Initialization ─────────────────────────────────────────────────────
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 if (ADMIN_USERNAME) {
-  db.prepare('UPDATE users SET is_admin = 1 WHERE LOWER(username) = LOWER(?)').run(ADMIN_USERNAME);
+  const adminUser = db.prepare('SELECT id, is_admin FROM users WHERE LOWER(username) = LOWER(?)').get(ADMIN_USERNAME);
+  if (adminUser && !adminUser.is_admin) {
+    db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(adminUser.id);
+    console.log(`Admin privilege granted to user: ${ADMIN_USERNAME}`);
+  } else if (!adminUser) {
+    console.log(`ADMIN_USERNAME '${ADMIN_USERNAME}' not found — will be granted admin on registration`);
+  }
 }
 // If no admin exists, make the first registered user admin
 const adminExists = db.prepare('SELECT 1 FROM users WHERE is_admin = 1').get();
@@ -474,6 +485,13 @@ if (!adminExists) {
   if (firstUser) {
     db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(firstUser.id);
   }
+}
+
+// ── Security Constants ───────────────────────────────────────────────────────
+const BCRYPT_ROUNDS = 12;
+const ALLOWED_TABLES = new Set(['likes', 'dislikes', 'want_to_try', 'places', 'suggestions', 'session_suggestions']);
+function assertTable(name) {
+  if (!ALLOWED_TABLES.has(name)) throw new Error(`Invalid table: ${name}`);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -546,9 +564,12 @@ async function sendPushToPlanMembers(planId, payload, excludeUserId = null) {
 
 function generatePlanCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) code += chars[crypto.randomInt(chars.length)];
-  return code;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let code = '';
+    for (let i = 0; i < 6; i++) code += chars[crypto.randomInt(chars.length)];
+    if (!db.prepare('SELECT 1 FROM sessions WHERE code = ?').get(code)) return code;
+  }
+  throw new Error('Failed to generate unique plan code');
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -583,7 +604,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return res.status(400).json({ error: 'Invalid email format' });
 
   try {
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const existing = db.prepare('SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)').get(trimmedUser);
     if (existing) return res.status(400).json({ error: 'Username taken' });
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
@@ -958,7 +979,7 @@ app.post('/api/change-password', auth, async (req, res) => {
   const valid = await bcrypt.compare(currentPassword, user.password);
   if (!valid) return res.status(401).json({ error: 'Incorrect current password' });
 
-  const hash = await bcrypt.hash(newPassword, 10);
+  const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, req.user.id);
   res.json({ success: true });
 });
@@ -1043,7 +1064,7 @@ app.get('/api/plans/:id/calendar', auth, (req, res) => {
   res.send(ics);
 });
 
-app.post('/api/delete-account', auth, async (req, res) => {
+app.post('/api/delete-account', authLimiter, auth, async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required for confirmation' });
 
@@ -1127,7 +1148,7 @@ app.get('/api/reset-password/:token', (req, res) => {
 app.post('/api/reset-password', authLimiter, async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
-  if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
   const row = db.prepare(`
     SELECT user_id FROM password_reset_tokens
@@ -1135,7 +1156,7 @@ app.post('/api/reset-password', authLimiter, async (req, res) => {
   `).get(token);
   if (!row) return res.status(400).json({ error: 'Invalid or expired reset link' });
 
-  const hash = await bcrypt.hash(newPassword, 10);
+  const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, row.user_id);
   db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ?').run(row.user_id);
   res.json({ success: true });
@@ -1175,6 +1196,7 @@ app.post('/api/admin/users/:id/edit', adminAuth, (req, res) => {
     }
     db.prepare('UPDATE users SET email = ? WHERE id = ?').run(trimmedEmail, targetId);
   }
+  console.log(`[ADMIN] ${req.user.username} — edited user #${targetId} (${target.username})`);
   res.json({ success: true });
 });
 
@@ -1183,8 +1205,9 @@ app.post('/api/admin/users/:id/reset-password', adminAuth, async (req, res) => {
   if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const target = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found' });
-  const hash = await bcrypt.hash(newPassword, 10);
+  const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, target.id);
+  console.log(`[ADMIN] ${req.user.username} — reset password for user #${target.id}`);
   res.json({ success: true });
 });
 
@@ -1210,6 +1233,7 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
     db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
   });
   deleteAll();
+  console.log(`[ADMIN] ${req.user.username} — deleted user #${targetId}`);
   res.json({ success: true });
 });
 
@@ -1220,6 +1244,7 @@ app.post('/api/admin/users/:id/toggle-admin', adminAuth, (req, res) => {
   if (!target) return res.status(404).json({ error: 'User not found' });
   const newStatus = target.is_admin ? 0 : 1;
   db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(newStatus, targetId);
+  console.log(`[ADMIN] ${req.user.username} — ${newStatus ? 'granted' : 'revoked'} admin for user #${targetId}`);
   res.json({ success: true, is_admin: !!newStatus });
 });
 
@@ -1242,12 +1267,13 @@ app.post('/api/admin/smtp', adminAuth, (req, res) => {
   if (password) setSetting('smtp_password', encryptSetting(password));
   if (from !== undefined) setSetting('smtp_from', from);
   if (secure !== undefined) setSetting('smtp_secure', secure ? 'true' : 'false');
+  console.log(`[ADMIN] ${req.user.username} — updated SMTP settings`);
   res.json({ success: true });
 });
 
 app.post('/api/admin/smtp/test', adminAuth, async (req, res) => {
-  const to = req.body.to || req.body.email;
-  if (!to) return res.status(400).json({ error: 'Recipient email required' });
+  const to = (req.body.to || req.body.email || '').trim();
+  if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'Valid recipient email required' });
   const transport = getSmtpTransport();
   if (!transport) return res.status(400).json({ error: 'SMTP not configured' });
   try {
@@ -1275,6 +1301,7 @@ app.post('/api/admin/vapid/generate', adminAuth, (req, res) => {
   VAPID_PRIVATE = keys.privateKey;
   const email = getSetting('vapid_email') || 'mailto:noreply@example.com';
   webpush.setVapidDetails(email, VAPID_PUBLIC, VAPID_PRIVATE);
+  console.log(`[ADMIN] ${req.user.username} — regenerated VAPID keys`);
   res.json({ publicKey: keys.publicKey });
 });
 
@@ -1289,6 +1316,7 @@ app.post('/api/admin/google-api-key', adminAuth, (req, res) => {
   if (!key) return res.status(400).json({ error: 'API key is required' });
   setSetting('google_api_key', key);
   API_KEY = key;
+  console.log(`[ADMIN] ${req.user.username} — updated Google API key`);
   res.json({ success: true });
 });
 
@@ -1300,6 +1328,7 @@ app.post('/api/admin/repull-places', adminAuth, async (req, res) => {
   const seen = new Set();
 
   for (const table of tables) {
+    assertTable(table);
     const rows = db.prepare(`SELECT DISTINCT place_id FROM ${table} WHERE place_id IS NOT NULL AND place_id != ''`).all();
     for (const row of rows) {
       if (seen.has(row.place_id)) continue;
@@ -1321,6 +1350,7 @@ app.post('/api/admin/repull-places', adminAuth, async (req, res) => {
         const restaurantType = formatPlaceTypes(types);
         // Update all tables that have this place_id
         for (const t of tables) {
+          assertTable(t);
           db.prepare(`UPDATE ${t} SET photo_ref = ? WHERE place_id = ?`).run(photoRef, row.place_id);
           if (placeName) db.prepare(`UPDATE ${t} SET place = ? WHERE place_id = ?`).run(placeName, row.place_id);
           if (['likes', 'dislikes', 'want_to_try', 'places'].includes(t)) {
@@ -1378,6 +1408,7 @@ app.post('/api/admin/giphy-api-key', adminAuth, (req, res) => {
   if (!key) return res.status(400).json({ error: 'API key is required' });
   setSetting('giphy_api_key', key);
   GIPHY_API_KEY = key;
+  console.log(`[ADMIN] ${req.user.username} — updated Giphy API key`);
   res.json({ success: true });
 });
 
@@ -1392,6 +1423,7 @@ app.post('/api/admin/settings', adminAuth, (req, res) => {
   const { jwt_expiry, cookie_secure } = req.body;
   if (jwt_expiry !== undefined) setSetting('jwt_expiry', jwt_expiry);
   if (cookie_secure !== undefined) setSetting('cookie_secure', cookie_secure === 'true' ? 'true' : 'false');
+  console.log(`[ADMIN] ${req.user.username} — updated app settings`);
   res.json({ success: true });
 });
 
@@ -1416,6 +1448,7 @@ app.post('/api/admin/plans/:id/close', adminAuth, (req, res) => {
   if (plan.status === 'closed') return res.status(400).json({ error: 'Plan is already closed' });
   db.prepare("UPDATE sessions SET status = 'closed' WHERE id = ?").run(planId);
   io.to(`plan:${planId}`).emit('plan:closed', { planId });
+  console.log(`[ADMIN] ${req.user.username} — closed plan #${planId} (${plan.name})`);
   res.json({ success: true });
 });
 
@@ -1432,6 +1465,7 @@ app.delete('/api/admin/plans/:id', adminAuth, (req, res) => {
   });
   deleteAll();
   io.to(`plan:${planId}`).emit('plan:deleted', { planId: Number(planId) });
+  console.log(`[ADMIN] ${req.user.username} — deleted plan #${planId} (${plan.name})`);
   res.json({ success: true });
 });
 
@@ -1451,6 +1485,7 @@ app.post('/api/admin/backup', adminAuth, async (req, res) => {
     for (const old of files.slice(7)) {
       fs.unlinkSync(path.join(backupDir, old));
     }
+    console.log(`[ADMIN] ${req.user.username} — created backup: ${path.basename(backupFile)}`);
     res.json({ success: true, file: path.basename(backupFile), count: Math.min(files.length, 7) });
   } catch (e) {
     console.error('Backup failed:', e);
@@ -1607,6 +1642,7 @@ app.get('/api/places', auth, (req, res) => {
     const incomplete = [];
     const seen = new Set();
     for (const table of tables) {
+      assertTable(table);
       const rows = db.prepare(`SELECT place_id FROM ${table} WHERE user_id = ? AND place_id IS NOT NULL AND place_id != '' AND (photo_ref IS NULL OR photo_ref = '' OR address IS NULL OR address = '' OR lat IS NULL)`).all(uid);
       for (const row of rows) {
         if (!seen.has(row.place_id)) { seen.add(row.place_id); incomplete.push(row.place_id); }
@@ -1638,6 +1674,7 @@ async function backfillPlaces(placeIds) {
       const lat = data.location?.latitude || null;
       const lng = data.location?.longitude || null;
       for (const t of tables) {
+        assertTable(t);
         if (photoRef) db.prepare(`UPDATE ${t} SET photo_ref = ? WHERE place_id = ? AND (photo_ref IS NULL OR photo_ref = '')`).run(photoRef, placeId);
         if (address) db.prepare(`UPDATE ${t} SET address = ? WHERE place_id = ? AND (address IS NULL OR address = '')`).run(address, placeId);
         if (placeName) db.prepare(`UPDATE ${t} SET place = ? WHERE place_id = ?`).run(placeName, placeId);
@@ -1657,6 +1694,7 @@ app.post('/api/places/:type/star', auth, (req, res) => {
   if (!place) return res.status(400).json({ error: 'Missing place' });
   if (type !== 'likes' && type !== 'want_to_try') return res.status(400).json({ error: 'Invalid type' });
   const table = type === 'likes' ? 'likes' : 'want_to_try';
+  assertTable(table);
   const row = db.prepare(`SELECT starred FROM ${table} WHERE user_id = ? AND place = ?`).get(req.user.id, place);
   if (!row) return res.status(404).json({ error: 'Place not found in your list' });
   const newVal = row.starred ? 0 : 1;
@@ -1679,6 +1717,7 @@ app.post('/api/places/meal-types', auth, (req, res) => {
   if (list_type !== 'likes' && list_type !== 'want_to_try') return res.status(400).json({ error: 'Invalid list type' });
   if (!Array.isArray(meal_types)) return res.status(400).json({ error: 'meal_types must be an array' });
   const table = list_type === 'likes' ? 'likes' : 'want_to_try';
+  assertTable(table);
   const row = db.prepare(`SELECT 1 FROM ${table} WHERE user_id = ? AND place = ?`).get(req.user.id, place);
   if (!row) return res.status(404).json({ error: 'Place not found in your list' });
   const val = meal_types.length > 0 ? meal_types.join(',') : null;
@@ -1755,6 +1794,7 @@ app.post('/api/invite', auth, (req, res) => {
   if (reverse && reverse.status === 'pending') {
     db.prepare("UPDATE friends SET status = 'accepted' WHERE user_id = ? AND friend_id = ?").run(friend.id, req.user.id);
     db.prepare("INSERT OR IGNORE INTO friends (user_id, friend_id, status) VALUES (?, ?, 'accepted')").run(req.user.id, friend.id);
+    sendPushToUser(friend.id, { title: 'Friend Request Accepted', body: `${req.user.username} accepted your friend request`, tag: 'friend-accepted' });
     return res.json({ success: true, autoAccepted: true });
   }
 
@@ -2059,14 +2099,15 @@ app.post('/api/recurring-plans/:id/skip', auth, (req, res) => {
 // ── Plan Routes ──────────────────────────────────────────────────────────────
 app.post('/api/plans', auth, (req, res) => {
   const { name, veto_limit, meal_type, dietary_tags } = req.body;
+  const planName = (name || 'Dinner Plan').trim().slice(0, 100);
   const code = generatePlanCode();
   const vetoLimit = (veto_limit != null && veto_limit >= 0) ? veto_limit : 1;
   const dietaryStr = Array.isArray(dietary_tags) ? dietary_tags.join(',') : (dietary_tags || null);
   try {
-    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit, meal_type, dietary_tags) VALUES (?, ?, ?, ?, ?, ?)').run(code, req.user.id, name || 'Dinner Plan', vetoLimit, meal_type || null, dietaryStr);
+    const result = db.prepare('INSERT INTO sessions (code, creator_id, name, veto_limit, meal_type, dietary_tags) VALUES (?, ?, ?, ?, ?, ?)').run(code, req.user.id, planName, vetoLimit, meal_type || null, dietaryStr);
     const planId = result.lastInsertRowid;
     db.prepare('INSERT INTO session_members (session_id, user_id) VALUES (?, ?)').run(planId, req.user.id);
-    res.json({ id: planId, code, name: name || 'Dinner Plan', meal_type: meal_type || null, dietary_tags: dietaryStr });
+    res.json({ id: planId, code, name: planName, meal_type: meal_type || null, dietary_tags: dietaryStr });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create plan' });
   }
@@ -2599,8 +2640,13 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
   const type = message_type === 'gif' ? 'gif' : 'text';
 
   if (type === 'gif') {
-    if (!message || !/^https:\/\/media\d*\.giphy\.com\//.test(message)) return res.status(400).json({ error: 'Invalid GIF URL' });
-    if (message.length > 1000) return res.status(400).json({ error: 'URL too long' });
+    if (!message || message.length > 1000) return res.status(400).json({ error: 'Invalid GIF URL' });
+    try {
+      const gifUrl = new URL(message);
+      if (gifUrl.protocol !== 'https:' || !/^(media\d*|i)\.giphy\.com$/.test(gifUrl.hostname)) {
+        return res.status(400).json({ error: 'Invalid GIF URL' });
+      }
+    } catch { return res.status(400).json({ error: 'Invalid GIF URL' }); }
   } else {
     if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
     if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
@@ -2644,7 +2690,7 @@ app.post('/api/plans/:id/messages/:messageId/react', auth, (req, res) => {
   if (!membership) return res.status(403).json({ error: 'Not a member of this plan' });
 
   const { emoji } = req.body;
-  if (!emoji || emoji.length > 8) return res.status(400).json({ error: 'Invalid emoji' });
+  if (!emoji || !/^\p{Emoji}/u.test(emoji) || emoji.length > 8) return res.status(400).json({ error: 'Invalid emoji' });
 
   const msg = db.prepare('SELECT id FROM session_messages WHERE id = ? AND session_id = ?').get(messageId, planId);
   if (!msg) return res.status(404).json({ error: 'Message not found' });

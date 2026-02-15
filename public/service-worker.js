@@ -94,7 +94,8 @@ self.addEventListener('push', event => {
 // Notification click: focus existing window or open new one
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const url = event.notification.data?.url || '/';
+  const rawUrl = event.notification.data?.url || '/';
+  const url = rawUrl.startsWith('/') ? rawUrl : '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
       for (const client of windowClients) {
