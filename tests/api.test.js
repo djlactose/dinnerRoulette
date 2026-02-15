@@ -2204,7 +2204,7 @@ describe('Zone backfill and place auto-assignment', () => {
     const res = await request(app).post('/api/zones').set('Cookie', cookie)
       .send({ name: 'Home', lat: 40.7128, lng: -74.006, radius_km: 25, is_default: true });
     expect(res.status).toBe(200);
-    expect(res.body.backfilled).toBeGreaterThan(0);
+    expect(res.body.backfilledSaved).toBeGreaterThan(0);
 
     const places = await request(app).get('/api/places').set('Cookie', cookie);
     const place = places.body.likes.find(p => p.name === 'Pizza Palace');

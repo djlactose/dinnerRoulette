@@ -1672,17 +1672,21 @@ app.post('/api/zones', auth, (req, res) => {
 
     const zoneId = createZone();
     let backfilled = 0;
+    let backfilledSaved = 0;
 
     // If first zone and it's the default, backfill all existing places
     if (existingZones === 0 && isDefaultVal) {
-      for (const table of ['likes', 'dislikes', 'want_to_try', 'places']) {
+      for (const table of ['likes', 'dislikes', 'want_to_try']) {
         const r = db.prepare(`UPDATE ${table} SET zone_id = ? WHERE user_id = ? AND zone_id IS NULL`).run(zoneId, uid);
-        backfilled += r.changes;
+        backfilledSaved += r.changes;
       }
+      // Also backfill the history table (not shown to user)
+      const r2 = db.prepare('UPDATE places SET zone_id = ? WHERE user_id = ? AND zone_id IS NULL').run(zoneId, uid);
+      backfilled = backfilledSaved + r2.changes;
     }
 
     const zone = db.prepare('SELECT * FROM zones WHERE id = ?').get(zoneId);
-    res.json({ zone, backfilled });
+    res.json({ zone, backfilled, backfilledSaved });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
       return res.status(409).json({ error: 'A zone with this name already exists' });

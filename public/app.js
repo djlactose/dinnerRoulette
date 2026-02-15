@@ -3566,8 +3566,8 @@ function dinnerRoulette() {
             return;
           }
           const data = await resp.json();
-          if (data.backfilled > 0) {
-            this.showToast(`Zone created! ${data.backfilled} places assigned.`);
+          if (data.backfilledSaved > 0) {
+            this.showToast(`Zone created! ${data.backfilledSaved} saved places assigned.`);
             await this.loadPlaces();
           } else {
             this.showToast('Zone created!');
