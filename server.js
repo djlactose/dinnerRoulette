@@ -29,11 +29,25 @@ console.log(`Port: ${PORT}`);
 const app = express();
 app.set('trust proxy', 1);
 
+// Generate CSP nonce per request
+app.use((req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
+  next();
+});
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.socket.io", "https://maps.googleapis.com"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-eval'",
+        (req, res) => `'nonce-${res.locals.cspNonce}'`,
+        "'strict-dynamic'",
+        "https://cdn.jsdelivr.net",
+        "https://cdn.socket.io",
+        "https://maps.googleapis.com",
+      ],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "blob:", "https://maps.gstatic.com", "https://maps.googleapis.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "https://*.giphy.com", "https://media.giphy.com", "https://media0.giphy.com", "https://media1.giphy.com", "https://media2.giphy.com", "https://media3.giphy.com", "https://media4.giphy.com", "https://i.giphy.com"],
       connectSrc: ["'self'", "ws:", "wss:", "https://maps.googleapis.com", "https://places.googleapis.com"],
@@ -46,8 +60,11 @@ app.use(compression());
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json({ limit: '50kb' }));
 app.use(cookieParser());
+// Serve .well-known explicitly before denying other dotfiles
+app.use('/.well-known', express.static(path.join(__dirname, 'public', '.well-known')));
 app.use(express.static(path.join(__dirname, 'public'), {
-  dotfiles: 'allow',
+  dotfiles: 'deny',
+  index: false,
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('CDN-Cache-Control', 'no-store');
@@ -67,6 +84,23 @@ const apiLimiter = NODE_ENV === 'test' ? noopLimiter : rateLimit({
   message: { error: 'Too many requests' },
 });
 if (NODE_ENV !== 'test') app.use('/api', apiLimiter);
+
+// CSRF protection: verify Origin header on state-changing requests
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const origin = req.headers.origin || req.headers.referer;
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      if (url.host !== req.headers.host) {
+        return res.status(403).json({ error: 'Cross-origin request blocked' });
+      }
+    } catch (e) {
+      return res.status(403).json({ error: 'Invalid origin' });
+    }
+  }
+  next();
+});
 
 // HTTPS redirect in production (only when behind a reverse proxy)
 if (NODE_ENV === 'production') {
@@ -366,8 +400,12 @@ function initConfig() {
   // JWT_SECRET
   JWT_SECRET = getSetting('jwt_secret');
   if (!JWT_SECRET && process.env.JWT_SECRET) {
-    JWT_SECRET = process.env.JWT_SECRET;
-    setSetting('jwt_secret', JWT_SECRET);
+    if (process.env.JWT_SECRET.length < 32) {
+      console.warn('WARNING: JWT_SECRET from environment is too weak (< 32 chars) — generating a secure secret instead.');
+    } else {
+      JWT_SECRET = process.env.JWT_SECRET;
+      setSetting('jwt_secret', JWT_SECRET);
+    }
   }
   if (!JWT_SECRET) {
     JWT_SECRET = crypto.randomBytes(32).toString('hex');
@@ -2568,7 +2606,8 @@ app.post('/api/plans/:id/messages', auth, (req, res) => {
     if (message.length > 500) return res.status(400).json({ error: 'Message too long (max 500 characters)' });
   }
 
-  const content = type === 'text' ? message.trim() : message;
+  const content = type === 'text' ? message.trim().replace(/<[^>]*>/g, '') : message;
+  if (type === 'text' && !content) return res.status(400).json({ error: 'Message cannot be empty' });
   const result = db.prepare('INSERT INTO session_messages (session_id, user_id, message, message_type) VALUES (?, ?, ?, ?)').run(planId, req.user.id, content, type);
   const sender = db.prepare('SELECT username, display_name, profile_pic FROM users WHERE id = ?').get(req.user.id);
   const username = sender.username;
@@ -2672,8 +2711,10 @@ app.patch('/api/plans/:id/messages/:messageId', auth, (req, res) => {
   if (!msg) return res.status(404).json({ error: 'Message not found' });
   if (msg.user_id !== req.user.id) return res.status(403).json({ error: 'Only the author can edit a message' });
   if (msg.message_type === 'gif') return res.status(400).json({ error: 'Cannot edit GIF messages' });
-  db.prepare('UPDATE session_messages SET message = ?, edited_at = datetime(\'now\') WHERE id = ?').run(message.trim(), messageId);
-  io.to(`plan:${planId}`).emit('plan:message-edited', { message_id: Number(messageId), message: message.trim(), edited_at: new Date().toISOString() });
+  const sanitized = message.trim().replace(/<[^>]*>/g, '');
+  if (!sanitized) return res.status(400).json({ error: 'Message cannot be empty' });
+  db.prepare('UPDATE session_messages SET message = ?, edited_at = datetime(\'now\') WHERE id = ?').run(sanitized, messageId);
+  io.to(`plan:${planId}`).emit('plan:message-edited', { message_id: Number(messageId), message: sanitized, edited_at: new Date().toISOString() });
   res.json({ success: true });
 });
 
@@ -2752,12 +2793,16 @@ app.get('/api/giphy/trending', auth, async (req, res) => {
 
 // ── Config Routes ────────────────────────────────────────────────────────────────
 app.get('/api/config/maps-key', auth, (req, res) => {
+  if (!API_KEY) return res.status(503).json({ error: 'Maps not configured' });
   res.json({ key: API_KEY });
 });
 
 // ── SPA Fallback ────────────────────────────────────────────────────────────────
+const indexTemplate = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const html = indexTemplate.replace(/__CSP_NONCE__/g, res.locals.cspNonce);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.type('html').send(html);
 });
 
 // ── Start Server ────────────────────────────────────────────────────────────────

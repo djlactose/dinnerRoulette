@@ -16,11 +16,11 @@
   <link rel="stylesheet" href="/styles.css?v=3" />
   <link rel="icon" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/icon-192.png" />
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
-  <script defer src="/app.js?v=20"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+  <script nonce="__CSP_NONCE__" src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script nonce="__CSP_NONCE__" src="https://cdn.jsdelivr.net/npm/qrcode-generator@1/qrcode.min.js"></script>
+  <script nonce="__CSP_NONCE__" defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3/dist/cdn.min.js"></script>
+  <script nonce="__CSP_NONCE__" defer src="/app.js?v=20"></script>
+  <script nonce="__CSP_NONCE__" defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
 <body>
   <!-- Splash screen (visible before Alpine.js initializes) -->
@@ -2308,10 +2308,6 @@
     </div>
 
   </div>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
-    }
-  </script>
+  <script nonce="__CSP_NONCE__" src="/sw-register.js"></script>
 </body>
 </html>
